@@ -46,3 +46,9 @@ example
 .env
 .env.*
 !.env.example
+
+# Python (server/)
+__pycache__/
+*.pyc
+server/out/
+server/validation/

@@ -1,0 +1,57 @@
+# AI W.E.P 비드 분석 엔진 (server/)
+
+용접 시편 사진 한 장에서 비드 폭·직진도·결함을 mm 단위로 계산합니다. 2단계에서는 앱과 연결하지 않고 엔진만 단독으로 정확도를 검증합니다.
+
+## 처리 순서
+
+1. **아루코 마커 검출**: 한 종류만 찾습니다 (기본 `4X4_50` 사전의 0번, 한 변 40mm). 꼭짓점은 서브픽셀 정밀도로 찾습니다.
+2. **정면 보정**: 마커 네 꼭짓점과 실제 한 변 길이로 호모그래피를 구해, 위에서 내려다본 이미지로 바꿉니다. 1px = 0.1mm.
+3. **Roboflow 호출**: 모델 `ai_welding_inspection/4` 가 원본 사진에서 비드 윤곽과 결함을 찾습니다. 결과 좌표는 같은 호모그래피로 mm 좌표로 바꿉니다 (Roboflow 상자 크기로 mm를 환산하지 않습니다).
+4. **측정**
+   - 비드 주축(PCA)에 수직으로 1mm 간격 폭 → 평균·최소(위치)·최대(위치)·표준편차·변동계수. 양 끝 5mm(시작·끝 크레이터)는 통계에서 뺍니다.
+   - 캘리퍼스 비교용 폭: 시작 10mm, 가운데, 끝 10mm 위치(각 ±1mm 평균). **시작 = 마커에 가까운 쪽 끝.**
+   - 직진도: 폭 중심선과 최소제곱 기준선의 최대·평균·RMS 이탈(mm).
+   - 결함: 종류(영어 코드), 신뢰도, 길이·폭(mm), 면적(mm²), 비드 시작점부터의 위치. 균열 등 선 모양 결함은 윤곽의 뼈대(skeleton) 길이로 실제 길이를 잽니다.
+5. **결과**: JSON + 글자 없는 확인용 그림.
+
+## 확인용 그림 색
+
+| 색 | 뜻 |
+|---|---|
+| 초록 선 | 비드 윤곽 (초록 점 = 시작점) |
+| 노랑 선 | 폭 중심선 |
+| 파랑 선 | 직진도 기준선 |
+| 하늘색 짧은 선 | 5mm마다 폭 측정 위치 |
+| 빨강 짧은 선 / 자홍 짧은 선 | 최소 폭 / 최대 폭 위치 |
+| 주황 / 빨강 윤곽 | 결함 / 균열 |
+| 흰 사각형 | 마커 |
+| 왼쪽 아래 흰 막대 | 10mm 축척 |
+
+## 실행
+
+```bash
+cd server
+pip install -r requirements.txt
+# 키는 환경 변수로만 (코드·GitHub에 넣지 않음)
+export ROBOFLOW_API_KEY=...        # Windows PowerShell: $env:ROBOFLOW_API_KEY="..."
+python -m engine.cli 사진1.jpg 사진2.jpg --out out --marker-size 40.0
+```
+
+`--marker-size` 에는 인쇄한 마커의 검은 사각형 한 변을 캘리퍼스로 잰 값(mm)을 넣습니다. 환경 변수 `AIWEP_MARKER_SIZE_MM`, `AIWEP_MARKER_DICT`, `AIWEP_MARKER_ID` 로도 바꿀 수 있습니다.
+
+## 마커 인쇄
+
+```bash
+python tools/make_marker_pdf.py --dict 4X4_50 --id 0 --size 40 --out marker.pdf
+```
+
+A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기를 확인합니다.
+
+## 검증
+
+- 합성 사진 기하 검증: `python -m tests.synthetic_check` (정답을 아는 가상 시편을 여러 각도·회전으로 촬영한 것처럼 만들어 비교. 윤곽 잡음 없이 최대 오차 0.12mm).
+- 실측 비교: `python tools/validate.py 사진폴더 실측.csv --out validation` → `comparison.csv` 와 확인용 그림. CSV 형식은 파일 첫 부분 설명 참고.
+
+## 결과 JSON 상태 코드
+
+`ok`, `marker_not_found`, `no_bead`, `bead_too_short`, `roboflow_failed`, `image_read_failed`. 경고: `bead_box_only`(비드 윤곽 없이 상자만 옴), `multiple_beads`, `rectify_too_large`.
