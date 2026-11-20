@@ -1,5 +1,60 @@
+import "@/i18n";
+
 import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { useTranslation } from "react-i18next";
+
+import { headerOptions } from "@/components/ui";
+import { loadSavedLanguage } from "@/i18n";
+import { SessionProvider } from "@/state/session";
+import { colors } from "@/theme";
 
 export default function RootLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  // 저장된 언어를 먼저 불러온 뒤 화면을 그린다(잠깐 다른 언어가 보이는 것을 방지).
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    loadSavedLanguage()
+      .catch(() => null)
+      .finally(() => setReady(true));
+  }, []);
+
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <SessionProvider>
+      <StatusBar style="light" />
+      <RootStack />
+    </SessionProvider>
+  );
+}
+
+function RootStack() {
+  const { t } = useTranslation();
+  return (
+    <Stack screenOptions={{ ...headerOptions, headerBackButtonDisplayMode: "minimal" }}>
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="language" options={{ title: t("language_title") }} />
+      <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="signup" options={{ title: t("signup_title") }} />
+      <Stack.Screen name="pending" options={{ headerShown: false }} />
+      <Stack.Screen name="student" options={{ headerShown: false }} />
+      <Stack.Screen name="teacher" options={{ headerShown: false }} />
+      <Stack.Screen name="staff" options={{ headerShown: false }} />
+      <Stack.Screen name="admin" options={{ headerShown: false }} />
+      <Stack.Screen name="result/[id]" options={{ title: t("result_title") }} />
+      <Stack.Screen name="course/[id]" options={{ title: t("teacher_title") }} />
+      <Stack.Screen name="settings/index" options={{ title: t("settings_title") }} />
+      <Stack.Screen name="settings/profile" options={{ title: t("profile_title") }} />
+      <Stack.Screen name="settings/privacy" options={{ title: t("privacy_title") }} />
+      <Stack.Screen name="settings/delete-account" options={{ title: t("delete_title") }} />
+    </Stack>
+  );
 }

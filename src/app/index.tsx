@@ -1,30 +1,8 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Redirect } from "expo-router";
 
+import { isFirstLaunch } from "@/i18n";
+
+/** 시작 화면: 처음 실행이면 언어 선택, 아니면 로그인으로 보낸다. */
 export default function Index() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>AI W.E.P</Text>
-      <Text style={styles.subtitle}>AI Welding Education Platform</Text>
-    </View>
-  );
+  return <Redirect href={isFirstLaunch() ? "/language?first=1" : "/login"} />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0A0E1A",
-  },
-  title: {
-    fontSize: 40,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: 2,
-  },
-  subtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    color: "#9AA4B2",
-  },
-});

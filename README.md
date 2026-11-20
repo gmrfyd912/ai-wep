@@ -5,7 +5,15 @@
 
 - 프레임워크: Expo SDK 58 (React Native, TypeScript, Expo Router)
 - 패키지 이름: `com.aiwep.app`
-- 화면 코드 위치: `src/app/`
+- 화면 코드 위치: `src/app/` (교육생 `student/`, 교사 `teacher/`, 행정 관리자 `staff/`, 시스템 관리자 `admin/`)
+- 언어 파일: `src/i18n/locales/` (기준은 `ko.ts`, 다른 언어는 키가 같아야 타입 검사 통과)
+- 지원 언어: 한국어, English, Tiếng Việt, ภาษาไทย, Filipino, O'zbekcha, Bahasa Indonesia, Español
+
+## 개발 원칙
+
+- 화면 글자는 코드에 직접 쓰지 않고 언어 파일의 키(`t("키")`)로만 표시합니다.
+- 결함·공정 같은 데이터는 영어 코드(`porosity`, `GTAW`)로 저장하고 화면에서만 번역합니다.
+- 이미지 안에는 글자를 넣지 않습니다(설명은 화면 글자로 겹쳐 표시).
 
 ## PC에서 실행하기
 
@@ -42,6 +50,7 @@ npx expo start
 | 롤백 브랜치 | 내용 |
 |---|---|
 | `rollback/v0.0-init` | Expo SDK 58 빈 프로젝트, 첫 화면 "AI W.E.P" |
+| `rollback/v0.1-skeleton` | 4개 역할 화면 뼈대(가짜 데이터), 8개 언어, 역할 미리보기 버튼 |
 
 이전 단계로 되돌릴 때는 해당 롤백 브랜치의 상태로 main을 되돌립니다.
 
