@@ -12,6 +12,7 @@ const uz: Translation = {
   common_back: "Orqaga",
   common_select: "Tanlash",
   common_settings: "Sozlamalar",
+  common_toLogin: "Kirish",
 
   role_student: "Tinglovchi",
   role_teacher: "O'qituvchi",

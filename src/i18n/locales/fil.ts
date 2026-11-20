@@ -12,6 +12,7 @@ const fil: Translation = {
   common_back: "Bumalik",
   common_select: "Pumili",
   common_settings: "Settings",
+  common_toLogin: "Login",
 
   role_student: "Trainee",
   role_teacher: "Instruktor",

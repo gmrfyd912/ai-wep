@@ -12,6 +12,7 @@ const es: Translation = {
   common_back: "Atrás",
   common_select: "Seleccionar",
   common_settings: "Ajustes",
+  common_toLogin: "Iniciar sesión",
 
   role_student: "Alumno",
   role_teacher: "Instructor",

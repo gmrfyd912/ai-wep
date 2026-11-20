@@ -12,6 +12,7 @@ const id: Translation = {
   common_back: "Kembali",
   common_select: "Pilih",
   common_settings: "Pengaturan",
+  common_toLogin: "Masuk",
 
   role_student: "Peserta pelatihan",
   role_teacher: "Instruktur",

@@ -12,6 +12,7 @@ const th: Translation = {
   common_back: "ย้อนกลับ",
   common_select: "เลือก",
   common_settings: "ตั้งค่า",
+  common_toLogin: "เข้าสู่ระบบ",
 
   role_student: "ผู้ฝึกอบรม",
   role_teacher: "ครูผู้สอน",

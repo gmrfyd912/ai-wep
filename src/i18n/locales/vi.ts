@@ -12,6 +12,7 @@ const vi: Translation = {
   common_back: "Quay lại",
   common_select: "Chọn",
   common_settings: "Cài đặt",
+  common_toLogin: "Đăng nhập",
 
   role_student: "Học viên",
   role_teacher: "Giáo viên",

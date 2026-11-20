@@ -12,6 +12,7 @@ const ko = {
   common_back: "뒤로",
   common_select: "선택",
   common_settings: "설정",
+  common_toLogin: "로그인",
 
   // 역할
   role_student: "교육생",

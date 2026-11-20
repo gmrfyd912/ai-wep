@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ColorValue } from "react-native";
 
+import { BackToLoginButton } from "@/components/preview";
 import { SettingsButton, type IconName } from "@/components/ui";
 import { colors } from "@/theme";
 
@@ -10,6 +11,7 @@ export const tabScreenOptions = {
   headerTintColor: colors.text,
   headerTitleStyle: { fontWeight: "700" as const },
   headerShadowVisible: false,
+  headerLeft: () => <BackToLoginButton />,
   headerRight: () => <SettingsButton />,
   sceneStyle: { backgroundColor: colors.bg },
   tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border },
