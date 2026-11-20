@@ -8,6 +8,7 @@ import numpy as np
 
 from engine.analyze import analyze_image
 from engine.config import Config
+from engine.marker import _dictionary
 
 S = 20  # 합성 평면 해상도 px/mm
 import os
@@ -23,7 +24,7 @@ def make_plane(cfg, rng, width_fn, center_fn, L=120.0):
     # 마커 (흰 여백 5mm 포함) 위치: 왼쪽 위
     m = cfg.marker_size_mm
     mx, my = 15.0, 15.0
-    d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, "DICT_" + cfg.marker_dict))
+    d = _dictionary(cfg.marker_dict)
     mimg = cv2.aruco.generateImageMarker(d, cfg.marker_id, int(m * S))
     cv2.rectangle(plane, (int((mx - 5) * S), int((my - 5) * S)), (int((mx + m + 5) * S), int((my + m + 5) * S)), (255, 255, 255), -1)
     plane[int(my * S):int(my * S) + mimg.shape[0], int(mx * S):int(mx * S) + mimg.shape[1]] = mimg[..., None]

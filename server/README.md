@@ -4,7 +4,7 @@
 
 ## 처리 순서
 
-1. **아루코 마커 검출**: 한 종류만 찾습니다 (기본 `4X4_50` 사전의 0번, 한 변 40mm). 꼭짓점은 서브픽셀 정밀도로 찾습니다.
+1. **아루코 마커 검출**: 한 종류만 찾습니다. 기본은 기존 앱에서 쓰던 30mm 마커(`AIWEP_LEGACY`)입니다. 이 마커는 OpenCV 표준 사전에 없는 6x6 무늬라서 엔진에 직접 등록했습니다. 꼭짓점은 서브픽셀 정밀도로 찾습니다.
 2. **정면 보정**: 마커 네 꼭짓점과 실제 한 변 길이로 호모그래피를 구해, 위에서 내려다본 이미지로 바꿉니다. 1px = 0.1mm.
 3. **Roboflow 호출**: 모델 `ai_welding_inspection/4` 가 원본 사진에서 비드 윤곽과 결함을 찾습니다. 결과 좌표는 같은 호모그래피로 mm 좌표로 바꿉니다 (Roboflow 상자 크기로 mm를 환산하지 않습니다).
 4. **측정**
@@ -34,7 +34,7 @@ cd server
 pip install -r requirements.txt
 # 키는 환경 변수로만 (코드·GitHub에 넣지 않음)
 export ROBOFLOW_API_KEY=...        # Windows PowerShell: $env:ROBOFLOW_API_KEY="..."
-python -m engine.cli 사진1.jpg 사진2.jpg --out out --marker-size 40.0
+python -m engine.cli 사진1.jpg 사진2.jpg --out out --marker-size 30.0
 ```
 
 `--marker-size` 에는 인쇄한 마커의 검은 사각형 한 변을 캘리퍼스로 잰 값(mm)을 넣습니다. 환경 변수 `AIWEP_MARKER_SIZE_MM`, `AIWEP_MARKER_DICT`, `AIWEP_MARKER_ID` 로도 바꿀 수 있습니다.
@@ -42,7 +42,7 @@ python -m engine.cli 사진1.jpg 사진2.jpg --out out --marker-size 40.0
 ## 마커 인쇄
 
 ```bash
-python tools/make_marker_pdf.py --dict 4X4_50 --id 0 --size 40 --out marker.pdf
+python tools/make_marker_pdf.py --dict AIWEP_LEGACY --id 0 --size 30 --out marker.pdf
 ```
 
 A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기를 확인합니다.

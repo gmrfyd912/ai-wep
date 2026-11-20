@@ -7,7 +7,22 @@ class MarkerNotFound(Exception):
     pass
 
 
+# 기존 앱(ai-welding-platform)에서 쓰던 30mm 마커. OpenCV 표준 사전에 없는 6x6 무늬라서
+# 직접 등록한다 (기존 앱이 표준 사전 12종을 시도해도 못 찾던 원인으로 보임).
+LEGACY_BITS = np.array([
+    [0, 1, 1, 0, 1, 1],
+    [0, 1, 1, 1, 0, 1],
+    [1, 0, 1, 1, 1, 1],
+    [1, 0, 1, 0, 1, 1],
+    [1, 1, 0, 1, 0, 0],
+    [0, 0, 1, 1, 0, 1],
+], np.uint8)
+
+
 def _dictionary(name):
+    if name.upper() == "AIWEP_LEGACY":
+        byte_list = cv2.aruco.Dictionary.getByteListFromBits(LEGACY_BITS)
+        return cv2.aruco.Dictionary(byte_list, 6, 4)
     attr = "DICT_" + name.upper()
     if not hasattr(cv2.aruco, attr):
         raise ValueError(f"알 수 없는 아루코 사전: {name}")

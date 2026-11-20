@@ -11,10 +11,10 @@ def _env(name, default, cast=str):
 @dataclass
 class Config:
     # 아루코 마커: 한 종류로 고정 (사전 이름은 cv2.aruco.DICT_* 에서 DICT_ 뒤 부분)
-    marker_dict: str = field(default_factory=lambda: _env("AIWEP_MARKER_DICT", "4X4_50"))
+    marker_dict: str = field(default_factory=lambda: _env("AIWEP_MARKER_DICT", "AIWEP_LEGACY"))
     marker_id: int = field(default_factory=lambda: _env("AIWEP_MARKER_ID", 0, int))
     # 마커 검은 사각형 한 변의 실제 길이(mm). 인쇄 후 캘리퍼스로 잰 값을 넣는다.
-    marker_size_mm: float = field(default_factory=lambda: _env("AIWEP_MARKER_SIZE_MM", 40.0, float))
+    marker_size_mm: float = field(default_factory=lambda: _env("AIWEP_MARKER_SIZE_MM", 30.0, float))
     # 정면 보정 해상도: 1 px = 0.1 mm
     px_per_mm: float = 10.0
     # Roboflow

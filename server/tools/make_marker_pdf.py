@@ -1,6 +1,8 @@
 """인쇄용 아루코 마커 PDF 만들기 (A4, 벡터라서 인쇄 크기가 정확함).
-실행: python tools/make_marker_pdf.py --dict 4X4_50 --id 0 --size 40 --out marker.pdf"""
+실행: python tools/make_marker_pdf.py --dict AIWEP_LEGACY --id 0 --size 30 --out marker.pdf"""
 import argparse
+import os
+import sys
 
 import cv2
 from reportlab.lib.pagesizes import A4
@@ -22,12 +24,14 @@ def draw_marker(c, bits, x, y, size):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dict", default="4X4_50")
+    ap.add_argument("--dict", default="AIWEP_LEGACY")
     ap.add_argument("--id", type=int, default=0)
-    ap.add_argument("--size", type=float, default=40.0, help="검은 사각형 한 변(mm)")
+    ap.add_argument("--size", type=float, default=30.0, help="검은 사각형 한 변(mm)")
     ap.add_argument("--out", default="marker.pdf")
     a = ap.parse_args()
-    d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, "DICT_" + a.dict))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from engine.marker import _dictionary
+    d = _dictionary(a.dict)
     nb = d.markerSize + 2
     img = cv2.aruco.generateImageMarker(d, a.id, nb, borderBits=1)
     bits = img > 127
