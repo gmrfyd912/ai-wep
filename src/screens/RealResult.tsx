@@ -104,9 +104,11 @@ export function RealResult({ id }: { id: string }) {
         </>
       ) : (
         <>
-          {res ? <ResultCharts result={res} /> : null}
-          <Text style={styles.caption}>{t("result_checkImage")}</Text>
-          {data.check_url ? (
+          {res ? <ResultCharts result={res} checkUrl={data.check_url} /> : null}
+          {data.check_url && !res?.check_layout ? (
+            <Text style={styles.caption}>{t("result_checkImage")}</Text>
+          ) : null}
+          {data.check_url && !res?.check_layout ? (
             <>
               <Pressable onPress={() => setZoom(true)}>
                 <Image source={{ uri: data.check_url }} style={styles.image} contentFit="contain" />
@@ -168,6 +170,8 @@ export function RealResult({ id }: { id: string }) {
         </>
       )}
       {tab === "metrics" ? <History data={data} history={history} /> : null}
+      {/* 맨 아래가 휴대폰 버튼 줄에 붙지 않게 여백 */}
+      <View style={{ height: 32 }} />
     </Screen>
   );
 }

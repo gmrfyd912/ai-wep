@@ -256,6 +256,7 @@ const uz: Translation = {
   cum_viewing: "Hozir ko'rilmoqda",
   records_openLatest: "Eng so'nggi natijani ochish",
   records_listHint: "O'sha kungi natija va jamlangan tahlilni ochish uchun bosing.",
+  chart_alignedImage: "Tekshiruv rasmi (yuqoridagi grafik bilan bir xil joy. Uzuq chiziq = eng tor/eng keng, eng katta og'ish)",
 };
 
 export default uz;

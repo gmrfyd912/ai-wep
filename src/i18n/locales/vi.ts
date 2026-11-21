@@ -256,6 +256,7 @@ const vi: Translation = {
   cum_viewing: "Đang xem",
   records_openLatest: "Xem kết quả mới nhất",
   records_listHint: "Chạm để mở kết quả ngày đó cùng phân tích tích lũy.",
+  chart_alignedImage: "Hình kiểm tra (cùng vị trí với biểu đồ trên. Nét đứt = rộng nhất/hẹp nhất, lệch lớn nhất)",
 };
 
 export default vi;

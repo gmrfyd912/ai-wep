@@ -272,6 +272,7 @@ const ko = {
   cum_viewing: "지금 보는 결과",
   records_openLatest: "가장 최근 결과 보기",
   records_listHint: "누르면 그 날의 결과와 누적 분석이 열려요.",
+  chart_alignedImage: "확인 그림 (위 그래프와 위치가 같아요. 점선 = 최소·최대 폭, 최대 이탈)",
 } as const;
 
 export default ko;

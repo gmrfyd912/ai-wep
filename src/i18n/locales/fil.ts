@@ -256,6 +256,7 @@ const fil: Translation = {
   cum_viewing: "Tinitingnan ngayon",
   records_openLatest: "Buksan ang pinakabagong resulta",
   records_listHint: "I-tap para buksan ang resulta ng araw na iyon kasama ang pag-unlad.",
+  chart_alignedImage: "Larawang pansuri (kapareho ng posisyon sa graph sa itaas. Putol-putol na linya = min/max na lapad, pinakamalaking layo)",
 };
 
 export default fil;

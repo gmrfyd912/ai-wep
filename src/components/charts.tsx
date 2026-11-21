@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import Svg, { Circle, Line, Path, Rect, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, ClipPath, Defs, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 
 import { colors } from "@/theme";
 
@@ -11,8 +11,9 @@ export type HLine = { y: number; color: string; dashed?: boolean; label?: string
 export type Band = { x0: number; x1: number; color: string };
 export type YBand = { y0: number; y1: number; color: string };
 export type Marker = { x: number; y: number; color: string; r?: number };
+export type VLine = { x: number; color: string };
 
-const PAD = { l: 40, r: 20, t: 10, b: 26 };
+export const PAD = { l: 40, r: 20, t: 10, b: 26 };
 
 function niceStep(range: number, count: number) {
   const raw = range / Math.max(count, 1);
@@ -38,6 +39,9 @@ export function LineChart({
   bands = [],
   ybands = [],
   markers = [],
+  vlines = [],
+  xMin,
+  xMax,
   yMin,
   yMax,
   yPad = 0.15,
@@ -52,6 +56,11 @@ export function LineChart({
   bands?: Band[];
   ybands?: YBand[];
   markers?: Marker[];
+  /** 세로 점선 (확인 그림의 같은 위치와 이어 보기용) */
+  vlines?: VLine[];
+  /** 가로축 범위를 직접 지정 (확인 그림과 폭 맞추기) */
+  xMin?: number;
+  xMax?: number;
   yMin?: number;
   yMax?: number;
   yPad?: number;
@@ -62,12 +71,13 @@ export function LineChart({
   caption?: string;
 }) {
   const [w, setW] = useState(0);
+  const clipId = `plot${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const all = series.flatMap((s) => s.points);
   if (!all.length) return null;
   const xs = all.map((p) => p[0]);
   const ys = [...all.map((p) => p[1]), ...hlines.map((h) => h.y)];
-  let x0 = Math.min(...xs);
-  let x1 = Math.max(...xs);
+  let x0 = xMin ?? Math.min(...xs);
+  let x1 = xMax ?? Math.max(...xs);
   if (x1 === x0) {
     x0 -= 1;
     x1 += 1;
@@ -88,6 +98,11 @@ export function LineChart({
     <View onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w > 0 ? (
         <Svg width={w} height={height}>
+          <Defs>
+            <ClipPath id={clipId}>
+              <Rect x={PAD.l} y={PAD.t} width={iw} height={ih} />
+            </ClipPath>
+          </Defs>
           {ybands.map((b, i) => (
             <Rect key={`yb${i}`} x={PAD.l} width={iw} y={sy(clampY(b.y1))}
               height={Math.max(sy(clampY(b.y0)) - sy(clampY(b.y1)), 0)} fill={b.color} />
@@ -104,6 +119,10 @@ export function LineChart({
               {xLabel(v)}
             </SvgText>
           ))}
+          {vlines.filter((v) => v.x >= x0 && v.x <= x1).map((v, i) => (
+            <Line key={`v${i}`} x1={sx(v.x)} x2={sx(v.x)} y1={PAD.t} y2={PAD.t + ih} stroke={v.color}
+              strokeWidth={1} strokeDasharray="3,3" />
+          ))}
           {hlines.map((h, i) => (
             <Line key={`h${i}`} x1={PAD.l} x2={PAD.l + iw} y1={sy(h.y)} y2={sy(h.y)} stroke={h.color}
               strokeWidth={1.5} strokeDasharray={h.dashed ? "5,4" : undefined} />
@@ -114,7 +133,7 @@ export function LineChart({
             </SvgText>
           ))}
           {series.map((s, i) => (
-            <Path key={`s${i}`} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round"
+            <Path key={`s${i}`} clipPath={`url(#${clipId})`} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round"
               d={s.points.map((p, j) => `${j ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ")} />
           ))}
           {series.filter((s) => s.dots).flatMap((s, i) =>

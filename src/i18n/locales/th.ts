@@ -256,6 +256,7 @@ const th: Translation = {
   cum_viewing: "กำลังดู",
   records_openLatest: "ดูผลล่าสุด",
   records_listHint: "แตะเพื่อเปิดผลของวันนั้นพร้อมการวิเคราะห์สะสม",
+  chart_alignedImage: "ภาพตรวจสอบ (ตำแหน่งตรงกับกราฟด้านบน เส้นประ = กว้างสุด/แคบสุด, เบี่ยงมากสุด)",
 };
 
 export default th;

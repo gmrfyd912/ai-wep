@@ -256,6 +256,7 @@ const es: Translation = {
   cum_viewing: "Viendo ahora",
   records_openLatest: "Ver el último resultado",
   records_listHint: "Toca para abrir el resultado de ese día con tu progreso.",
+  chart_alignedImage: "Imagen de control (mismas posiciones que el gráfico de arriba. Líneas punteadas = ancho mín/máx, desvío máx)",
 };
 
 export default es;
