@@ -7,6 +7,8 @@ import { useTranslation } from "react-i18next";
 import { AppButton, Body, Card, Chips, ComingSoon, Screen } from "@/components/ui";
 import { ZoomImage } from "@/components/ZoomImage";
 import { getSubmission, statusKey, type Submission } from "@/lib/api";
+import { defectName } from "@/lib/defects";
+import { ResultCharts } from "@/screens/ResultCharts";
 import { colors, radius, space } from "@/theme";
 
 type Tab = "metrics" | "report";
@@ -62,10 +64,6 @@ export function RealResult({ id }: { id: string }) {
   const date = new Date(data.created_at).toLocaleString(i18n.language);
   const info = [data.process, data.position, data.material].filter(Boolean).join(" · ");
   const at = (v: number | undefined) => (v == null ? undefined : t("result_atPos", { mm: v.toFixed(0) }));
-  const defectName = (type: string) => {
-    const key = `defect_${type.toLowerCase()}`;
-    return i18n.exists(key) ? t(key) : type;
-  };
 
   return (
     <Screen>
@@ -100,6 +98,7 @@ export function RealResult({ id }: { id: string }) {
         </>
       ) : (
         <>
+          {res ? <ResultCharts result={res} /> : null}
           <Text style={styles.caption}>{t("result_checkImage")}</Text>
           {data.check_url ? (
             <>

@@ -32,6 +32,14 @@ export type SubmissionSummary = {
   defect_count: number | null;
 };
 
+/** 내 기록 목록 한 줄: 요약 + 누적 분석(추이·비교·결함 통계)용 값 */
+export type SubmissionListItem = SubmissionSummary & {
+  width_std_mm?: number | null;
+  width_min_mm?: number | null;
+  width_max_mm?: number | null;
+  defect_types?: string[];
+};
+
 export type EngineResult = {
   status: Status;
   warnings?: string[];
@@ -44,10 +52,18 @@ export type EngineResult = {
       std_mm: number;
       min_pos_mm?: number;
       max_pos_mm?: number;
+      end_trim_mm?: number;
+      /** [시작에서 거리 mm, 폭 mm] 1mm마다 (양 끝 구간 포함) */
+      profile?: [number, number][];
     };
-    straightness: { max_dev_mm: number; max_dev_pos_mm?: number };
+    straightness: {
+      max_dev_mm: number;
+      max_dev_pos_mm?: number;
+      /** [시작에서 거리 mm, 기준선 대비 이탈 mm] 1mm마다. 4단계 이전 결과에는 없음 */
+      profile?: [number, number][];
+    };
   };
-  defects?: { type: string; length_mm: number | null; confidence: number }[];
+  defects?: { type: string; length_mm: number | null; confidence: number; pos_along_bead_mm?: number | null }[];
 };
 
 export type Submission = SubmissionSummary & {
@@ -176,9 +192,9 @@ export async function getProgress(jobId: string): Promise<string | null> {
   }
 }
 
-export async function listSubmissions(): Promise<SubmissionSummary[]> {
+export async function listSubmissions(): Promise<SubmissionListItem[]> {
   const id = encodeURIComponent(await getDeviceId());
-  return request<SubmissionSummary[]>(`/submissions?device_id=${id}`, {}, 90000);
+  return request<SubmissionListItem[]>(`/submissions?device_id=${id}`, {}, 90000);
 }
 
 export async function getSubmission(sid: string): Promise<Submission> {
