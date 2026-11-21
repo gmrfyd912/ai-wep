@@ -57,6 +57,8 @@ export class NetworkError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 30000): Promise<T> {
+  const step = path.split("?")[0].split("/")[1] || "api";
+  const started = Date.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
@@ -64,7 +66,12 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
     res = await fetch(`${API_URL}${path}`, { ...init, signal: ctrl.signal });
   } catch (e) {
     const err = e as Error;
-    const code = err?.name === "AbortError" ? "timeout" : `network: ${err?.message ?? String(e)}`;
+    const secs = Math.round((Date.now() - started) / 1000);
+    const msg = err?.message ?? String(e);
+    const code =
+      err?.name === "AbortError" || /cancel/i.test(msg)
+        ? `${step}: timeout ${secs}s`
+        : `${step}: network ${secs}s ${msg}`;
     console.warn(`[api] ${init.method ?? "GET"} ${API_URL}${path} 실패:`, code);
     throw new NetworkError(code);
   } finally {
@@ -73,7 +80,7 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.warn(`[api] ${path} 서버 오류 ${res.status}:`, body.slice(0, 300));
-    throw new NetworkError(`server ${res.status}`);
+    throw new NetworkError(`${step}: server ${res.status}`);
   }
   return (await res.json()) as T;
 }
@@ -85,7 +92,9 @@ export async function wakeServer(): Promise<void> {
   await request<{ ok: boolean }>("/health", {}, 120000);
 }
 
-/** 사진을 서버로 보내 분석한다. 서버가 잠들어 있으면 깨어나는 데 1분쯤 걸려서 넉넉히 기다린다. */
+/** 사진을 서버로 보내 분석한다.
+ * 사진 업로드는 React Native 기본 XMLHttpRequest 로 보낸다. (SDK 58 의 fetch 는
+ * { uri } 형태 파일을 FormData 에 담는 방식을 지원하지 않는다.) */
 export async function analyzePhoto(
   uri: string,
   info: { process: string; position: string; material: string },
@@ -99,10 +108,33 @@ export async function analyzePhoto(
     const blob = await (await fetch(uri)).blob();
     form.append("photo", blob, "photo.jpg");
   } else {
-    // React Native 의 FormData 파일 형식
     form.append("photo", { uri, name: "photo.jpg", type: "image/jpeg" } as unknown as Blob);
   }
-  return request<Submission>("/analyze", { method: "POST", body: form }, 180000);
+  const started = Date.now();
+  const secs = () => Math.round((Date.now() - started) / 1000);
+  return new Promise<Submission>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/analyze`);
+    xhr.timeout = 180000;
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as Submission);
+        } catch {
+          reject(new NetworkError(`analyze: bad response ${secs()}s`));
+        }
+      } else {
+        console.warn(`[api] analyze 서버 오류 ${xhr.status}:`, xhr.responseText?.slice(0, 300));
+        reject(new NetworkError(`analyze: server ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => {
+      console.warn("[api] analyze 연결 실패", secs(), "s");
+      reject(new NetworkError(`analyze: network ${secs()}s`));
+    };
+    xhr.ontimeout = () => reject(new NetworkError(`analyze: timeout ${secs()}s`));
+    xhr.send(form);
+  });
 }
 
 export async function listSubmissions(): Promise<SubmissionSummary[]> {
