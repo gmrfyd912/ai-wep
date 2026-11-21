@@ -1,39 +1,69 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { AppButton, Chips, Field, Label, Screen } from "@/components/ui";
-import { COURSES } from "@/mock/data";
+import { AppButton, Body, Chips, Field, Label, Screen } from "@/components/ui";
+import { goAfterLogin } from "@/lib/afterLogin";
+import { authErrorKey, listCourses, signup, type Course } from "@/lib/api";
+import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
 type SignupRole = "student" | "teacher" | "staff";
 
 export default function SignupScreen() {
   const { t } = useTranslation();
+  const { signIn } = useSession();
   const [role, setRole] = useState<SignupRole>("student");
   const [name, setName] = useState("");
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+  const [email, setEmail] = useState("");
   const [course, setCourse] = useState<string | null>(null);
   const [teacherCourses, setTeacherCourses] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [courses, setCourses] = useState<Course[] | null>(null);
+  const [coursesFailed, setCoursesFailed] = useState(false);
 
-  const activeCourses = COURSES.filter((c) => c.active);
+  // 과정 목록은 서버에서 (시스템관리자가 만든 운영 중인 과정)
+  const loadCourses = useCallback(() => {
+    setCoursesFailed(false);
+    listCourses()
+      .then(setCourses)
+      .catch(() => setCoursesFailed(true));
+  }, []);
+  useEffect(loadCourses, [loadCourses]);
+  const activeCourses = courses ?? [];
 
   const toggleTeacherCourse = (cid: string) =>
     setTeacherCourses((prev) => (prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]));
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim() || !id.trim() || !pw) return setError(t("signup_errorRequired"));
     if (pw !== pw2) return setError(t("signup_errorPasswordMatch"));
     if (role === "student" && !course) return setError(t("signup_errorCourse"));
+    if (role === "teacher" && teacherCourses.length === 0) return setError(t("signup_errorTeacherCourse"));
     setError("");
-    // 실제 가입 처리는 6단계에서 연결. 지금은 승인 대기 화면만 보여준다.
-    router.replace("/pending");
+    setBusy(true);
+    try {
+      const course_ids = role === "student" ? [course!] : role === "teacher" ? teacherCourses : [];
+      const r = await signup({ login_id: id, password: pw, name, role, email: email.trim() || null, course_ids });
+      if ("pending" in r) {
+        router.replace("/pending");
+        return;
+      }
+      await signIn(r.token, r.user);
+      goAfterLogin(r.user, t);
+    } catch (e) {
+      const { key, values } = authErrorKey(e);
+      setError(t(key as "error_network", values));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -53,13 +83,28 @@ export default function SignupScreen() {
       <Field label={t("login_id")} value={id} onChangeText={setId} />
       <Field label={t("login_password")} value={pw} onChangeText={setPw} secureTextEntry />
       <Field label={t("signup_passwordConfirm")} value={pw2} onChangeText={setPw2} secureTextEntry />
+      <Field label={t("signup_email")} value={email} onChangeText={setEmail} keyboardType="email-address" autoCorrect={false} />
+      <Text style={styles.hint}>{t("signup_emailHint")}</Text>
 
-      {role === "student" ? (
+      {courses == null && role !== "staff" ? (
+        coursesFailed ? (
+          <Pressable onPress={loadCourses}>
+            <Text style={styles.error}>{t("signup_coursesFailed")}</Text>
+          </Pressable>
+        ) : (
+          <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
+            <ActivityIndicator color={colors.primary} />
+            <Body muted>{t("auth_waking")}</Body>
+          </View>
+        )
+      ) : null}
+
+      {role === "student" && courses ? (
         <View style={{ gap: space.xs }}>
           <Label>{t("signup_course")}</Label>
           <Pressable style={styles.dropdown} onPress={() => setOpen((o) => !o)}>
             <Text style={[styles.dropdownText, !course && { color: colors.faint }]}>
-              {course ? COURSES.find((c) => c.id === course)?.name : t("signup_coursePlaceholder")}
+              {course ? activeCourses.find((c) => c.id === course)?.name : t("signup_coursePlaceholder")}
             </Text>
             <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.muted} />
           </Pressable>
@@ -82,7 +127,7 @@ export default function SignupScreen() {
         </View>
       ) : null}
 
-      {role === "teacher" ? (
+      {role === "teacher" && courses ? (
         <View style={{ gap: space.xs }}>
           <Label>{t("signup_teacherCourses")}</Label>
           <Chips
@@ -94,7 +139,7 @@ export default function SignupScreen() {
       ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <AppButton label={t("signup_submit")} onPress={submit} />
+      <AppButton label={busy ? t("auth_working") : t("signup_submit")} onPress={submit} disabled={busy} />
     </Screen>
   );
 }
@@ -121,4 +166,5 @@ const styles = StyleSheet.create({
   },
   dropdownItem: { paddingHorizontal: space.md, paddingVertical: 14, borderBottomColor: colors.border, borderBottomWidth: 1 },
   error: { color: colors.danger, fontSize: 14 },
+  hint: { color: colors.muted, fontSize: 13, marginTop: -space.xs },
 });

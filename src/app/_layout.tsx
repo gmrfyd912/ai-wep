@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import { headerOptions } from "@/components/ui";
 import { loadSavedLanguage } from "@/i18n";
-import { SessionProvider } from "@/state/session";
+import { SessionProvider, useSession } from "@/state/session";
 import { colors } from "@/theme";
 
 export default function RootLayout() {
@@ -38,6 +38,15 @@ export default function RootLayout() {
 
 function RootStack() {
   const { t } = useTranslation();
+  const { ready } = useSession();
+  // 저장된 로그인 정보를 읽기 전에는 화면을 그리지 않는다
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: "center" }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
   return (
     <Stack screenOptions={{ ...headerOptions, headerBackButtonDisplayMode: "minimal" }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -45,6 +54,8 @@ function RootStack() {
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="signup" options={{ title: t("signup_title") }} />
       <Stack.Screen name="pending" options={{ headerShown: false }} />
+      <Stack.Screen name="forgot" options={{ title: t("forgot_title") }} />
+      <Stack.Screen name="change-password" options={{ title: t("pw_title") }} />
       <Stack.Screen name="student" options={{ headerShown: false }} />
       <Stack.Screen name="teacher" options={{ headerShown: false }} />
       <Stack.Screen name="staff" options={{ headerShown: false }} />
