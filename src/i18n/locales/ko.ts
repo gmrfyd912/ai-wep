@@ -123,6 +123,7 @@ const ko = {
   result_length: "비드 길이",
   result_warnings: "주의",
   result_tryAgain: "다시 찍기",
+  result_measureNote: "검사 구간: 양 끝 10mm 제외. 폭 평균은 가장 큰 값·작은 값 10%씩 빼고 계산.",
   result_betaNote: "정확도 검증 전 시험 버전 수치입니다.",
   records_empty: "아직 분석 기록이 없어요. 업로드 탭에서 첫 사진을 올려 보세요.",
   warn_bead_box_only: "비드 윤곽 대신 상자 모양으로 계산했어요. 정확도가 낮을 수 있어요.",

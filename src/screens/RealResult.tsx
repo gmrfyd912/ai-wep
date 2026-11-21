@@ -111,6 +111,7 @@ export function RealResult({ id }: { id: string }) {
               ))}
             </Card>
           ) : null}
+          <Text style={styles.note}>{t("result_measureNote")}</Text>
           <Text style={styles.note}>{t("result_betaNote")}</Text>
         </>
       )}

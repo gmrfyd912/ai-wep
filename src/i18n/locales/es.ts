@@ -112,6 +112,7 @@ const es: Translation = {
   result_length: "Longitud del cordón",
   result_warnings: "Avisos",
   result_tryAgain: "Tomar de nuevo",
+  result_measureNote: "Zona inspeccionada: se excluyen 10 mm en cada extremo. El ancho medio excluye el 10% de valores más altos y más bajos.",
   result_betaNote: "Valores de prueba antes de validar la precisión.",
   records_empty: "Aún no hay análisis. Sube tu primera foto desde la pestaña Subir.",
   warn_bead_box_only: "Calculado con un rectángulo en lugar del contorno del cordón. La precisión puede ser menor.",

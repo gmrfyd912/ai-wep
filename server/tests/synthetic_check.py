@@ -75,7 +75,10 @@ def run():
     # 정답: 시작 10mm, 중간, 끝 10mm 폭, 다듬은 구간 평균
     L = t[-1]
     tt = np.arange(0.5, L, 1.0)
-    truth = {"mean": width_fn(tt[(tt >= 5) & (tt <= L - 5)]).mean(), "s10": width_fn(10.0),
+    tr = cfg.end_trim_mm
+    ws = np.sort(width_fn(tt[(tt >= tr) & (tt <= L - tr)]))
+    k = int(len(ws) * cfg.width_trim_percent / 100)
+    truth = {"mean": ws[k:len(ws) - k].mean(), "s10": width_fn(10.0),
              "mid": width_fn(L / 2), "e10": width_fn(L - 10.0)}
     print(f"정답: 평균 {truth['mean']:.2f}  시작10 {truth['s10']:.2f}  중간 {truth['mid']:.2f}  끝10 {truth['e10']:.2f} (mm)")
     worst = 0.0

@@ -29,9 +29,12 @@ class Config:
     ignore_class_keywords: tuple = ("marker",)
     # 길이(선) 형태로 크기를 재는 결함 클래스 키워드
     linear_defect_keywords: tuple = ("crack", "undercut", "overlap")
-    # 폭 측정 간격(mm)과 통계에서 제외할 양 끝 길이(mm, 시작·끝 크레이터 부분)
+    # 폭 측정 간격(mm)과 검사에서 제외할 양 끝 길이(mm). 2026-11-21 박사 결정: 양 끝 10mm 제외
+    # (선급 육안검사는 15mm). 폭·최소·최대·편차·직진도·결함 개수 모두 가운데 구간만 사용.
     width_step_mm: float = 1.0
-    end_trim_mm: float = 5.0
+    end_trim_mm: float = 10.0
+    # 폭 평균: 가장 큰 값·가장 작은 값을 각각 이 비율(%)만큼 빼고 평균 (절사평균)
+    width_trim_percent: float = 10.0
     # 보정 이미지에서 관심 영역 바깥 여백(mm)
     crop_margin_mm: float = 10.0
 

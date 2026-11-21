@@ -112,6 +112,7 @@ const vi: Translation = {
   result_length: "Chiều dài đường hàn",
   result_warnings: "Lưu ý",
   result_tryAgain: "Chụp lại",
+  result_measureNote: "Vùng kiểm tra: bỏ 10 mm ở mỗi đầu. Bề rộng trung bình bỏ 10% giá trị lớn nhất và nhỏ nhất.",
   result_betaNote: "Số liệu thử nghiệm, chưa kiểm định độ chính xác.",
   records_empty: "Chưa có kết quả phân tích. Hãy tải ảnh đầu tiên ở tab Tải lên.",
   warn_bead_box_only: "Tính bằng khung hình chữ nhật thay vì đường viền. Độ chính xác có thể thấp hơn.",

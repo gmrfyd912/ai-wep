@@ -79,7 +79,8 @@ def analyze_image(img, cfg=None, predictions=None):
     for p in others:
         pts = to_mm(_pred_points(p))
         defects.append((measure.measure_defect(p, pts, geom, cfg), pts))
-    res["defects"] = [d for d, _ in defects]
+    res["defects"] = [d for d, _ in defects if not d["in_end_zone"]]
+    res["defects_end_zone"] = [d for d, _ in defects if d["in_end_zone"]]
 
     # 보정 이미지: 마커 + 비드 + 결함을 감싸는 영역
     region = [marker_mm] + ([bead_mm] if bead_mm is not None else []) + [p for _, p in defects]

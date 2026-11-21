@@ -112,6 +112,7 @@ const uz: Translation = {
   result_length: "Chok uzunligi",
   result_warnings: "Eslatma",
   result_tryAgain: "Qayta suratga olish",
+  result_measureNote: "Tekshirilgan qism: ikki uchidan 10 mm dan chiqarilgan. O'rtacha kenglik eng katta va eng kichik 10% qiymatlarsiz hisoblangan.",
   result_betaNote: "Aniqlik tekshirilishidan oldingi sinov qiymatlari.",
   records_empty: "Hali tahlillar yo'q. Yuklash bo'limidan birinchi rasmni yuklang.",
   warn_bead_box_only: "Chok konturi o'rniga to'rtburchak bo'yicha hisoblandi. Aniqlik pastroq bo'lishi mumkin.",

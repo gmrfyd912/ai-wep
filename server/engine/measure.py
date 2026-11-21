@@ -65,6 +65,10 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
     s = st[keep]
     w = s[:, 1]
     i_min, i_max = int(np.argmin(w)), int(np.argmax(w))
+    # 절사평균: 상·하위 각 width_trim_percent % 를 빼고 평균
+    ws = np.sort(w)
+    k = int(len(ws) * cfg.width_trim_percent / 100.0)
+    w_trim = ws[k:len(ws) - k] if len(ws) - 2 * k >= 1 else ws
 
     # 직진도: 중심선을 최소제곱 직선(기준선)과 비교
     a, b = np.polyfit(s[:, 0], s[:, 2], 1)
@@ -85,14 +89,17 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
         "origin": c, "u": u, "n": n, "xmin": xmin,
         "stations": st, "keep": keep, "fit": (a, b),
         "i_min": int(np.nonzero(keep)[0][i_min]), "i_max": int(np.nonzero(keep)[0][i_max]),
-        "to_plane": to_plane,
+        "to_plane": to_plane, "length": length, "trim": trim if not keep.all() else 0.0,
     }
     result = {
         "length_mm": _r(length),
         "width": {
             "step_mm": step,
             "end_trim_mm": trim,
-            "mean_mm": _r(w.mean()),
+            "mean_mm": _r(w_trim.mean()),  # 절사평균 (화면에 보이는 평균)
+            "mean_all_mm": _r(w.mean()),
+            "trim_percent": cfg.width_trim_percent,
+            "samples": int(len(w)),
             "min_mm": _r(w[i_min]), "min_pos_mm": _r(s[i_min, 0], 1),
             "max_mm": _r(w[i_max]), "max_pos_mm": _r(s[i_max, 0], 1),
             "std_mm": _r(w.std(ddof=1) if len(w) > 1 else 0.0, 3),
@@ -144,5 +151,8 @@ def measure_defect(pred, pts_mm, bead_geom, cfg):
         "width_mm": _r(width),
         "area_mm2": _r(area),
         "pos_along_bead_mm": _r(pos, 1),
+        # 양 끝 제외 구간 안의 결함은 그림에만 보이고 결함 목록·개수에서는 뺀다
+        "in_end_zone": bool(pos is not None and bead_geom.get("trim", 0) > 0
+                            and (pos < bead_geom["trim"] or pos > bead_geom["length"] - bead_geom["trim"])),
         "shape": "polygon" if pred["polygon"] is not None else "box",
     }

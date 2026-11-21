@@ -112,6 +112,7 @@ const fil: Translation = {
   result_length: "Haba ng bead",
   result_warnings: "Paalala",
   result_tryAgain: "Kumuha ulit",
+  result_measureNote: "Sinuri: hindi kasama ang 10 mm sa bawat dulo. Ang karaniwang lapad ay hindi kasama ang pinakamataas at pinakamababang 10%.",
   result_betaNote: "Pansubok na mga numero bago ang pagsusuri ng katumpakan.",
   records_empty: "Wala pang pagsusuri. Mag-upload ng unang larawan sa tab na Upload.",
   warn_bead_box_only: "Kinalkula mula sa kahon sa halip na balangkas ng bead. Maaaring mas mababa ang katumpakan.",

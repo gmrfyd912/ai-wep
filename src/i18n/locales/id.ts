@@ -112,6 +112,7 @@ const id: Translation = {
   result_length: "Panjang manik",
   result_warnings: "Catatan",
   result_tryAgain: "Foto ulang",
+  result_measureNote: "Area diperiksa: 10 mm di tiap ujung tidak dihitung. Lebar rata-rata tanpa 10% nilai terbesar dan terkecil.",
   result_betaNote: "Nilai uji coba sebelum validasi akurasi.",
   records_empty: "Belum ada analisis. Unggah foto pertama di tab Unggah.",
   warn_bead_box_only: "Dihitung dari kotak, bukan garis tepi manik. Akurasi mungkin lebih rendah.",

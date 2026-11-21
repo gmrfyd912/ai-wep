@@ -112,6 +112,7 @@ const en: Translation = {
   result_length: "Bead length",
   result_warnings: "Notes",
   result_tryAgain: "Retake",
+  result_measureNote: "Inspected: both ends excluded (10 mm each). Average width excludes the top and bottom 10% of values.",
   result_betaNote: "Test values before accuracy validation.",
   records_empty: "No analyses yet. Upload your first photo from the Upload tab.",
   warn_bead_box_only: "Calculated from a box instead of the bead outline. Accuracy may be lower.",
