@@ -32,8 +32,10 @@ DEFAULT_CRITERIA = {
     "fail_score_cap": 59,
     # 이 점수 미만이면 불합격
     "pass_score": 80,
-    # 기기 1대가 하루(한국 시간)에 새로 만들 수 있는 AI 리포트 수
-    "report_daily_limit": 2,
+    # 기기 1대가 하루(한국 시간)에 새로 만들 수 있는 AI 리포트 수 (박사 2026-11-21: 2 → 5)
+    "report_daily_limit": 5,
+    # 하루 한도 없이 쓰는 기기 번호 (박사 시험용 휴대폰). 6단계에서는 관리자 계정으로 바뀜
+    "report_unlimited_devices": [],
 }
 
 _CACHE = {"at": 0.0, "value": None}

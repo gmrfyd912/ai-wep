@@ -228,7 +228,8 @@ def make_report(sid: str, body: ReportRequest):
     if sc is None:
         raise HTTPException(409, {"code": "not_analyzed"})
     crit = scoring.criteria()
-    limit = int(crit.get("report_daily_limit", 2))
+    limit = int(crit.get("report_daily_limit", 5))
+    unlimited = body.device_id in (crit.get("report_unlimited_devices") or [])
 
     saved = store.get_report(sid, lang)
     # 검사기준이 바뀌어 점수·판정이 달라졌으면, 예전 글과 맞지 않으니 다시 만든다 (한도에 세지 않음)
@@ -241,7 +242,7 @@ def make_report(sid: str, body: ReportRequest):
             return {"report": saved.get("report"), "score": sc, "cached": True, "limit": limit}
         raise HTTPException(503, {"code": "ai_not_configured"})
     used = store.count_reports_since(body.device_id, _kst_midnight_iso())
-    if not stale and used >= limit:
+    if not stale and not unlimited and used >= limit:
         raise HTTPException(429, {"code": "daily_limit", "limit": limit})
 
     data = report.build_input(row, sc, _history(row))
@@ -256,4 +257,6 @@ def make_report(sid: str, body: ReportRequest):
         store.update_report(saved["id"], new)
         return {"report": out, "score": sc, "cached": False, "limit": limit}
     store.insert_report(new)
+    if unlimited:
+        return {"report": out, "score": sc, "cached": False, "limit": limit}
     return {"report": out, "score": sc, "cached": False, "limit": limit, "remaining": max(0, limit - used - 1)}

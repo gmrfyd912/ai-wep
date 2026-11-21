@@ -37,7 +37,8 @@ insert into public.app_settings (key, value) values ('criteria', '{
   "fail_types": ["crack"],
   "fail_score_cap": 59,
   "pass_score": 80,
-  "report_daily_limit": 2
+  "report_daily_limit": 5,
+  "report_unlimited_devices": []
 }'::jsonb)
 on conflict (key) do nothing;
 
