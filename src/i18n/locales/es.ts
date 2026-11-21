@@ -257,6 +257,31 @@ const es: Translation = {
   records_openLatest: "Ver el último resultado",
   records_listHint: "Toca para abrir el resultado de ese día con tu progreso.",
   chart_alignedImage: "Imagen de control (mismas posiciones que el gráfico de arriba. Líneas punteadas = ancho mín/máx, desvío máx)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "La IA está escribiendo tu informe… (el primero puede tardar unos 30 segundos)",
+  report_retry: "Reintentar",
+  report_notAnalyzed: "Solo las fotos analizadas con éxito reciben puntuación e informe de IA.",
+  report_limit: "Ya usaste los {{limit}} informes de IA de hoy. Siempre puedes volver a abrir los que ya hiciste; los nuevos se pueden crear mañana.",
+  report_notConfigured: "El informe de IA se está preparando. Aparecerá cuando el servidor esté configurado.",
+  report_busy: "La IA está ocupada ahora. Inténtalo de nuevo en un momento.",
+  report_failed: "No se pudo crear el informe de IA. Inténtalo de nuevo en un momento.",
+  report_strengths: "Lo que hiciste bien",
+  report_improvements: "Lo que debes corregir",
+  report_practice: "Cómo practicar",
+  report_comparison: "Comparado con tus registros anteriores",
+  report_remaining: "Hoy puedes crear {{n}} informe(s) nuevo(s) más ({{limit}} por día).",
+  report_note: "Este informe de IA se basa en medidas de la foto. El profesor da la decisión final.",
+  report_verdictLabel: "Resultado preliminar de IA",
+  report_pass: "Aprobado",
+  report_fail: "No aprobado",
+  report_failReason: "Motivo: {{defects}}",
+  report_partWidth: "Uniformidad del ancho",
+  report_partWidthSub: "Ancho máx − ancho mín {{mm}} mm",
+  report_partStraight: "Rectitud",
+  report_partStraightSub: "Hasta {{mm}} mm fuera de la línea base",
+  report_partDefects: "Defectos",
+  report_scoreNote: "La puntuación se calcula con reglas fijas. Por ahora (reglas temporales) solo una grieta es no aprobado; otros defectos restan puntos.",
 };
 
 export default es;

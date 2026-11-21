@@ -273,6 +273,31 @@ const ko = {
   records_openLatest: "가장 최근 결과 보기",
   records_listHint: "누르면 그 날의 결과와 누적 분석이 열려요.",
   chart_alignedImage: "확인 그림 (위 그래프와 위치가 같아요. 점선 = 최소·최대 폭, 최대 이탈)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "AI가 리포트를 쓰고 있어요… (처음엔 30초쯤 걸릴 수 있어요)",
+  report_retry: "다시 시도",
+  report_notAnalyzed: "분석에 성공한 사진만 점수와 AI 리포트를 받을 수 있어요.",
+  report_limit: "오늘 만들 수 있는 AI 리포트 {{limit}}건을 모두 썼어요. 이미 만든 리포트는 언제든 다시 볼 수 있고, 새 리포트는 내일 만들 수 있어요.",
+  report_notConfigured: "AI 리포트를 준비 중이에요. 서버 설정이 끝나면 볼 수 있어요.",
+  report_busy: "AI가 지금 바빠요. 잠시 후 다시 시도해 주세요.",
+  report_failed: "AI 리포트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.",
+  report_strengths: "잘한 점",
+  report_improvements: "고칠 점",
+  report_practice: "연습 방법",
+  report_comparison: "지난 기록과 비교",
+  report_remaining: "오늘 새 리포트 {{n}}건 더 만들 수 있어요 (하루 {{limit}}건).",
+  report_note: "사진 측정값 기준의 AI 리포트예요. 최종 판정은 선생님이 해요.",
+  report_verdictLabel: "AI 예비판정",
+  report_pass: "합격",
+  report_fail: "불합격",
+  report_failReason: "불합격 이유: {{defects}}",
+  report_partWidth: "폭 균일",
+  report_partWidthSub: "최대폭 − 최소폭 {{mm}} mm",
+  report_partStraight: "직진도",
+  report_partStraightSub: "기준선에서 최대 {{mm}} mm 벗어남",
+  report_partDefects: "결함",
+  report_scoreNote: "점수는 정해진 기준으로 계산돼요. 지금은 임시 기준이라 균열만 불합격이고, 나머지 결함은 감점이에요.",
 } as const;
 
 export default ko;

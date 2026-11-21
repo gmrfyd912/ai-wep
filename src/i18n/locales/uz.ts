@@ -257,6 +257,31 @@ const uz: Translation = {
   records_openLatest: "Eng so'nggi natijani ochish",
   records_listHint: "O'sha kungi natija va jamlangan tahlilni ochish uchun bosing.",
   chart_alignedImage: "Tekshiruv rasmi (yuqoridagi grafik bilan bir xil joy. Uzuq chiziq = eng tor/eng keng, eng katta og'ish)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "AI hisobot yozmoqda… (birinchisi taxminan 30 soniya olishi mumkin)",
+  report_retry: "Qayta urinish",
+  report_notAnalyzed: "Faqat muvaffaqiyatli tahlil qilingan rasmlar ball va AI hisobotini oladi.",
+  report_limit: "Bugun {{limit}} ta AI hisobotining hammasidan foydalandingiz. Yaratilgan hisobotlarni istalgan vaqt qayta ko'rishingiz mumkin; yangisini ertaga yaratish mumkin.",
+  report_notConfigured: "AI hisoboti tayyorlanmoqda. Server sozlangandan keyin ko'rinadi.",
+  report_busy: "AI hozir band. Birozdan keyin qayta urinib ko'ring.",
+  report_failed: "AI hisobotini yaratib bo'lmadi. Birozdan keyin qayta urinib ko'ring.",
+  report_strengths: "Yaxshi qilganlaringiz",
+  report_improvements: "Tuzatish kerak bo'lganlar",
+  report_practice: "Mashq qilish usuli",
+  report_comparison: "Oldingi natijalar bilan solishtirish",
+  report_remaining: "Bugun yana {{n}} ta yangi hisobot yaratishingiz mumkin (kuniga {{limit}} ta).",
+  report_note: "Bu AI hisoboti rasmdan o'lchangan qiymatlarga asoslangan. Yakuniy qarorni o'qituvchi qabul qiladi.",
+  report_verdictLabel: "AI dastlabki bahosi",
+  report_pass: "O'tdi",
+  report_fail: "O'tmadi",
+  report_failReason: "O'tmaslik sababi: {{defects}}",
+  report_partWidth: "Kenglik bir xilligi",
+  report_partWidthSub: "Eng keng − eng tor {{mm}} mm",
+  report_partStraight: "To'g'rilik",
+  report_partStraightSub: "Asosiy chiziqdan eng ko'pi {{mm}} mm og'ish",
+  report_partDefects: "Nuqsonlar",
+  report_scoreNote: "Ball belgilangan qoidalar bo'yicha hisoblanadi. Hozircha vaqtinchalik qoida: faqat yoriq o'tmaydi, boshqa nuqsonlar uchun ball ayiriladi.",
 };
 
 export default uz;

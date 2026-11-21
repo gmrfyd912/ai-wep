@@ -22,3 +22,5 @@ services:
         sync: false
       - key: ROBOFLOW_API_KEY
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
