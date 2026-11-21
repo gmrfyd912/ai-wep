@@ -74,6 +74,7 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
     a, b = np.polyfit(s[:, 0], s[:, 2], 1)
     dev = s[:, 2] - (a * s[:, 0] + b)
     absdev = np.abs(dev)
+    i_dev = int(np.argmax(absdev))
 
     def width_at(pos, half=1.0):
         # 캘리퍼스 턱 폭을 고려해 pos ±1mm 구간 평균
@@ -89,6 +90,7 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
         "origin": c, "u": u, "n": n, "xmin": xmin,
         "stations": st, "keep": keep, "fit": (a, b),
         "i_min": int(np.nonzero(keep)[0][i_min]), "i_max": int(np.nonzero(keep)[0][i_max]),
+        "i_dev": int(np.nonzero(keep)[0][i_dev]),
         "to_plane": to_plane, "length": length, "trim": trim if not keep.all() else 0.0,
     }
     result = {
@@ -111,6 +113,7 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
         },
         "straightness": {
             "max_dev_mm": _r(absdev.max()),
+            "max_dev_pos_mm": _r(s[i_dev, 0], 1),  # 시작점에서 떨어진 거리
             "mean_dev_mm": _r(absdev.mean()),
             "rms_dev_mm": _r(np.sqrt((dev ** 2).mean())),
             "baseline_angle_deg": _r(np.degrees(np.arctan(a))),

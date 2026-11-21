@@ -38,7 +38,7 @@ def draw(rect_img, cfg, to_px, bead_poly_mm=None, geom=None, defects=(), marker_
             if i in (geom["i_min"], geom["i_max"]):
                 col = RED if i == geom["i_min"] else MAGENTA
                 cv2.line(img, P(f(pos, cen - w / 2)), P(f(pos, cen + w / 2)), col, t + 1, cv2.LINE_AA)
-            elif keep[i] and abs(pos - round(pos / 5) * 5) < cfg.width_step_mm / 2:
+            elif keep[i] and int(pos // cfg.width_step_mm) % max(1, int(round(5 / cfg.width_step_mm))) == 0:
                 cv2.line(img, P(f(pos, cen - w / 2)), P(f(pos, cen + w / 2)), CYAN, max(1, t // 2), cv2.LINE_AA)
         ks = st[keep]
         cl = [P(f(p, c)) for p, _, c in ks]
@@ -46,6 +46,11 @@ def draw(rect_img, cfg, to_px, bead_poly_mm=None, geom=None, defects=(), marker_
         p0, p1 = ks[0, 0], ks[-1, 0]
         cv2.line(img, P(f(p0, a * p0 + b)), P(f(p1, a * p1 + b)), BLUE, t, cv2.LINE_AA)
         cv2.circle(img, P(f(0, st[0, 2])), 3 * t, GREEN, -1, cv2.LINE_AA)  # 시작점 표시
+        # 직진도 최대 벗어남 위치: 파란 기준선 → 노란 중심선 흰 선 + 흰 점
+        pd, _, cd = st[geom["i_dev"]]
+        cv2.line(img, P(f(pd, a * pd + b)), P(f(pd, cd)), WHITE, t, cv2.LINE_AA)
+        cv2.circle(img, P(f(pd, cd)), 3 * t, BLACK, -1, cv2.LINE_AA)
+        cv2.circle(img, P(f(pd, cd)), 2 * t, WHITE, -1, cv2.LINE_AA)
     for d, pts in defects:
         col = GRAY if d.get("in_end_zone") else RED if "crack" in d["type"].lower() else ORANGE
         poly(pts, col, t)

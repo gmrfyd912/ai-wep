@@ -37,8 +37,15 @@ export type EngineResult = {
   warnings?: string[];
   bead?: {
     length_mm: number;
-    width: { mean_mm: number; min_mm: number; max_mm: number; std_mm: number };
-    straightness: { max_dev_mm: number };
+    width: {
+      mean_mm: number;
+      min_mm: number;
+      max_mm: number;
+      std_mm: number;
+      min_pos_mm?: number;
+      max_pos_mm?: number;
+    };
+    straightness: { max_dev_mm: number; max_dev_pos_mm?: number };
   };
   defects?: { type: string; length_mm: number | null; confidence: number }[];
 };
