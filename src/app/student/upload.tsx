@@ -3,7 +3,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View, type ScrollViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Label, Screen, SectionTitle } from "@/components/ui";
@@ -42,6 +42,7 @@ export default function UploadScreen() {
   const [stage, setStage] = useState<Stage>("wake");
   const [uploadPct, setUploadPct] = useState(0);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
 
   async function choose(fromCamera: boolean) {
     setError(null);
@@ -63,6 +64,8 @@ export default function UploadScreen() {
     if (!photo) return;
     setBusy(true);
     setError(null);
+    // 분석 단계 목록이 보이도록 화면 맨 아래로 내린다
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
     try {
       // 1) 사진 줄이기: 실패하면 원본 그대로 보낸다
       let send = photo;
@@ -108,7 +111,7 @@ export default function UploadScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scrollRef={scrollRef}>
       <Card>
         <SectionTitle>{t("upload_guideTitle")}</SectionTitle>
         <Body>① {t("upload_guide1")}</Body>

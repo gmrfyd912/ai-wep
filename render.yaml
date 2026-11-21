@@ -9,6 +9,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
+    # server/ 폴더가 바뀔 때만 다시 배포 (앱 화면만 바뀌면 배포 안 함)
+    buildFilter:
+      paths:
+        - server/**
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8

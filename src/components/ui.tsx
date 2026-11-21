@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactNode, RefObject } from "react";
 import {
   Pressable,
   ScrollView,
@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   View,
+  type ScrollViewInstance,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
@@ -23,16 +24,18 @@ export function Screen({
   children,
   scroll = true,
   safeTop = false,
+  scrollRef,
 }: {
   children: ReactNode;
   scroll?: boolean;
   safeTop?: boolean;
+  scrollRef?: RefObject<ScrollViewInstance | null>;
 }) {
   const edges = safeTop ? (["top", "left", "right"] as const) : (["left", "right"] as const);
   return (
     <SafeAreaView style={styles.screen} edges={edges}>
       {scroll ? (
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
       ) : (
