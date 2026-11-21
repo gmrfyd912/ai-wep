@@ -66,7 +66,8 @@ def main():
              defect_types=r["result"]["defects"], result=None)
         for r in DB.values() if r["device_id"] == d]
     store.signed_url = lambda b, p, expires=3600: None
-    store.get_setting = lambda k: None
+    SETTINGS = {"report_daily_limit": 2}
+    store.get_setting = lambda k: SETTINGS
     store.get_report = lambda sid, lang: next((r for r in REPORTS if r["submission_id"] == sid and r["lang"] == lang), None)
     store.insert_report = lambda r: REPORTS.append(r)
     store.count_reports_since = lambda d, since: sum(1 for r in REPORTS if r["device_id"] == d)
@@ -122,6 +123,13 @@ def main():
     assert r.status_code == 429 and r.json()["detail"] == {"code": "daily_limit", "limit": 2}, r.text
     # 이미 만든 리포트는 한도와 상관없이 다시 볼 수 있음
     assert c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "vi"}).status_code == 200
+    # 한도 없는 기기(박사 시험용)는 한도를 넘어도 만들 수 있음
+    SETTINGS["report_unlimited_devices"] = [DEV]
+    scoring._CACHE.update(at=0, value=None)
+    r = c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "th"})
+    assert r.status_code == 200 and "remaining" not in r.json(), r.text
+    del SETTINGS["report_unlimited_devices"]
+    scoring._CACHE.update(at=0, value=None)
     # 분석 실패 사진, 남의 기기
     assert c.post(f"/submissions/{DB['f']['id']}/report", json={"device_id": DEV}).status_code == 409
     assert c.post(f"/submissions/{sid}/report", json={"device_id": "other-device-999"}).status_code == 404
@@ -132,7 +140,7 @@ def main():
     REPORTS[0]["id"] = "r1"
     r = c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "vi"})
     assert r.status_code == 200 and r.json()["cached"] is False and len(sent) == n + 1, r.text
-    assert REPORTS[0]["verdict"] == "pass" and len(REPORTS) == 2
+    assert REPORTS[0]["verdict"] == "pass" and len(REPORTS) == 3
     assert REPORTS[0]["input_tokens"] == 1200 and REPORTS[0]["score"] == d["score"]["score"]
     print("AI 리포트 흐름 시험 통과")
 

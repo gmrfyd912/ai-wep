@@ -82,7 +82,7 @@ A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기�
 
 - 점수·판정: `scoring.py` (AI가 아니라 정해진 공식). 100점 = 폭 균일 40 + 직진도 30 + 결함 30. 균열 = 불합격(최대 59점), 스패터는 감점 없음. 선급 검사표를 받기 전 임시 기준.
 - 기준값·하루 리포트 한도는 Supabase `app_settings` 표의 `criteria` 값이 있으면 그걸 씀(5분마다 다시 읽음). 6단계 시스템관리자 화면이 이 값을 고침.
-- AI 리포트: `report.py`, 모델 Claude Haiku 5.5. 사진은 보내지 않고 숫자만 보냄. 기기 1대당 하루(한국 시간) 2건.
+- AI 리포트: `report.py`, 모델 Claude Haiku 5.5. 사진은 보내지 않고 숫자만 보냄. 기기 1대당 하루(한국 시간) 5건. `report_unlimited_devices`에 있는 기기(박사 시험용)는 한도 없음 — `supabase/step5b-limits.sql`로 설정.
 - 환경 변수 추가: `ANTHROPIC_API_KEY` (필수), `ANTHROPIC_MODEL` (선택, 모델을 바꿀 때만)
 - Supabase 준비: `supabase/step5.sql` 을 SQL Editor에서 실행
 - 흐름 시험: `python -m tests.report_check` (Supabase·AI는 가짜, 돈 안 듦)
