@@ -21,7 +21,6 @@ const C = {
   maxDev: "#FFFFFF",
   min: "#FF0000",
   max: "#FF00FF",
-  ticks: "#00FFFF",
   defect: "#FF8C00",
   excluded: "#2A2A2A",
 };
@@ -111,7 +110,7 @@ export function RealResult({ id }: { id: string }) {
               <ZoomImage uri={data.check_url} visible={zoom} onClose={() => setZoom(false)} />
             </>
           ) : null}
-          <Metric label={t("result_widthMean")} value={mm(bead?.width.mean_mm)} colors={[C.ticks]} big />
+          <Metric label={t("result_widthMean")} value={mm(bead?.width.mean_mm)} big />
           <Metric label={t("result_widthMin")} value={mm(bead?.width.min_mm)} sub={at(bead?.width.min_pos_mm)} colors={[C.min]} />
           <Metric label={t("result_widthMax")} value={mm(bead?.width.max_mm)} sub={at(bead?.width.max_pos_mm)} colors={[C.max]} />
           <Metric label={t("result_widthStd")} value={mm(bead?.width.std_mm)} />
@@ -149,7 +148,6 @@ export function RealResult({ id }: { id: string }) {
                 [C.maxDev, "legend_maxDev"],
                 [C.min, "result_widthMin"],
                 [C.max, "result_widthMax"],
-                [C.ticks, "legend_ticks"],
                 [C.defect, "legend_defect"],
                 [C.excluded, "legend_excluded"],
               ] as const

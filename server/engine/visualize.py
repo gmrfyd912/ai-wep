@@ -38,8 +38,6 @@ def draw(rect_img, cfg, to_px, bead_poly_mm=None, geom=None, defects=(), marker_
             if i in (geom["i_min"], geom["i_max"]):
                 col = RED if i == geom["i_min"] else MAGENTA
                 cv2.line(img, P(f(pos, cen - w / 2)), P(f(pos, cen + w / 2)), col, t + 1, cv2.LINE_AA)
-            elif keep[i] and int(pos // cfg.width_step_mm) % max(1, int(round(5 / cfg.width_step_mm))) == 0:
-                cv2.line(img, P(f(pos, cen - w / 2)), P(f(pos, cen + w / 2)), CYAN, max(1, t // 2), cv2.LINE_AA)
         ks = st[keep]
         cl = [P(f(p, c)) for p, _, c in ks]
         cv2.polylines(img, [np.array(cl, np.int32)], False, YELLOW, t, cv2.LINE_AA)
