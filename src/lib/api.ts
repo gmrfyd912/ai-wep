@@ -125,7 +125,13 @@ export async function analyzePhoto(
         }
       } else {
         console.warn(`[api] analyze 서버 오류 ${xhr.status}:`, xhr.responseText?.slice(0, 300));
-        reject(new NetworkError(`analyze: server ${xhr.status}`));
+        let detail = "";
+        try {
+          detail = String(JSON.parse(xhr.responseText)?.detail ?? "");
+        } catch {
+          /* 본문이 JSON 이 아님 */
+        }
+        reject(new NetworkError(`analyze: server ${xhr.status}${detail ? ` ${detail}` : ""}`));
       }
     };
     xhr.onerror = () => {

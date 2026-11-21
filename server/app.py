@@ -32,6 +32,16 @@ def health():
     return {"ok": True, "engine_version": ENGINE_VERSION, "storage": store.configured()}
 
 
+async def _step(name, fn, *args):
+    """단계별 실행: 실패하면 원인을 짧게 앱에 돌려준다 (비밀 키는 메시지에 들어가지 않음)."""
+    try:
+        return await run_in_threadpool(fn, *args)
+    except Exception as e:  # noqa: BLE001
+        msg = f"{name}: {type(e).__name__}: {e}"[:300]
+        print("[analyze] 실패", msg, flush=True)
+        raise HTTPException(500, msg)
+
+
 def _check_device(device_id):
     if not DEVICE_RE.match(device_id or ""):
         raise HTTPException(400, "bad_device_id")
@@ -71,20 +81,20 @@ async def analyze(
     sid = str(uuid.uuid4())
     photo_path = f"{device_id}/{sid}.jpg"
     ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 92])
-    await run_in_threadpool(store.upload, "photos", photo_path, jpg.tobytes())
-    await run_in_threadpool(store.insert, {
+    await _step("save_photo", store.upload, "photos", photo_path, jpg.tobytes())
+    await _step("save_record", store.insert, {
         "id": sid, "device_id": device_id, "process": process or None,
         "position": position or None, "material": material or None,
         "status": "processing", "photo_path": photo_path,
     })
 
-    res, vis, _ = await run_in_threadpool(analyze_image, img, Config())
+    res, vis, _ = await _step("analyze", analyze_image, img, Config())
 
     check_path = None
     if vis is not None:
         ok, cj = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 88])
         check_path = f"{device_id}/{sid}_check.jpg"
-        await run_in_threadpool(store.upload, "results", check_path, cj.tobytes())
+        await _step("save_check_image", store.upload, "results", check_path, cj.tobytes())
 
     bead = res.get("bead") or {}
     status = res.get("status", "error")
@@ -98,8 +108,8 @@ async def analyze(
         "straight_max_dev_mm": (bead.get("straightness") or {}).get("max_dev_mm"),
         "defect_count": len(res.get("defects") or []),
     }
-    row = await run_in_threadpool(store.update, sid, update)
-    return await run_in_threadpool(_detail, row)
+    row = await _step("save_result", store.update, sid, update)
+    return await _step("make_links", _detail, row)
 
 
 def _detail(row):
