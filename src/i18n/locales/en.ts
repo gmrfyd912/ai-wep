@@ -248,6 +248,14 @@ const en: Translation = {
   records_same: "Same",
   records_refOnly: "Info",
   records_compareHint: "Mean width has no better or worse, so it is shown for reference only.",
+  cum_title: "Progress · {{group}}",
+  cum_count: "Analysis {{n}} of {{count}} successful",
+  cum_currentHint: "Large orange dot = the result you are viewing",
+  cum_firstRecord: "This is the first record, so there is nothing to compare.",
+  cum_pastTitle: "Past analyses · {{group}}",
+  cum_viewing: "Viewing now",
+  records_openLatest: "Open latest result",
+  records_listHint: "Tap to open that day's result with your progress.",
 };
 
 export default en;

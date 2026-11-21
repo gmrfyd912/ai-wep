@@ -248,6 +248,14 @@ const es: Translation = {
   records_same: "Igual",
   records_refOnly: "Ref.",
   records_compareHint: "El ancho promedio no es mejor ni peor, se muestra solo como referencia.",
+  cum_title: "Análisis acumulado · {{group}}",
+  cum_count: "Análisis {{n}} de {{count}} exitosos",
+  cum_currentHint: "Punto naranja grande = el resultado que estás viendo",
+  cum_firstRecord: "Es el primer registro, no hay uno anterior para comparar.",
+  cum_pastTitle: "Análisis anteriores · {{group}}",
+  cum_viewing: "Viendo ahora",
+  records_openLatest: "Ver el último resultado",
+  records_listHint: "Toca para abrir el resultado de ese día con tu progreso.",
 };
 
 export default es;
