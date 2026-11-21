@@ -4,18 +4,20 @@ import { StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { Body, Card, ComingSoon, PreviewNotice, Screen, ScoreBadge, SectionTitle, Title } from "@/components/ui";
-import { courseById, ME_STUDENT_ID, RESULTS, studentById } from "@/mock/data";
+import { ME_STUDENT_ID, RESULTS, studentById } from "@/mock/data";
+import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
 
 export default function StudentHome() {
   const { t } = useTranslation();
+  const { user } = useSession();
   const me = studentById(ME_STUDENT_ID)!;
   const latest = RESULTS.find((r) => r.studentId === me.id);
 
   return (
     <Screen>
-      <Title>{t("home_greeting", { name: me.name })}</Title>
-      <Text style={styles.course}>{courseById(me.courseId)?.name}</Text>
+      <Title>{t("home_greeting", { name: user?.name ?? "" })}</Title>
+      <Text style={styles.course}>{user?.courses.map((c) => c.name).join(", ")}</Text>
 
       <Card onPress={() => router.push("/student/upload")} style={styles.cta}>
         <Ionicons name="camera" size={32} color={colors.text} />

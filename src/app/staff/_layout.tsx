@@ -1,13 +1,14 @@
 import { Tabs } from "expo-router/js-tabs";
 import { useTranslation } from "react-i18next";
 
-import { useBackToLoginOnHardwareBack } from "@/components/preview";
+import { useRoleRedirect } from "@/components/guard";
 
 import { tabIcon, tabScreenOptions } from "@/components/tabs";
 
 export default function StaffLayout() {
   const { t } = useTranslation();
-  useBackToLoginOnHardwareBack();
+  const redirect = useRoleRedirect("staff");
+  if (redirect) return redirect;
   return (
     <Tabs screenOptions={tabScreenOptions}>
       <Tabs.Screen name="index" options={{ title: t("tab_courseBoard"), tabBarIcon: tabIcon("apps-outline") }} />

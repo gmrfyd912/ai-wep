@@ -9,14 +9,17 @@ from fastapi.testclient import TestClient
 import app as server
 import report
 import scoring
+import accounts
 import store
+from tests import fake_db as db
 
 DEV = "test-device-1234"
+USER = {"id": "user-1", "role": "student"}
 
 
 def row(sid, created, width=(7.5, 8.5), dev=0.8, defects=(), status="ok", process="SMAW", position="1G"):
     return {
-        "id": sid, "device_id": DEV, "status": status, "process": process, "position": position,
+        "id": sid, "user_id": USER["id"], "device_id": DEV, "status": status, "process": process, "position": position,
         "material": "CS", "created_at": created, "photo_path": None, "check_path": None,
         "width_mean_mm": sum(width) / 2, "straight_max_dev_mm": dev, "defect_count": len(defects),
         "result": {"status": status, "bead": {
@@ -59,18 +62,19 @@ def main():
         "c": row("00000000-0000-4000-8000-00000000000d", "2026-11-20T01:00:00Z", (7.8, 8.6), 0.7, ["Spatter"]),
         "f": row("00000000-0000-4000-8000-00000000000e", "2026-11-20T02:00:00Z", status="no_bead"),
     }
+    db.install()
     REPORTS = []
     store.get = lambda sid: next((r for r in DB.values() if r["id"] == sid), None)
-    store.list_by_device = lambda d, n: [
+    store.list_by_user = lambda u, n: [
         dict(r, width_min_mm=r["result"]["bead"]["width"]["min_mm"], width_max_mm=r["result"]["bead"]["width"]["max_mm"],
              defect_types=r["result"]["defects"], result=None)
-        for r in DB.values() if r["device_id"] == d]
+        for r in DB.values() if r["user_id"] == u]
     store.signed_url = lambda b, p, expires=3600: None
     SETTINGS = {"report_daily_limit": 2}
     store.get_setting = lambda k: SETTINGS
     store.get_report = lambda sid, lang: next((r for r in REPORTS if r["submission_id"] == sid and r["lang"] == lang), None)
     store.insert_report = lambda r: REPORTS.append(r)
-    store.count_reports_since = lambda d, since: sum(1 for r in REPORTS if r["device_id"] == d)
+    store.count_reports_since_user = lambda u, since: sum(1 for r in REPORTS if r["user_id"] == u)
     scoring._CACHE.update(at=0, value=None)
 
     sent = []
@@ -94,12 +98,14 @@ def main():
     import sys
     sys.modules["anthropic"] = fake
 
+    who = {"user": dict(USER)}
+    server.app.dependency_overrides[accounts.current_user] = lambda: who["user"]
     c = TestClient(server.app)
     sid = DB["c"]["id"]
     # 상세 화면에 점수가 들어감
-    d = c.get(f"/submissions/{sid}", params={"device_id": DEV}).json()
+    d = c.get(f"/submissions/{sid}").json()
     assert d["score"]["verdict"] == "pass" and d["score"]["score"] > 80, d["score"]
-    lst = c.get("/submissions", params={"device_id": DEV}).json()
+    lst = c.get("/submissions").json()
     assert all("score" in r for r in lst)
 
     os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -132,7 +138,13 @@ def main():
     scoring._CACHE.update(at=0, value=None)
     # 분석 실패 사진, 남의 기기
     assert c.post(f"/submissions/{DB['f']['id']}/report", json={"device_id": DEV}).status_code == 409
-    assert c.post(f"/submissions/{sid}/report", json={"device_id": "other-device-999"}).status_code == 404
+    who["user"] = {"id": "user-2", "role": "student"}
+    assert c.post(f"/submissions/{sid}/report", json={"device_id": DEV}).status_code == 404
+    who["user"] = {"id": "user-2", "role": "admin"}  # 시스템관리자는 남의 기록도 열람, 한도 없음
+    r = c.post(f"/submissions/{sid}/report", json={"lang": "es"})
+    assert r.status_code == 200 and "remaining" not in r.json(), r.text
+    REPORTS.pop()
+    who["user"] = dict(USER)
     # 기준이 바뀌어 판정이 달라지면 저장된 리포트를 다시 만든다 (한도 초과여도)
     REPORTS[0]["verdict"] = "fail"
     n = len(sent)
@@ -142,6 +154,7 @@ def main():
     assert r.status_code == 200 and r.json()["cached"] is False and len(sent) == n + 1, r.text
     assert REPORTS[0]["verdict"] == "pass" and len(REPORTS) == 3
     assert REPORTS[0]["input_tokens"] == 1200 and REPORTS[0]["score"] == d["score"]["score"]
+    server.app.dependency_overrides.clear()
     print("AI 리포트 흐름 시험 통과")
 
 

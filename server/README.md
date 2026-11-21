@@ -86,3 +86,27 @@ A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기�
 - 환경 변수 추가: `ANTHROPIC_API_KEY` (필수), `ANTHROPIC_MODEL` (선택, 모델을 바꿀 때만)
 - Supabase 준비: `supabase/step5.sql` 을 SQL Editor에서 실행
 - 흐름 시험: `python -m tests.report_check` (Supabase·AI는 가짜, 돈 안 듦)
+
+## 6-1단계: 로그인·가입·계정 (accounts.py)
+
+6-1단계부터 분석·목록·리포트는 로그인한 계정으로만 씁니다. 앱은 `Authorization: Bearer <토큰>` 을 보냅니다.
+토큰은 로그아웃·계정 삭제·비밀번호 변경(다른 휴대폰)·재설정 전까지 유효합니다. 서버에는 토큰의 SHA-256 값만 저장합니다.
+
+| 주소 | 하는 일 |
+|---|---|
+| `GET /courses` | 가입 화면 과정 목록 (운영 중인 과정만) |
+| `POST /auth/signup` | 이름·아이디·비밀번호·역할·과정·이메일(선택) → 토큰, 또는 승인 대기 |
+| `POST /auth/login` | 아이디(대소문자 무시)·비밀번호 → 토큰 |
+| `POST /auth/logout` | 이 휴대폰 로그아웃 |
+| `GET /me`, `PATCH /me` | 내 정보 / 이메일 변경 |
+| `POST /me/password` | 비밀번호 변경 (첫 로그인·초기화 직후에는 지금 비밀번호를 묻지 않음) |
+| `POST /auth/find-id` | 이메일로 아이디 보내기 |
+| `POST /auth/forgot`, `POST /auth/reset` | 이메일로 6자리 번호(15분) 보내기 → 새 비밀번호 |
+| `GET /me/device-records`, `POST /me/claim-device` | 로그인 전 이 휴대폰 기록 수 / 내 계정으로 가져오기 |
+| `POST /me/delete` | 계정 영구 삭제 (사진·기록·리포트 포함, 시스템관리자는 불가) |
+
+- Supabase 준비: `supabase/step6-accounts.sql` 을 SQL Editor에서 실행. admin 계정은 비밀번호가 공개 저장소에 올라가지 않도록 파일에 넣지 않고 따로 실행합니다.
+- 비밀번호 규칙: `app_settings` 의 `auth.password_min_length` (기본 0 = 규칙 없음, 6-4단계 관리자 화면에서 변경). 가입 승인: `signup.student_approval`, `signup.staff_approval` (기본 꺼짐).
+- 메일(선택): Render 무료 서버는 메일 포트가 막혀 있어 Brevo 웹 API를 씁니다. 환경 변수 `BREVO_API_KEY`, `MAIL_FROM`. 없으면 이메일 찾기만 "준비 안 됨"으로 나오고 나머지는 정상 동작합니다.
+- 리포트 하루 한도는 계정 기준. 시스템관리자 계정과 `report_unlimited_devices` 휴대폰은 한도 없음.
+- 흐름 시험: `python -m tests.accounts_check` (Supabase·메일은 가짜)

@@ -5,8 +5,10 @@
   SUPABASE_SECRET_KEY  Supabase 서버용 비밀 키 (sb_secret_... 또는 예전 service_role 키)
   ROBOFLOW_API_KEY     Roboflow 키
   ANTHROPIC_API_KEY    AI 리포트(5단계)용 Anthropic 키
+  BREVO_API_KEY, MAIL_FROM  아이디·비밀번호 찾기 메일 (6-1단계, mail.py 참고)
 
-로그인은 6단계에서 붙인다. 그전까지는 휴대폰마다 앱이 만든 임시 번호(device_id)로 구분한다.
+6-1단계부터 로그인한 계정으로 기록을 저장·조회한다 (accounts.py).
+device_id 는 로그인 전 기록을 계정으로 가져올 때와, 한도 없는 시험용 휴대폰 확인에만 쓴다.
 """
 import re
 import time
@@ -15,10 +17,12 @@ from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+import accounts
+import mail
 import report
 import scoring
 import store
@@ -31,6 +35,7 @@ DEVICE_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 CODE_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
 
 app = FastAPI(title="AI W.E.P analysis server")
+app.include_router(accounts.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
@@ -54,7 +59,7 @@ def get_progress(job_id: str):
 @app.get("/health")
 def health():
     return {"ok": True, "engine_version": ENGINE_VERSION, "storage": store.configured(),
-            "ai_report": report.configured()}
+            "ai_report": report.configured(), "mail": mail.configured(), "accounts": True}
 
 
 async def _step(name, fn, *args):
@@ -70,6 +75,10 @@ async def _step(name, fn, *args):
 def _check_device(device_id):
     if not DEVICE_RE.match(device_id or ""):
         raise HTTPException(400, "bad_device_id")
+
+
+def _device_or_none(device_id):
+    return device_id if device_id and DEVICE_RE.match(device_id) else None
 
 
 def _summary(row):
@@ -95,13 +104,14 @@ def _list_item(row):
 @app.post("/analyze")
 async def analyze(
     photo: UploadFile = File(...),
-    device_id: str = Form(...),
+    device_id: str = Form(""),
     process: str = Form(""),
     position: str = Form(""),
     material: str = Form(""),
     job_id: str = Form(""),
+    user=Depends(accounts.current_user),
 ):
-    _check_device(device_id)
+    device_id = _device_or_none(device_id)
     if job_id and not DEVICE_RE.match(job_id):
         raise HTTPException(400, "bad_job_id")
     _set_progress(job_id, "save_photo")
@@ -120,11 +130,11 @@ async def analyze(
         img = cv2.resize(img, (round(w * s), round(h * s)), interpolation=cv2.INTER_AREA)
 
     sid = str(uuid.uuid4())
-    photo_path = f"{device_id}/{sid}.jpg"
+    photo_path = f"{user['id']}/{sid}.jpg"
     ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 92])
     await _step("save_photo", store.upload, "photos", photo_path, jpg.tobytes())
     await _step("save_record", store.insert, {
-        "id": sid, "device_id": device_id, "process": process or None,
+        "id": sid, "user_id": user["id"], "device_id": device_id or "-", "process": process or None,
         "position": position or None, "material": material or None,
         "status": "processing", "photo_path": photo_path,
     })
@@ -136,7 +146,7 @@ async def analyze(
     check_path = None
     if vis is not None:
         ok, cj = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 88])
-        check_path = f"{device_id}/{sid}_check.jpg"
+        check_path = f"{user['id']}/{sid}_check.jpg"
         await _step("save_check_image", store.upload, "results", check_path, cj.tobytes())
 
     bead = res.get("bead") or {}
@@ -167,27 +177,26 @@ def _detail(row):
 
 
 @app.get("/submissions")
-def list_submissions(device_id: str, limit: int = 200):
-    _check_device(device_id)
-    rows = store.list_by_device(device_id, max(1, min(limit, 500)))
+def list_submissions(limit: int = 200, user=Depends(accounts.current_user)):
+    rows = store.list_by_user(user["id"], max(1, min(limit, 500)))
     return [_list_item(r) for r in rows]
 
 
-def _own_row(sid, device_id):
-    _check_device(device_id)
+def _own_row(sid, user):
+    """내 기록만 (시스템관리자는 전부). 교사·행정 관리자 열람은 6-2단계에서 넓힌다."""
     try:
         uuid.UUID(sid)
     except ValueError:
         raise HTTPException(404, "not_found")
     row = store.get(sid)
-    if not row or row.get("device_id") != device_id:
+    if not row or (row.get("user_id") != user["id"] and user["role"] != "admin"):
         raise HTTPException(404, "not_found")
     return row
 
 
 @app.get("/submissions/{sid}")
-def get_submission(sid: str, device_id: str):
-    return _detail(_own_row(sid, device_id))
+def get_submission(sid: str, user=Depends(accounts.current_user)):
+    return _detail(_own_row(sid, user))
 
 
 # ---- 5단계: AI 종합리포트 ----
@@ -196,7 +205,7 @@ KST = timezone(timedelta(hours=9))
 
 
 class ReportRequest(BaseModel):
-    device_id: str
+    device_id: str = ""
     lang: str = "ko"
 
 
@@ -206,8 +215,8 @@ def _kst_midnight_iso():
 
 
 def _history(row, limit=10):
-    """같은 기기·같은 용접법·자세의 성공한 이전 기록 (이번 것 제외, 오래된 → 최근, 최대 10개)."""
-    rows = store.list_by_device(row["device_id"], 500)
+    """같은 계정·같은 용접법·자세의 성공한 이전 기록 (이번 것 제외, 오래된 → 최근, 최대 10개)."""
+    rows = store.list_by_user(row["user_id"], 500) if row.get("user_id") else []
     same = [r for r in rows if r.get("status") == "ok" and r.get("id") != row["id"]
             and r.get("process") == row.get("process") and r.get("position") == row.get("position")
             and (r.get("created_at") or "") <= (row.get("created_at") or "")]
@@ -219,17 +228,19 @@ def _history(row, limit=10):
 
 
 @app.post("/submissions/{sid}/report")
-def make_report(sid: str, body: ReportRequest):
+def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_user)):
     """AI 리포트 탭을 열면 부른다. 같은 사진·같은 언어로 만든 적이 있으면 저장된 것을 돌려준다(비용 0).
     없으면 하루 한도를 확인하고 새로 만든다."""
-    row = _own_row(sid, body.device_id)
+    row = _own_row(sid, user)
     lang = body.lang if body.lang in report.LANGS else "en"
     sc = scoring.score_of_row(row)
     if sc is None:
         raise HTTPException(409, {"code": "not_analyzed"})
     crit = scoring.criteria()
     limit = int(crit.get("report_daily_limit", 5))
-    unlimited = body.device_id in (crit.get("report_unlimited_devices") or [])
+    # 시스템관리자 계정과 박사님 시험용 휴대폰은 한도 없음
+    unlimited = user["role"] == "admin" or (
+        bool(body.device_id) and body.device_id in (crit.get("report_unlimited_devices") or []))
 
     saved = store.get_report(sid, lang)
     # 검사기준이 바뀌어 점수·판정이 달라졌으면, 예전 글과 맞지 않으니 다시 만든다 (한도에 세지 않음)
@@ -241,7 +252,7 @@ def make_report(sid: str, body: ReportRequest):
         if saved:  # AI를 못 쓰면 예전 글이라도 보여 준다
             return {"report": saved.get("report"), "score": sc, "cached": True, "limit": limit}
         raise HTTPException(503, {"code": "ai_not_configured"})
-    used = store.count_reports_since(body.device_id, _kst_midnight_iso())
+    used = store.count_reports_since_user(user["id"], _kst_midnight_iso())
     if not stale and not unlimited and used >= limit:
         raise HTTPException(429, {"code": "daily_limit", "limit": limit})
 
@@ -251,7 +262,7 @@ def make_report(sid: str, body: ReportRequest):
     except report.ReportError as e:
         print("[report] 실패", str(e)[:300], flush=True)
         raise HTTPException(503 if e.code == "ai_not_configured" else 502, {"code": e.code})
-    new = {"submission_id": sid, "device_id": body.device_id, "lang": lang, "model": report.model_name(),
+    new = {"submission_id": sid, "user_id": user["id"], "device_id": _device_or_none(body.device_id) or "-", "lang": lang, "model": report.model_name(),
            "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage}
     if stale:
         store.update_report(saved["id"], new)

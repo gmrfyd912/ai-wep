@@ -7,8 +7,9 @@ export const API_URL: string =
   (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ?? "https://ai-wep-server.onrender.com";
 
 const DEVICE_KEY = "aiwep.deviceId";
+const TOKEN_KEY = "aiwep.token";
 
-/** 로그인 전(6단계 전) 임시 번호: 휴대폰마다 한 번 만들어 저장한다. */
+/** 휴대폰마다 한 번 만드는 번호. 로그인 전 기록을 계정으로 가져올 때와 시험용 휴대폰 확인에 쓴다. */
 export async function getDeviceId(): Promise<string> {
   const saved = await AsyncStorage.getItem(DEVICE_KEY);
   if (saved) return saved;
@@ -17,6 +18,48 @@ export async function getDeviceId(): Promise<string> {
   await AsyncStorage.setItem(DEVICE_KEY, id);
   return id;
 }
+
+// ---- 로그인 토큰 (로그아웃 전까지 휴대폰에 저장) ----
+
+let token: string | null = null;
+let onUnauthorized: (() => void) | null = null;
+
+export async function loadToken(): Promise<string | null> {
+  token = await AsyncStorage.getItem(TOKEN_KEY);
+  return token;
+}
+
+export async function saveToken(t: string | null): Promise<void> {
+  token = t;
+  if (t) await AsyncStorage.setItem(TOKEN_KEY, t);
+  else await AsyncStorage.removeItem(TOKEN_KEY);
+}
+
+/** 서버가 "다시 로그인하세요(401)"라고 하면 부를 함수 (세션 화면이 등록) */
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
+function authHeaders(): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export type Role = "student" | "teacher" | "staff" | "admin";
+
+export type Course = { id: string; name: string };
+
+export type Me = {
+  id: string;
+  login_id: string;
+  name: string;
+  role: Role;
+  email: string | null;
+  status: string;
+  must_change_password: boolean;
+  courses: Course[];
+};
+
+export type AuthResult = { token: string; user: Me } | { pending: true };
 
 export type Status = "ok" | "processing" | "marker_not_found" | "no_bead" | "roboflow_failed" | string;
 
@@ -121,7 +164,7 @@ export class NetworkError extends Error {
   constructor(
     public code: string,
     public status = 0,
-    public detail: { code?: string; limit?: number } | null = null,
+    public detail: { code?: string; limit?: number; min?: number } | null = null,
   ) {
     super(code);
   }
@@ -134,7 +177,8 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...init, signal: ctrl.signal });
+    const headers = { ...authHeaders(), ...((init.headers as Record<string, string>) ?? {}) };
+    res = await fetch(`${API_URL}${path}`, { ...init, headers, signal: ctrl.signal });
   } catch (e) {
     const err = e as Error;
     const secs = Math.round((Date.now() - started) / 1000);
@@ -151,13 +195,14 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.warn(`[api] ${path} 서버 오류 ${res.status}:`, body.slice(0, 300));
-    let detail: { code?: string; limit?: number } | null = null;
+    let detail: { code?: string; limit?: number; min?: number } | null = null;
     try {
       const d = JSON.parse(body)?.detail;
       if (d && typeof d === "object") detail = d;
     } catch {
       // 본문이 JSON 이 아니면 무시
     }
+    if (res.status === 401 && token && !path.startsWith("/auth/")) onUnauthorized?.();
     throw new NetworkError(`${step}: server ${res.status}`, res.status, detail);
   }
   return (await res.json()) as T;
@@ -195,6 +240,7 @@ export async function analyzePhoto(
   return new Promise<Submission>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_URL}/analyze`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.timeout = 180000;
     if (opts.onUploadProgress && xhr.upload) {
       xhr.upload.onprogress = (e) => {
@@ -210,6 +256,7 @@ export async function analyzePhoto(
         }
       } else {
         console.warn(`[api] analyze 서버 오류 ${xhr.status}:`, xhr.responseText?.slice(0, 300));
+        if (xhr.status === 401) onUnauthorized?.();
         let detail = "";
         try {
           detail = String(JSON.parse(xhr.responseText)?.detail ?? "");
@@ -248,13 +295,11 @@ export async function getProgress(jobId: string): Promise<string | null> {
 }
 
 export async function listSubmissions(): Promise<SubmissionListItem[]> {
-  const id = encodeURIComponent(await getDeviceId());
-  return request<SubmissionListItem[]>(`/submissions?device_id=${id}`, {}, 90000);
+  return request<SubmissionListItem[]>(`/submissions`, {}, 90000);
 }
 
 export async function getSubmission(sid: string): Promise<Submission> {
-  const id = encodeURIComponent(await getDeviceId());
-  return request<Submission>(`/submissions/${sid}?device_id=${id}`, {}, 90000);
+  return request<Submission>(`/submissions/${sid}`, {}, 90000);
 }
 
 /** AI 리포트: 탭을 열면 부른다. 같은 사진·같은 언어로 만든 적이 있으면 서버가 저장된 것을 돌려준다.
@@ -273,4 +318,94 @@ export function statusKey(s: Status): string {
   if (s === "processing") return "status_processing";
   if (s === "marker_not_found" || s === "no_bead" || s === "roboflow_failed") return `status_${s}`;
   return "status_error";
+}
+
+// ---- 6-1단계: 계정 ----
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+/** 로그인·가입은 서버가 잠들어 있으면 깨는 데 1분쯤 걸려서 넉넉히 기다린다. */
+const AUTH_TIMEOUT = 120000;
+
+export async function listCourses(): Promise<Course[]> {
+  return request<Course[]>("/courses", {}, AUTH_TIMEOUT);
+}
+
+export async function login(login_id: string, password: string): Promise<{ token: string; user: Me }> {
+  const device_id = await getDeviceId();
+  return request("/auth/login", json("POST", { login_id, password, device_id }), AUTH_TIMEOUT);
+}
+
+export async function signup(form: {
+  login_id: string;
+  password: string;
+  name: string;
+  role: Exclude<Role, "admin">;
+  email: string | null;
+  course_ids: string[];
+}): Promise<AuthResult> {
+  const device_id = await getDeviceId();
+  return request("/auth/signup", json("POST", { ...form, device_id }), AUTH_TIMEOUT);
+}
+
+export async function getMe(): Promise<Me> {
+  return request<Me>("/me", {}, AUTH_TIMEOUT);
+}
+
+export async function logout(): Promise<void> {
+  await request("/auth/logout", { method: "POST" }, 15000);
+}
+
+export async function changePassword(current: string, next: string): Promise<Me> {
+  return request<Me>("/me/password", json("POST", { current, new: next }), AUTH_TIMEOUT);
+}
+
+export async function updateEmail(email: string | null): Promise<Me> {
+  return request<Me>("/me", json("PATCH", { email }), AUTH_TIMEOUT);
+}
+
+export async function findId(email: string, lang: string): Promise<void> {
+  await request("/auth/find-id", json("POST", { email, lang }), AUTH_TIMEOUT);
+}
+
+export async function sendResetCode(login_id: string, lang: string): Promise<{ email: string }> {
+  return request("/auth/forgot", json("POST", { login_id, lang }), AUTH_TIMEOUT);
+}
+
+export async function resetPassword(
+  login_id: string,
+  code: string,
+  new_password: string,
+): Promise<{ token: string; user: Me }> {
+  const device_id = await getDeviceId();
+  return request("/auth/reset", json("POST", { login_id, code, new_password, device_id }), AUTH_TIMEOUT);
+}
+
+/** 로그인 전에 이 휴대폰으로 분석한 기록 수 */
+export async function countDeviceRecords(): Promise<number> {
+  const id = encodeURIComponent(await getDeviceId());
+  const r = await request<{ count: number }>(`/me/device-records?device_id=${id}`, {}, AUTH_TIMEOUT);
+  return r.count;
+}
+
+export async function claimDeviceRecords(): Promise<number> {
+  const device_id = await getDeviceId();
+  const r = await request<{ moved: number }>("/me/claim-device", json("POST", { device_id }), AUTH_TIMEOUT);
+  return r.moved;
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  await request("/me/delete", json("POST", { password }), AUTH_TIMEOUT);
+}
+
+/** 서버 오류 → 화면 문구 키 (auth_err_...) 와 값 */
+export function authErrorKey(e: unknown): { key: string; values: { min?: number } } {
+  if (e instanceof NetworkError && e.detail?.code) {
+    return { key: `auth_err_${e.detail.code}`, values: { min: e.detail.min } };
+  }
+  return { key: "error_network", values: {} };
 }

@@ -66,10 +66,14 @@ def get(sid):
 
 
 def list_by_device(device_id, limit):
+    return _list_submissions("device_id", device_id, limit)
+
+
+def _list_submissions(col, value, limit):
     url, h = _base()
     r = _check(requests.get(f"{url}/rest/v1/submissions", headers=h, timeout=TIMEOUT, params={
-        "device_id": f"eq.{device_id}", "order": "created_at.desc", "limit": str(limit),
-        "select": ("id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,defect_count,"
+        col: f"eq.{value}", "order": "created_at.desc", "limit": str(limit),
+        "select": ("id,user_id,device_id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,defect_count,"
                    # 누적 분석(4단계)용: 결과 JSON에서 필요한 값만 꺼낸다
                    "width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
                    "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")}))
@@ -117,6 +121,67 @@ def count_reports_since(device_id, since_iso):
         "device_id": f"eq.{device_id}", "created_at": f"gte.{since_iso}", "select": "id"},
         headers={**h, "Prefer": "count=exact", "Range": "0-0"}))
     rng = r.headers.get("Content-Range", "")  # 예: 0-0/3 또는 */0
+    try:
+        return int(rng.rsplit("/", 1)[1])
+    except (IndexError, ValueError):
+        return len(r.json())
+
+
+# ---- 6단계: 계정 (표 이름을 받아 쓰는 공통 함수) ----
+
+def select(table, params):
+    """PostgREST 조회. params 예: {"login_key": "eq.abc", "select": "*"}"""
+    url, h = _base()
+    r = _check(requests.get(f"{url}/rest/v1/{table}", params=params, headers=h, timeout=TIMEOUT))
+    return r.json()
+
+
+def insert_rows(table, rows, returning=True):
+    url, h = _base()
+    prefer = "return=representation" if returning else "return=minimal"
+    r = _check(requests.post(f"{url}/rest/v1/{table}", json=rows, timeout=TIMEOUT,
+                             headers={**h, "Prefer": prefer}))
+    return r.json() if returning else None
+
+
+def patch(table, filters, fields):
+    """filters 예: {"id": "eq.xxx"}. 바뀐 행 목록을 돌려준다."""
+    url, h = _base()
+    r = _check(requests.patch(f"{url}/rest/v1/{table}", params=filters, json=fields, timeout=TIMEOUT,
+                              headers={**h, "Prefer": "return=representation"}))
+    return r.json()
+
+
+def delete(table, filters):
+    url, h = _base()
+    if not filters:
+        raise ValueError("delete without filter")
+    _check(requests.delete(f"{url}/rest/v1/{table}", params=filters, timeout=TIMEOUT,
+                           headers={**h, "Prefer": "return=minimal"}))
+
+
+def remove_files(bucket, paths):
+    """저장 공간의 파일 여러 개 삭제 (없는 파일은 무시)."""
+    paths = [p for p in paths if p]
+    if not paths:
+        return
+    url, h = _base()
+    for i in range(0, len(paths), 100):
+        _check(requests.delete(f"{url}/storage/v1/object/{bucket}", json={"prefixes": paths[i:i + 100]},
+                               headers=h, timeout=TIMEOUT))
+
+
+def list_by_user(user_id, limit):
+    """list_by_device 와 같은 모양으로 계정의 기록을 돌려준다."""
+    return _list_submissions("user_id", user_id, limit)
+
+
+def count_reports_since_user(user_id, since_iso):
+    url, h = _base()
+    r = _check(requests.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
+        "user_id": f"eq.{user_id}", "created_at": f"gte.{since_iso}", "select": "id"},
+        headers={**h, "Prefer": "count=exact", "Range": "0-0"}))
+    rng = r.headers.get("Content-Range", "")
     try:
         return int(rng.rsplit("/", 1)[1])
     except (IndexError, ValueError):
