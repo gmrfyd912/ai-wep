@@ -7,7 +7,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Label, Screen, SectionTitle } from "@/components/ui";
-import { analyzePhoto } from "@/lib/api";
+import { analyzePhoto, NetworkError, wakeServer } from "@/lib/api";
 import { colors, radius, space } from "@/theme";
 
 // 공정·자세·재질 값은 영어 코드로 저장한다. 화면 표시는 국제 표준 약어(언어와 무관).
@@ -61,12 +61,22 @@ export default function UploadScreen() {
     setBusy(true);
     setError(null);
     try {
-      const small = await shrink(photo);
-      const res = await analyzePhoto(small.uri, { process: proc, position: pos, material: mat });
+      // 1) 사진 줄이기: 실패하면 원본 그대로 보낸다
+      let send = photo;
+      try {
+        send = await shrink(photo);
+      } catch (e) {
+        console.warn("[upload] 사진 줄이기 실패, 원본으로 보냄:", e);
+      }
+      // 2) 서버 깨우기  3) 분석
+      await wakeServer();
+      const res = await analyzePhoto(send.uri, { process: proc, position: pos, material: mat });
       setPhoto(null);
       router.push(`/result/${res.id}`);
-    } catch {
-      setError(t("error_network"));
+    } catch (e) {
+      const code = e instanceof NetworkError ? e.code : `app: ${(e as Error)?.message ?? String(e)}`;
+      console.warn("[upload] 분석 실패:", code);
+      setError(`${t("error_network")}\n(${code})`);
     } finally {
       setBusy(false);
     }

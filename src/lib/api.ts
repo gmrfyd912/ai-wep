@@ -49,7 +49,12 @@ export type Submission = SubmissionSummary & {
   check_url: string | null;
 };
 
-export class NetworkError extends Error {}
+/** 실패 원인 코드. 화면 문구 끝에 함께 보여 줘서 원인을 구분한다. */
+export class NetworkError extends Error {
+  constructor(public code: string) {
+    super(code);
+  }
+}
 
 async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 30000): Promise<T> {
   const ctrl = new AbortController();
@@ -57,16 +62,28 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, { ...init, signal: ctrl.signal });
-  } catch {
-    throw new NetworkError("network");
+  } catch (e) {
+    const err = e as Error;
+    const code = err?.name === "AbortError" ? "timeout" : `network: ${err?.message ?? String(e)}`;
+    console.warn(`[api] ${init.method ?? "GET"} ${API_URL}${path} 실패:`, code);
+    throw new NetworkError(code);
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new NetworkError(`http_${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.warn(`[api] ${path} 서버 오류 ${res.status}:`, body.slice(0, 300));
+    throw new NetworkError(`server ${res.status}`);
+  }
   return (await res.json()) as T;
 }
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 서버가 잠들어 있으면 깨운다 (무료 서버는 15분 쉬면 잠들고, 깨는 데 1분쯤 걸림). */
+export async function wakeServer(): Promise<void> {
+  await request<{ ok: boolean }>("/health", {}, 120000);
+}
 
 /** 사진을 서버로 보내 분석한다. 서버가 잠들어 있으면 깨어나는 데 1분쯤 걸려서 넉넉히 기다린다. */
 export async function analyzePhoto(
