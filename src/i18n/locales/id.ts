@@ -256,6 +256,7 @@ const id: Translation = {
   cum_viewing: "Sedang dilihat",
   records_openLatest: "Buka hasil terbaru",
   records_listHint: "Ketuk untuk membuka hasil hari itu beserta analisis kumulatif.",
+  chart_alignedImage: "Gambar periksa (posisi sama dengan grafik di atas. Garis putus-putus = lebar min/maks, simpangan maks)",
 };
 
 export default id;

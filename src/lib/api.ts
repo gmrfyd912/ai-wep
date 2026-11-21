@@ -40,9 +40,14 @@ export type SubmissionListItem = SubmissionSummary & {
   defect_types?: string[];
 };
 
+/** 확인 그림 배치 (4단계 이후 결과만): 그림 왼쪽·오른쪽 끝 = 시작에서 몇 mm.
+ * dev_sign 을 직진도 이탈값에 곱하면 그림 위쪽이 그래프 + 쪽이 된다. */
+export type CheckLayout = { x_start_mm: number; x_end_mm: number; width: number; height: number; dev_sign: number };
+
 export type EngineResult = {
   status: Status;
   warnings?: string[];
+  check_layout?: CheckLayout | null;
   bead?: {
     length_mm: number;
     width: {

@@ -1,10 +1,13 @@
+import { Image } from "expo-image";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import Svg, { Line } from "react-native-svg";
 import { useTranslation } from "react-i18next";
 
-import { LineChart } from "@/components/charts";
+import { LineChart, PAD, type VLine } from "@/components/charts";
+import { ZoomImage } from "@/components/ZoomImage";
 import { Card, Chips } from "@/components/ui";
-import type { EngineResult } from "@/lib/api";
+import type { CheckLayout, EngineResult } from "@/lib/api";
 import { defectName } from "@/lib/defects";
 import {
   SIGNAL_COLORS,
@@ -22,12 +25,23 @@ type Tab = "width" | "straight" | "signal";
 const C = { width: "#3CDC3C", mean: "#FF8A1F", min: "#FF0000", max: "#FF00FF", center: "#FFE600", base: "#0078FF", dev: "#FFFFFF" };
 const GRAY = "rgba(120,120,120,0.25)";
 
-/** 결과 화면 위쪽: ① 폭 변화 ② 직진도 ③ 신호등 (기본 ①) */
-export function ResultCharts({ result }: { result: EngineResult }) {
+/** 결과 화면 위쪽: ① 폭 변화 ② 직진도 ③ 신호등 (기본 ①).
+ * 새 결과(check_layout 있음)는 그래프 바로 밑에 같은 폭·같은 방향의 확인 그림을 붙인다. */
+export function ResultCharts({ result, checkUrl }: { result: EngineResult; checkUrl?: string | null }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("width");
   const bead = result.bead;
   if (!bead) return null;
+  const layout = checkUrl ? result.check_layout ?? null : null;
+  const xr = layout ? { xMin: layout.x_start_mm, xMax: layout.x_end_mm } : {};
+  const sign = layout?.dev_sign ?? 1;
+  const devProfile = bead.straightness.profile?.map((p) => [p[0], p[1] * sign] as [number, number]);
+  const guides: VLine[] = [
+    ...(bead.width.min_pos_mm != null ? [{ x: bead.width.min_pos_mm, color: C.min }] : []),
+    ...(bead.width.max_pos_mm != null ? [{ x: bead.width.max_pos_mm, color: C.max }] : []),
+    ...(bead.straightness.max_dev_pos_mm != null ? [{ x: bead.straightness.max_dev_pos_mm, color: C.dev }] : []),
+  ];
+  const vl = layout ? { vlines: guides } : {};
   const L = bead.length_mm;
   const trim = bead.width.end_trim_mm ?? 10;
   const ends = L > 2 * trim ? [{ x0: 0, x1: trim, color: GRAY }, { x0: L - trim, x1: L, color: GRAY }] : [];
@@ -49,6 +63,8 @@ export function ResultCharts({ result }: { result: EngineResult }) {
           <>
             <Text style={styles.axis}>{t("chart_widthY")}</Text>
             <LineChart
+              {...xr}
+              {...vl}
               series={[{ points: bead.width.profile, color: C.width }]}
               bands={ends}
               hlines={[{ y: bead.width.mean_mm, color: C.mean, dashed: true, label: `${t("chart_mean")} ${bead.width.mean_mm.toFixed(1)}` }]}
@@ -69,18 +85,20 @@ export function ResultCharts({ result }: { result: EngineResult }) {
           <>
             <Text style={styles.axis}>{t("chart_devY")}</Text>
             <LineChart
-              series={[{ points: bead.straightness.profile, color: C.center }]}
+              {...xr}
+              {...vl}
+              series={[{ points: devProfile!, color: C.center }]}
               bands={ends}
               ybands={[{ y0: -SIGNAL_RULES.straight.green, y1: SIGNAL_RULES.straight.green, color: "rgba(34,197,94,0.10)" }]}
               hlines={[{ y: 0, color: C.base }]}
               markers={(() => {
                 const p = bead.straightness.max_dev_pos_mm;
                 if (p == null) return [];
-                const hit = bead.straightness.profile!.reduce((a, b) => (Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a));
+                const hit = devProfile!.reduce((a, b) => (Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a));
                 return [{ x: hit[0], y: hit[1], color: C.dev }];
               })()}
-              yMin={Math.min(-1.5, ...bead.straightness.profile.map((q) => q[1] * 1.15))}
-              yMax={Math.max(1.5, ...bead.straightness.profile.map((q) => q[1] * 1.15))}
+              yMin={Math.min(-1.5, ...devProfile!.map((q) => q[1] * 1.15))}
+              yMax={Math.max(1.5, ...devProfile!.map((q) => q[1] * 1.15))}
               xLabel={mmLabel}
               caption={t("chart_xDist")}
             />
@@ -92,7 +110,41 @@ export function ResultCharts({ result }: { result: EngineResult }) {
       ) : (
         <SignalPanel result={result} />
       )}
+      {layout && checkUrl && tab !== "signal" ? <AlignedImage uri={checkUrl} layout={layout} guides={guides} /> : null}
     </Card>
+  );
+}
+
+/** 그래프와 같은 가로 범위로 맞춘 확인 그림. 그래프 그림 영역(PAD.l ~ 오른쪽 PAD.r)과 정확히 겹친다 */
+function AlignedImage({ uri, layout, guides }: { uri: string; layout: CheckLayout; guides: VLine[] }) {
+  const { t } = useTranslation();
+  const [w, setW] = useState(0);
+  const [zoom, setZoom] = useState(false);
+  const h = w > 0 ? (w * layout.height) / layout.width : 0;
+  const span = layout.x_end_mm - layout.x_start_mm;
+  return (
+    <View>
+      <Text style={styles.axis}>{t("chart_alignedImage")}</Text>
+      <Pressable
+        onPress={() => setZoom(true)}
+        style={{ marginLeft: PAD.l, marginRight: PAD.r }}
+        onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      >
+        {w > 0 ? (
+          <View style={{ width: w, height: h }}>
+            <Image source={{ uri }} style={{ width: w, height: h }} contentFit="fill" />
+            <Svg width={w} height={h} style={StyleSheet.absoluteFill}>
+              {guides.map((g, i) => {
+                const x = ((g.x - layout.x_start_mm) / span) * w;
+                return <Line key={i} x1={x} x2={x} y1={0} y2={h} stroke={g.color} strokeWidth={1} strokeDasharray="3,3" />;
+              })}
+            </Svg>
+          </View>
+        ) : null}
+      </Pressable>
+      <Text style={styles.zoomHint}>{t("result_tapToZoom")}</Text>
+      <ZoomImage uri={uri} visible={zoom} onClose={() => setZoom(false)} />
+    </View>
   );
 }
 
@@ -176,6 +228,7 @@ function Legend({ items }: { items: [string, string][] }) {
 
 const styles = StyleSheet.create({
   axis: { color: colors.muted, fontSize: 11 },
+  zoomHint: { color: colors.faint, fontSize: 11, textAlign: "center", marginTop: 4 },
   empty: { color: colors.muted, fontSize: 14, lineHeight: 20, paddingVertical: space.lg, textAlign: "center" },
   note: { color: colors.faint, fontSize: 11 },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },

@@ -256,6 +256,7 @@ const en: Translation = {
   cum_viewing: "Viewing now",
   records_openLatest: "Open latest result",
   records_listHint: "Tap to open that day's result with your progress.",
+  chart_alignedImage: "Check image (same positions as the chart above. Dashed lines = min/max width, max offset)",
 };
 
 export default en;

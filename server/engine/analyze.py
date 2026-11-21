@@ -102,9 +102,45 @@ def analyze_image(img, cfg=None, predictions=None, progress=None):
         return p_mm * k + offset
 
     vis = visualize.draw(rect_img, cfg, to_px, bead_mm, geom, defects, marker_mm)
+    if geom is not None:
+        # 확인 그림을 비드가 가로로 눕고 시작(마커 쪽)이 왼쪽에 오게 돌린다 → 앱 그래프와 위치가 맞음
+        # 마커는 빼고 비드(+결함)만 잘라서, 그림 폭이 그래프의 가로(비드 길이)와 거의 같게 한다
+        keep_pts = np.vstack([bead_mm] + [p for _, p in defects])
+        vis, res["check_layout"] = _align_to_bead(vis, geom, keep_pts, k, offset, cfg)
     res["rectified"] = {"px_per_mm": k, "width": rect_img.shape[1], "height": rect_img.shape[0]}
     res["timing_s"] = round(time.time() - t0, 2)
     return res, vis, rect_img
+
+
+def _align_to_bead(vis, geom, region_mm, k, offset, cfg, max_side_px=6000):
+    """보정 그림(px)을 비드 좌표계로 회전·자르기. 가로 = 시작에서 거리(mm), 세로 = 비드 폭 방향.
+    반환 layout: 그림 왼쪽·오른쪽 끝이 시작에서 몇 mm인지(x_start_mm, x_end_mm),
+    dev_sign = 직진도 이탈값에 곱하면 그림의 위쪽이 그래프의 + 가 됨."""
+    u = np.asarray(geom["u"], float)
+    v = np.array([-u[1], u[0]])  # 회전만 (뒤집기 없음)
+    c = np.asarray(geom["origin"], float)
+    xmin = float(geom["xmin"])
+    mx, my = 5.0, 8.0  # 비드 둘레 여백 (mm): 가로, 세로
+    s = (region_mm - c) @ u - xmin
+    o = (region_mm - c) @ v
+    s0, s1 = float(s.min() - mx), float(s.max() + mx)
+    o0, o1 = float(o.min() - my), float(o.max() + my)
+    w, h = int(np.ceil((s1 - s0) * k)), int(np.ceil((o1 - o0) * k))
+    if max(w, h) > max_side_px:
+        return vis, None
+    off = np.asarray(offset, float)
+    M = np.array([
+        [u[0], u[1], -u @ off - k * (c @ u + xmin + s0)],
+        [v[0], v[1], -v @ off - k * (c @ v + o0)],
+    ])
+    out = cv2.warpAffine(vis, M, (w, h), flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0))
+    n = np.asarray(geom["n"], float)
+    layout = {
+        "x_start_mm": round(s0, 2), "x_end_mm": round(s1, 2),
+        "width": w, "height": h,
+        "dev_sign": -1 if float(n @ v) > 0 else 1,
+    }
+    return out, layout
 
 
 def _error(code, detail=""):
