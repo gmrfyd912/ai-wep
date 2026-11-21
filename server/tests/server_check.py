@@ -31,12 +31,14 @@ def main():
     c = TestClient(server.app)
     assert c.get("/health").json()["ok"]
     dev = "test-device-1234"
-    r = c.post("/analyze", data={"device_id": dev, "process": "SMAW", "position": "1G", "material": "CS"},
+    r = c.post("/analyze", data={"device_id": dev, "process": "SMAW", "position": "1G", "material": "CS",
+                                  "job_id": "job-test-0001"},
                files={"photo": ("a.jpg", jpg.tobytes(), "image/jpeg")})
     assert r.status_code == 200, r.text
     js = r.json()
     print("status", js["status"], "폭 평균", js["width_mean_mm"], "직진도", js["straight_max_dev_mm"], "check", js["check_url"])
     assert js["status"] == "ok" and abs(js["width_mean_mm"] - 8.0) < 0.5 and js["check_url"]
+    assert c.get("/progress/job-test-0001").json()["stage"] == "done"
     assert len(c.get("/submissions", params={"device_id": dev}).json()) == 1
     assert c.get(f"/submissions/{js['id']}", params={"device_id": dev}).status_code == 200
     assert c.get(f"/submissions/{js['id']}", params={"device_id": "other-device-999"}).status_code == 404

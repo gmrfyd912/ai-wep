@@ -8,6 +8,7 @@
 로그인은 6단계에서 붙인다. 그전까지는 휴대폰마다 앱이 만든 임시 번호(device_id)로 구분한다.
 """
 import re
+import time
 import uuid
 
 import cv2
@@ -25,6 +26,24 @@ DEVICE_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 CODE_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
 
 app = FastAPI(title="AI W.E.P analysis server")
+
+# 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
+PROGRESS: dict[str, tuple[str, float]] = {}
+
+
+def _set_progress(job_id, stage):
+    if not job_id:
+        return
+    now = time.time()
+    PROGRESS[job_id] = (stage, now)
+    for k in [k for k, (_, t) in PROGRESS.items() if now - t > 600]:
+        PROGRESS.pop(k, None)
+
+
+@app.get("/progress/{job_id}")
+def get_progress(job_id: str):
+    stage = PROGRESS.get(job_id)
+    return {"stage": stage[0] if stage else None}
 
 
 @app.get("/health")
@@ -62,8 +81,12 @@ async def analyze(
     process: str = Form(""),
     position: str = Form(""),
     material: str = Form(""),
+    job_id: str = Form(""),
 ):
     _check_device(device_id)
+    if job_id and not DEVICE_RE.match(job_id):
+        raise HTTPException(400, "bad_job_id")
+    _set_progress(job_id, "save_photo")
     for v in (process, position, material):
         if v and not CODE_RE.match(v):
             raise HTTPException(400, "bad_field")
@@ -88,7 +111,9 @@ async def analyze(
         "status": "processing", "photo_path": photo_path,
     })
 
-    res, vis, _ = await _step("analyze", analyze_image, img, Config())
+    res, vis, _ = await _step("analyze", analyze_image, img, Config(), None,
+                              lambda name: _set_progress(job_id, name))
+    _set_progress(job_id, "save_result")
 
     check_path = None
     if vis is not None:
@@ -109,7 +134,9 @@ async def analyze(
         "defect_count": len(res.get("defects") or []),
     }
     row = await _step("save_result", store.update, sid, update)
-    return await _step("make_links", _detail, row)
+    out = await _step("make_links", _detail, row)
+    _set_progress(job_id, "done")
+    return out
 
 
 def _detail(row):

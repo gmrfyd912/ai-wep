@@ -23,8 +23,9 @@ def _pred_points(p):
     return np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float)
 
 
-def analyze_image(img, cfg=None, predictions=None):
+def analyze_image(img, cfg=None, predictions=None, progress=None):
     """img: BGR 배열 또는 파일 경로. predictions: 테스트용(주면 Roboflow 호출 생략).
+    progress: 단계 이름을 받는 함수 (marker → roboflow → measure). 앱 진행 표시용.
     반환: (result dict, 확인용 그림, 보정 이미지)"""
     cfg = cfg or Config()
     t0 = time.time()
@@ -35,6 +36,8 @@ def analyze_image(img, cfg=None, predictions=None):
     res = {"engine_version": ENGINE_VERSION, "status": "ok", "warnings": [],
            "image": {"width": img.shape[1], "height": img.shape[0]},
            "marker": {"dict": cfg.marker_dict, "id": cfg.marker_id, "size_mm": cfg.marker_size_mm}}
+    step = progress or (lambda name: None)
+    step("marker")
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     try:
         corners = mk.detect_marker(gray, cfg)
@@ -48,11 +51,13 @@ def analyze_image(img, cfg=None, predictions=None):
         return rectify.transform_points(H, pts) / k
 
     marker_mm = to_mm(corners)
+    step("roboflow")
     if predictions is None:
         try:
             predictions = roboflow_client.predict(img, cfg)
         except Exception as e:  # 네트워크·키 오류
             return _error("roboflow_failed", str(e)), None, None
+    step("measure")
     res["detections"] = {"classes": sorted({p["class"] for p in predictions})}
     predictions = [p for p in predictions if not any(k in p["class"].lower() for k in cfg.ignore_class_keywords)]
     beads = [p for p in predictions if _is_bead(p["class"], cfg)]

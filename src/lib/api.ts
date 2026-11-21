@@ -105,8 +105,10 @@ export async function wakeServer(): Promise<void> {
 export async function analyzePhoto(
   uri: string,
   info: { process: string; position: string; material: string },
+  opts: { jobId?: string; onUploadProgress?: (ratio: number) => void } = {},
 ): Promise<Submission> {
   const form = new FormData();
+  if (opts.jobId) form.append("job_id", opts.jobId);
   form.append("device_id", await getDeviceId());
   form.append("process", info.process);
   form.append("position", info.position);
@@ -123,6 +125,11 @@ export async function analyzePhoto(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_URL}/analyze`);
     xhr.timeout = 180000;
+    if (opts.onUploadProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) opts.onUploadProgress?.(e.loaded / e.total);
+      };
+    }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
@@ -148,6 +155,25 @@ export async function analyzePhoto(
     xhr.ontimeout = () => reject(new NetworkError(`analyze: timeout ${secs()}s`));
     xhr.send(form);
   });
+}
+
+/** 분석 진행 단계 순서 (앱 표시용). wake·upload 는 앱이, 나머지는 서버가 알려 준다. */
+export const STAGES = ["wake", "upload", "save_photo", "marker", "roboflow", "measure", "save_result"] as const;
+export type Stage = (typeof STAGES)[number];
+
+export function newJobId(): string {
+  const hex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  return `job-${hex()}${hex()}-${hex()}${hex()}`;
+}
+
+/** 서버에 지금 진행 중인 단계를 묻는다 (실패하면 null). */
+export async function getProgress(jobId: string): Promise<string | null> {
+  try {
+    const r = await request<{ stage: string | null }>(`/progress/${jobId}`, {}, 5000);
+    return r.stage;
+  } catch {
+    return null;
+  }
 }
 
 export async function listSubmissions(): Promise<SubmissionSummary[]> {

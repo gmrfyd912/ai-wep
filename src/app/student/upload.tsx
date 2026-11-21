@@ -2,12 +2,12 @@ import { Image } from "expo-image";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Label, Screen, SectionTitle } from "@/components/ui";
-import { analyzePhoto, NetworkError, wakeServer } from "@/lib/api";
+import { analyzePhoto, getProgress, NetworkError, newJobId, STAGES, wakeServer, type Stage } from "@/lib/api";
 import { colors, radius, space } from "@/theme";
 
 // 공정·자세·재질 값은 영어 코드로 저장한다. 화면 표시는 국제 표준 약어(언어와 무관).
@@ -39,6 +39,9 @@ export default function UploadScreen() {
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState<Stage>("wake");
+  const [uploadPct, setUploadPct] = useState(0);
+  const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function choose(fromCamera: boolean) {
     setError(null);
@@ -68,9 +71,29 @@ export default function UploadScreen() {
       } catch (e) {
         console.warn("[upload] 사진 줄이기 실패, 원본으로 보냄:", e);
       }
-      // 2) 서버 깨우기  3) 분석
+      // 2) 서버 깨우기  3) 사진 올리기 → 서버 단계는 1초마다 조회
+      setStage("wake");
+      setUploadPct(0);
       await wakeServer();
-      const res = await analyzePhoto(send.uri, { process: proc, position: pos, material: mat });
+      setStage("upload");
+      const jobId = newJobId();
+      poll.current = setInterval(async () => {
+        const st = await getProgress(jobId);
+        if (st && (STAGES as readonly string[]).includes(st)) {
+          setStage((cur) => (STAGES.indexOf(st as Stage) > STAGES.indexOf(cur) ? (st as Stage) : cur));
+        }
+      }, 1000);
+      const res = await analyzePhoto(
+        send.uri,
+        { process: proc, position: pos, material: mat },
+        {
+          jobId,
+          onUploadProgress: (r) => {
+            setUploadPct(Math.round(r * 100));
+            if (r >= 1) setStage((cur) => (cur === "upload" ? "save_photo" : cur));
+          },
+        },
+      );
       setPhoto(null);
       router.push(`/result/${res.id}`);
     } catch (e) {
@@ -78,6 +101,8 @@ export default function UploadScreen() {
       console.warn("[upload] 분석 실패:", code);
       setError(`${t("error_network")}\n(${code})`);
     } finally {
+      if (poll.current) clearInterval(poll.current);
+      poll.current = null;
       setBusy(false);
     }
   }
@@ -120,6 +145,19 @@ export default function UploadScreen() {
           <View style={{ flex: 1 }}>
             <Body>{t("upload_analyzing")}</Body>
             <Body muted>{t("upload_wakeHint")}</Body>
+            <View style={styles.stages}>
+              {STAGES.map((s, i) => {
+                const cur = STAGES.indexOf(stage);
+                const mark = i < cur ? "✓" : i === cur ? "▶" : "○";
+                const color = i < cur ? colors.success : i === cur ? colors.text : colors.faint;
+                const label = t(`stage_${s}`) + (s === "upload" && i === cur ? ` ${uploadPct}%` : "");
+                return (
+                  <Text key={s} style={[styles.stage, { color }]}>
+                    {mark} {i + 1}. {label}
+                  </Text>
+                );
+              })}
+            </View>
           </View>
         </Card>
       ) : (
@@ -132,5 +170,7 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   preview: { width: "100%", height: 260, borderRadius: radius.md, backgroundColor: colors.card },
   error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
-  busy: { flexDirection: "row", alignItems: "center", gap: space.md },
+  busy: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
+  stages: { marginTop: space.sm, gap: 4 },
+  stage: { fontSize: 14 },
 });
