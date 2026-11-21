@@ -4,18 +4,23 @@
   SUPABASE_URL         예: https://xxxx.supabase.co
   SUPABASE_SECRET_KEY  Supabase 서버용 비밀 키 (sb_secret_... 또는 예전 service_role 키)
   ROBOFLOW_API_KEY     Roboflow 키
+  ANTHROPIC_API_KEY    AI 리포트(5단계)용 Anthropic 키
 
 로그인은 6단계에서 붙인다. 그전까지는 휴대폰마다 앱이 만든 임시 번호(device_id)로 구분한다.
 """
 import re
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 
+import report
+import scoring
 import store
 from engine.analyze import ENGINE_VERSION, analyze_image
 from engine.config import Config
@@ -48,7 +53,8 @@ def get_progress(job_id: str):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "engine_version": ENGINE_VERSION, "storage": store.configured()}
+    return {"ok": True, "engine_version": ENGINE_VERSION, "storage": store.configured(),
+            "ai_report": report.configured()}
 
 
 async def _step(name, fn, *args):
@@ -80,6 +86,9 @@ def _list_item(row):
     for k in ("width_std_mm", "width_min_mm", "width_max_mm"):
         out[k] = row.get(k)
     out["defect_types"] = [d.get("type") for d in (row.get("defect_types") or []) if isinstance(d, dict)]
+    sc = scoring.score_of_row(out | {"status": row.get("status")})
+    out["score"] = sc["score"] if sc else None
+    out["verdict"] = sc["verdict"] if sc else None
     return out
 
 
@@ -153,6 +162,7 @@ def _detail(row):
     out["result"] = row.get("result")
     out["photo_url"] = store.signed_url("photos", row.get("photo_path"))
     out["check_url"] = store.signed_url("results", row.get("check_path"))
+    out["score"] = scoring.score_of_row(row)
     return out
 
 
@@ -163,8 +173,7 @@ def list_submissions(device_id: str, limit: int = 200):
     return [_list_item(r) for r in rows]
 
 
-@app.get("/submissions/{sid}")
-def get_submission(sid: str, device_id: str):
+def _own_row(sid, device_id):
     _check_device(device_id)
     try:
         uuid.UUID(sid)
@@ -173,4 +182,72 @@ def get_submission(sid: str, device_id: str):
     row = store.get(sid)
     if not row or row.get("device_id") != device_id:
         raise HTTPException(404, "not_found")
-    return _detail(row)
+    return row
+
+
+@app.get("/submissions/{sid}")
+def get_submission(sid: str, device_id: str):
+    return _detail(_own_row(sid, device_id))
+
+
+# ---- 5단계: AI 종합리포트 ----
+
+KST = timezone(timedelta(hours=9))
+
+
+class ReportRequest(BaseModel):
+    device_id: str
+    lang: str = "ko"
+
+
+def _kst_midnight_iso():
+    now = datetime.now(KST)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _history(row, limit=10):
+    """같은 기기·같은 용접법·자세의 성공한 이전 기록 (이번 것 제외, 오래된 → 최근, 최대 10개)."""
+    rows = store.list_by_device(row["device_id"], 500)
+    same = [r for r in rows if r.get("status") == "ok" and r.get("id") != row["id"]
+            and r.get("process") == row.get("process") and r.get("position") == row.get("position")
+            and (r.get("created_at") or "") <= (row.get("created_at") or "")]
+    same.sort(key=lambda r: r.get("created_at") or "")
+    same = same[-limit:]
+    for r in same:
+        r["_score"] = scoring.score_of_row(r)
+    return same
+
+
+@app.post("/submissions/{sid}/report")
+def make_report(sid: str, body: ReportRequest):
+    """AI 리포트 탭을 열면 부른다. 같은 사진·같은 언어로 만든 적이 있으면 저장된 것을 돌려준다(비용 0).
+    없으면 하루 한도를 확인하고 새로 만든다."""
+    row = _own_row(sid, body.device_id)
+    lang = body.lang if body.lang in report.LANGS else "en"
+    sc = scoring.score_of_row(row)
+    if sc is None:
+        raise HTTPException(409, {"code": "not_analyzed"})
+    crit = scoring.criteria()
+    limit = int(crit.get("report_daily_limit", 2))
+
+    saved = store.get_report(sid, lang)
+    if saved:
+        return {"report": saved.get("report"), "score": sc, "cached": True, "limit": limit}
+
+    if not report.configured():
+        raise HTTPException(503, {"code": "ai_not_configured"})
+    used = store.count_reports_since(body.device_id, _kst_midnight_iso())
+    if used >= limit:
+        raise HTTPException(429, {"code": "daily_limit", "limit": limit})
+
+    data = report.build_input(row, sc, _history(row))
+    try:
+        out, usage = report.generate(data, lang)
+    except report.ReportError as e:
+        print("[report] 실패", str(e)[:300], flush=True)
+        raise HTTPException(503 if e.code == "ai_not_configured" else 502, {"code": e.code})
+    store.insert_report({
+        "submission_id": sid, "device_id": body.device_id, "lang": lang, "model": report.model_name(),
+        "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage,
+    })
+    return {"report": out, "score": sc, "cached": False, "limit": limit, "remaining": max(0, limit - used - 1)}

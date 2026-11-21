@@ -257,6 +257,31 @@ const fil: Translation = {
   records_openLatest: "Buksan ang pinakabagong resulta",
   records_listHint: "I-tap para buksan ang resulta ng araw na iyon kasama ang pag-unlad.",
   chart_alignedImage: "Larawang pansuri (kapareho ng posisyon sa graph sa itaas. Putol-putol na linya = min/max na lapad, pinakamalaking layo)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "Isinusulat ng AI ang report… (ang una ay maaaring tumagal nang mga 30 segundo)",
+  report_retry: "Subukan muli",
+  report_notAnalyzed: "Ang mga larawang matagumpay na na-analyze lang ang may score at AI report.",
+  report_limit: "Nagamit mo na ang lahat ng {{limit}} AI report ngayong araw. Puwede mong buksan muli ang mga nagawa na; ang bago ay puwede bukas.",
+  report_notConfigured: "Inihahanda pa ang AI report. Lalabas ito kapag naayos na ang server.",
+  report_busy: "Abala ang AI ngayon. Pakisubukan muli mamaya.",
+  report_failed: "Hindi nagawa ang AI report. Pakisubukan muli mamaya.",
+  report_strengths: "Mga nagawa mong mahusay",
+  report_improvements: "Mga dapat ayusin",
+  report_practice: "Paano mag-practice",
+  report_comparison: "Kumpara sa mga nakaraang record",
+  report_remaining: "Puwede ka pang gumawa ng {{n}} bagong report ngayon ({{limit}} bawat araw).",
+  report_note: "Batay sa sukat mula sa larawan ang AI report na ito. Ang guro ang magbibigay ng huling pasya.",
+  report_verdictLabel: "Paunang resulta ng AI",
+  report_pass: "Pasado",
+  report_fail: "Bagsak",
+  report_failReason: "Dahilan ng bagsak: {{defects}}",
+  report_partWidth: "Pagkapantay ng lapad",
+  report_partWidthSub: "Pinakamalapad − pinakamakitid {{mm}} mm",
+  report_partStraight: "Pagkatuwid",
+  report_partStraightSub: "Hanggang {{mm}} mm ang layo sa baseline",
+  report_partDefects: "Mga depekto",
+  report_scoreNote: "Kinakalkula ang score gamit ang nakatakdang patakaran. Pansamantala, crack lang ang bagsak; ang ibang depekto ay bawas-puntos.",
 };
 
 export default fil;

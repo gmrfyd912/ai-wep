@@ -38,6 +38,40 @@ export type SubmissionListItem = SubmissionSummary & {
   width_min_mm?: number | null;
   width_max_mm?: number | null;
   defect_types?: string[];
+  /** 5단계 점수(100점)·AI 예비판정. 분석 실패면 null */
+  score?: number | null;
+  verdict?: Verdict | null;
+};
+
+export type Verdict = "pass" | "fail";
+
+/** 서버 scoring.py 가 정해진 공식으로 계산한 점수 (AI가 정하지 않음) */
+export type ScoreInfo = {
+  score: number;
+  verdict: Verdict;
+  fail_reasons: string[];
+  parts: {
+    width: { points: number; max: number; value_mm: number };
+    straight: { points: number; max: number; value_mm: number };
+    defects: { points: number; max: number; items: { type: string; minus: number }[] };
+  };
+};
+
+/** AI 종합리포트 (선택한 언어로 작성됨) */
+export type AiReport = {
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  practice: string[];
+  comparison: string;
+};
+
+export type ReportResponse = {
+  report: AiReport;
+  score: ScoreInfo;
+  cached: boolean;
+  limit: number;
+  remaining?: number;
 };
 
 /** 확인 그림 배치 (4단계 이후 결과만): 그림 왼쪽·오른쪽 끝 = 시작에서 몇 mm.
@@ -72,6 +106,7 @@ export type EngineResult = {
 };
 
 export type Submission = SubmissionSummary & {
+  score?: ScoreInfo | null;
   result: EngineResult | null;
   photo_url: string | null;
   check_url: string | null;
@@ -79,7 +114,12 @@ export type Submission = SubmissionSummary & {
 
 /** 실패 원인 코드. 화면 문구 끝에 함께 보여 줘서 원인을 구분한다. */
 export class NetworkError extends Error {
-  constructor(public code: string) {
+  /** status = 서버 응답 번호(없으면 0), detail = 서버가 보낸 원인 (예: { code: "daily_limit", limit: 2 }) */
+  constructor(
+    public code: string,
+    public status = 0,
+    public detail: { code?: string; limit?: number } | null = null,
+  ) {
     super(code);
   }
 }
@@ -108,7 +148,14 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.warn(`[api] ${path} 서버 오류 ${res.status}:`, body.slice(0, 300));
-    throw new NetworkError(`${step}: server ${res.status}`);
+    let detail: { code?: string; limit?: number } | null = null;
+    try {
+      const d = JSON.parse(body)?.detail;
+      if (d && typeof d === "object") detail = d;
+    } catch {
+      // 본문이 JSON 이 아니면 무시
+    }
+    throw new NetworkError(`${step}: server ${res.status}`, res.status, detail);
   }
   return (await res.json()) as T;
 }
@@ -205,6 +252,17 @@ export async function listSubmissions(): Promise<SubmissionListItem[]> {
 export async function getSubmission(sid: string): Promise<Submission> {
   const id = encodeURIComponent(await getDeviceId());
   return request<Submission>(`/submissions/${sid}?device_id=${id}`, {}, 90000);
+}
+
+/** AI 리포트: 탭을 열면 부른다. 같은 사진·같은 언어로 만든 적이 있으면 서버가 저장된 것을 돌려준다.
+ * 처음 만들 때는 서버가 깨어나는 시간 + AI 작성 시간이 걸려서 넉넉히 기다린다. */
+export async function getReport(sid: string, lang: string): Promise<ReportResponse> {
+  const device_id = await getDeviceId();
+  return request<ReportResponse>(
+    `/submissions/${sid}/report`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device_id, lang }) },
+    150000,
+  );
 }
 
 /** 상태 코드 → 번역 키 */

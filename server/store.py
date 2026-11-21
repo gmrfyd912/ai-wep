@@ -74,3 +74,42 @@ def list_by_device(device_id, limit):
                    "width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
                    "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")}))
     return r.json()
+
+
+# ---- 5단계: 설정·AI 리포트 ----
+
+def get_setting(key):
+    """app_settings 표의 값(JSON). 없으면 None."""
+    url, h = _base()
+    r = _check(requests.get(f"{url}/rest/v1/app_settings", params={"key": f"eq.{key}", "select": "value"},
+                            headers=h, timeout=TIMEOUT))
+    rows = r.json()
+    return rows[0]["value"] if rows else None
+
+
+def get_report(sid, lang):
+    url, h = _base()
+    r = _check(requests.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
+        "submission_id": f"eq.{sid}", "lang": f"eq.{lang}", "select": "*", "limit": "1"}))
+    rows = r.json()
+    return rows[0] if rows else None
+
+
+def insert_report(row):
+    """같은 사진·같은 언어 리포트가 이미 있으면 그대로 둔다 (두 번 눌러도 1개만)."""
+    url, h = _base()
+    _check(requests.post(f"{url}/rest/v1/reports", json=row, timeout=TIMEOUT,
+                         params={"on_conflict": "submission_id,lang"},
+                         headers={**h, "Prefer": "resolution=ignore-duplicates,return=minimal"}))
+
+
+def count_reports_since(device_id, since_iso):
+    url, h = _base()
+    r = _check(requests.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
+        "device_id": f"eq.{device_id}", "created_at": f"gte.{since_iso}", "select": "id"},
+        headers={**h, "Prefer": "count=exact", "Range": "0-0"}))
+    rng = r.headers.get("Content-Range", "")  # 예: 0-0/3 또는 */0
+    try:
+        return int(rng.rsplit("/", 1)[1])
+    except (IndexError, ValueError):
+        return len(r.json())

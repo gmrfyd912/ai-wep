@@ -257,6 +257,31 @@ const th: Translation = {
   records_openLatest: "ดูผลล่าสุด",
   records_listHint: "แตะเพื่อเปิดผลของวันนั้นพร้อมการวิเคราะห์สะสม",
   chart_alignedImage: "ภาพตรวจสอบ (ตำแหน่งตรงกับกราฟด้านบน เส้นประ = กว้างสุด/แคบสุด, เบี่ยงมากสุด)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "AI กำลังเขียนรายงาน… (ครั้งแรกอาจใช้เวลาประมาณ 30 วินาที)",
+  report_retry: "ลองอีกครั้ง",
+  report_notAnalyzed: "เฉพาะรูปที่วิเคราะห์สำเร็จเท่านั้นที่จะได้คะแนนและรายงาน AI",
+  report_limit: "วันนี้คุณใช้รายงาน AI ครบ {{limit}} ฉบับแล้ว รายงานที่สร้างแล้วเปิดดูได้เสมอ รายงานใหม่สร้างได้พรุ่งนี้",
+  report_notConfigured: "กำลังเตรียมรายงาน AI จะแสดงเมื่อตั้งค่าเซิร์ฟเวอร์เสร็จ",
+  report_busy: "AI ไม่ว่างในขณะนี้ กรุณาลองใหม่อีกครั้ง",
+  report_failed: "สร้างรายงาน AI ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+  report_strengths: "สิ่งที่ทำได้ดี",
+  report_improvements: "สิ่งที่ต้องแก้",
+  report_practice: "วิธีฝึก",
+  report_comparison: "เทียบกับครั้งก่อน",
+  report_remaining: "วันนี้สร้างรายงานใหม่ได้อีก {{n}} ฉบับ (วันละ {{limit}} ฉบับ)",
+  report_note: "รายงาน AI นี้อ้างอิงค่าที่วัดจากรูปถ่าย ครูเป็นผู้ตัดสินขั้นสุดท้าย",
+  report_verdictLabel: "ผลเบื้องต้นจาก AI",
+  report_pass: "ผ่าน",
+  report_fail: "ไม่ผ่าน",
+  report_failReason: "เหตุผลที่ไม่ผ่าน: {{defects}}",
+  report_partWidth: "ความสม่ำเสมอของความกว้าง",
+  report_partWidthSub: "กว้างสุด − แคบสุด {{mm}} มม.",
+  report_partStraight: "ความตรง",
+  report_partStraightSub: "เบี่ยงจากเส้นอ้างอิงสูงสุด {{mm}} มม.",
+  report_partDefects: "จุดบกพร่อง",
+  report_scoreNote: "คะแนนคำนวณตามเกณฑ์ที่กำหนดไว้ ตอนนี้เป็นเกณฑ์ชั่วคราว: มีรอยร้าวเท่านั้นที่ไม่ผ่าน จุดบกพร่องอื่นจะถูกหักคะแนน",
 };
 
 export default th;

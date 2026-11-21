@@ -257,6 +257,31 @@ const id: Translation = {
   records_openLatest: "Buka hasil terbaru",
   records_listHint: "Ketuk untuk membuka hasil hari itu beserta analisis kumulatif.",
   chart_alignedImage: "Gambar periksa (posisi sama dengan grafik di atas. Garis putus-putus = lebar min/maks, simpangan maks)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "AI sedang menulis laporan… (yang pertama bisa memakan waktu sekitar 30 detik)",
+  report_retry: "Coba lagi",
+  report_notAnalyzed: "Hanya foto yang berhasil dianalisis yang mendapat skor dan laporan AI.",
+  report_limit: "Anda sudah memakai semua {{limit}} laporan AI hari ini. Laporan yang sudah dibuat selalu bisa dibuka lagi; laporan baru bisa dibuat besok.",
+  report_notConfigured: "Laporan AI sedang disiapkan. Akan muncul setelah server selesai diatur.",
+  report_busy: "AI sedang sibuk. Silakan coba lagi sebentar lagi.",
+  report_failed: "Laporan AI gagal dibuat. Silakan coba lagi sebentar lagi.",
+  report_strengths: "Yang sudah bagus",
+  report_improvements: "Yang perlu diperbaiki",
+  report_practice: "Cara berlatih",
+  report_comparison: "Dibandingkan dengan catatan sebelumnya",
+  report_remaining: "Hari ini Anda masih bisa membuat {{n}} laporan baru ({{limit}} per hari).",
+  report_note: "Laporan AI ini berdasarkan hasil ukur dari foto. Keputusan akhir dibuat oleh guru.",
+  report_verdictLabel: "Hasil awal AI",
+  report_pass: "Lulus",
+  report_fail: "Tidak lulus",
+  report_failReason: "Alasan tidak lulus: {{defects}}",
+  report_partWidth: "Keseragaman lebar",
+  report_partWidthSub: "Lebar maks − lebar min {{mm}} mm",
+  report_partStraight: "Kelurusan",
+  report_partStraightSub: "Menyimpang paling jauh {{mm}} mm dari garis acuan",
+  report_partDefects: "Cacat",
+  report_scoreNote: "Skor dihitung dengan aturan tetap. Saat ini aturan sementara: hanya retak yang tidak lulus, cacat lain mengurangi poin.",
 };
 
 export default id;

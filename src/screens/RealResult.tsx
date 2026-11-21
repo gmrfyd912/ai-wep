@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { AppButton, Body, Card, Chips, ComingSoon, Screen, SectionTitle } from "@/components/ui";
+import { AppButton, Body, Card, Chips, Screen, SectionTitle } from "@/components/ui";
 import { ZoomImage } from "@/components/ZoomImage";
 import { getSubmission, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
 import { defectName } from "@/lib/defects";
+import { AiReport } from "@/screens/AiReport";
 import { Cumulative, RecordRow, groupOf } from "@/screens/Cumulative";
 import { ResultCharts } from "@/screens/ResultCharts";
 import { colors, radius, space } from "@/theme";
@@ -31,6 +32,7 @@ const C = {
 export function RealResult({ id }: { id: string }) {
   const { t, i18n } = useTranslation();
   const [tab, setTab] = useState<Tab>("metrics");
+  const [reportOpened, setReportOpened] = useState(false);
   const [data, setData] = useState<Submission | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(false);
@@ -84,17 +86,19 @@ export function RealResult({ id }: { id: string }) {
           { value: "report", label: t("result_tabReport") },
         ]}
         value={tab}
-        onChange={setTab}
+        onChange={(v) => {
+          setTab(v);
+          if (v === "report") setReportOpened(true);
+        }}
       />
 
-      {tab === "report" ? (
-        <>
-          <Card>
-            <Body muted>{t("result_reportPlaceholder")}</Body>
-          </Card>
-          <ComingSoon step={5} />
-        </>
-      ) : data.status !== "ok" ? (
+      {/* AI 리포트: 탭을 처음 열 때 만들고, 다른 탭에 갔다 와도 다시 부르지 않게 숨겨 둔다 */}
+      {reportOpened ? (
+        <View style={{ gap: space.md, display: tab === "report" ? "flex" : "none" }}>
+          <AiReport sid={data.id} score={data.score} />
+        </View>
+      ) : null}
+      {tab === "report" ? null : data.status !== "ok" ? (
         <>
           <Card>
             <Text style={styles.error}>{t(statusKey(data.status))}</Text>

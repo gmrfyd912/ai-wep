@@ -257,6 +257,31 @@ const en: Translation = {
   records_openLatest: "Open latest result",
   records_listHint: "Tap to open that day's result with your progress.",
   chart_alignedImage: "Check image (same positions as the chart above. Dashed lines = min/max width, max offset)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "AI is writing your report… (the first one can take about 30 seconds)",
+  report_retry: "Try again",
+  report_notAnalyzed: "Only successfully analyzed photos get a score and AI report.",
+  report_limit: "You have used all {{limit}} AI reports for today. You can always reopen reports you already made; new ones can be made tomorrow.",
+  report_notConfigured: "The AI report is being set up. It will appear once the server is configured.",
+  report_busy: "The AI is busy right now. Please try again in a moment.",
+  report_failed: "Could not create the AI report. Please try again in a moment.",
+  report_strengths: "What you did well",
+  report_improvements: "What to fix",
+  report_practice: "How to practice",
+  report_comparison: "Compared with your past records",
+  report_remaining: "You can make {{n}} more new report(s) today ({{limit}} per day).",
+  report_note: "This AI report is based on photo measurements. Your teacher makes the final judgment.",
+  report_verdictLabel: "AI preliminary result",
+  report_pass: "Pass",
+  report_fail: "Fail",
+  report_failReason: "Reason for fail: {{defects}}",
+  report_partWidth: "Width uniformity",
+  report_partWidthSub: "Max width − min width {{mm}} mm",
+  report_partStraight: "Straightness",
+  report_partStraightSub: "Up to {{mm}} mm off the baseline",
+  report_partDefects: "Defects",
+  report_scoreNote: "The score is calculated by fixed rules. For now (temporary rules) only a crack means fail; other defects reduce points.",
 };
 
 export default en;

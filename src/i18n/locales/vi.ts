@@ -257,6 +257,31 @@ const vi: Translation = {
   records_openLatest: "Xem kết quả mới nhất",
   records_listHint: "Chạm để mở kết quả ngày đó cùng phân tích tích lũy.",
   chart_alignedImage: "Hình kiểm tra (cùng vị trí với biểu đồ trên. Nét đứt = rộng nhất/hẹp nhất, lệch lớn nhất)",
+
+  // 5단계: AI 리포트·점수
+  report_writing: "AI đang viết báo cáo… (lần đầu có thể mất khoảng 30 giây)",
+  report_retry: "Thử lại",
+  report_notAnalyzed: "Chỉ ảnh phân tích thành công mới có điểm và báo cáo AI.",
+  report_limit: "Hôm nay bạn đã dùng hết {{limit}} báo cáo AI. Bạn luôn có thể xem lại báo cáo đã tạo; báo cáo mới có thể tạo vào ngày mai.",
+  report_notConfigured: "Báo cáo AI đang được chuẩn bị. Báo cáo sẽ hiện khi máy chủ được cài đặt xong.",
+  report_busy: "AI đang bận. Vui lòng thử lại sau ít phút.",
+  report_failed: "Không tạo được báo cáo AI. Vui lòng thử lại sau ít phút.",
+  report_strengths: "Điểm làm tốt",
+  report_improvements: "Điểm cần sửa",
+  report_practice: "Cách luyện tập",
+  report_comparison: "So sánh với các lần trước",
+  report_remaining: "Hôm nay bạn có thể tạo thêm {{n}} báo cáo mới (mỗi ngày {{limit}}).",
+  report_note: "Báo cáo AI dựa trên số đo từ ảnh. Giáo viên sẽ đánh giá cuối cùng.",
+  report_verdictLabel: "Đánh giá sơ bộ của AI",
+  report_pass: "Đạt",
+  report_fail: "Không đạt",
+  report_failReason: "Lý do không đạt: {{defects}}",
+  report_partWidth: "Độ đều bề rộng",
+  report_partWidthSub: "Rộng nhất − hẹp nhất {{mm}} mm",
+  report_partStraight: "Độ thẳng",
+  report_partStraightSub: "Lệch tối đa {{mm}} mm so với đường chuẩn",
+  report_partDefects: "Khuyết tật",
+  report_scoreNote: "Điểm được tính theo quy tắc cố định. Hiện là quy tắc tạm: chỉ vết nứt là không đạt, các khuyết tật khác bị trừ điểm.",
 };
 
 export default vi;
