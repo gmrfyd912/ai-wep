@@ -281,7 +281,8 @@ const vi: Translation = {
   report_partStraight: "Độ thẳng",
   report_partStraightSub: "Lệch tối đa {{mm}} mm so với đường chuẩn",
   report_partDefects: "Khuyết tật",
-  report_scoreNote: "Điểm được tính theo quy tắc cố định. Hiện là quy tắc tạm: chỉ vết nứt là không đạt, các khuyết tật khác bị trừ điểm.",
+  report_scoreNote: "Điểm được tính theo quy tắc cố định. Hiện là quy tắc tạm: có vết nứt hoặc dưới {{pass}} điểm là không đạt, các khuyết tật khác bị trừ điểm.",
+  report_failLowScore: "Không đạt vì điểm dưới {{pass}}.",
 };
 
 export default vi;

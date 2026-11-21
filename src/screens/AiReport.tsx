@@ -122,10 +122,13 @@ function ScoreCard({ sc }: { sc: ScoreInfo }) {
           </View>
         </View>
       </View>
-      {!pass ? (
+      {sc.fail_reasons.length ? (
         <Text style={styles.error}>
           {t("report_failReason", { defects: sc.fail_reasons.map(defectName).join(", ") })}
         </Text>
+      ) : null}
+      {sc.fail_low_score ? (
+        <Text style={styles.error}>{t("report_failLowScore", { pass: sc.pass_score ?? 80 })}</Text>
       ) : null}
       <Part
         label={t("report_partWidth")}
@@ -140,7 +143,7 @@ function ScoreCard({ sc }: { sc: ScoreInfo }) {
         max={sc.parts.straight.max}
       />
       <Part label={t("report_partDefects")} sub={defectText} points={d.points} max={d.max} />
-      <Text style={styles.note}>{t("report_scoreNote")}</Text>
+      <Text style={styles.note}>{t("report_scoreNote", { pass: sc.pass_score ?? 80 })}</Text>
     </Card>
   );
 }

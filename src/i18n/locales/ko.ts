@@ -297,7 +297,8 @@ const ko = {
   report_partStraight: "직진도",
   report_partStraightSub: "기준선에서 최대 {{mm}} mm 벗어남",
   report_partDefects: "결함",
-  report_scoreNote: "점수는 정해진 기준으로 계산돼요. 지금은 임시 기준이라 균열만 불합격이고, 나머지 결함은 감점이에요.",
+  report_scoreNote: "점수는 정해진 기준으로 계산돼요. 지금은 임시 기준이라 균열이 있거나 {{pass}}점 미만이면 불합격이고, 나머지 결함은 감점이에요.",
+  report_failLowScore: "점수가 {{pass}}점 미만이라 불합격이에요.",
 } as const;
 
 export default ko;

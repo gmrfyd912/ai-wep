@@ -281,7 +281,8 @@ const uz: Translation = {
   report_partStraight: "To'g'rilik",
   report_partStraightSub: "Asosiy chiziqdan eng ko'pi {{mm}} mm og'ish",
   report_partDefects: "Nuqsonlar",
-  report_scoreNote: "Ball belgilangan qoidalar bo'yicha hisoblanadi. Hozircha vaqtinchalik qoida: faqat yoriq o'tmaydi, boshqa nuqsonlar uchun ball ayiriladi.",
+  report_scoreNote: "Ball belgilangan qoidalar bo'yicha hisoblanadi. Hozircha vaqtinchalik qoida: yoriq bo'lsa yoki ball {{pass}} dan past bo'lsa o'tmaydi, boshqa nuqsonlar uchun ball ayiriladi.",
+  report_failLowScore: "Ball {{pass}} dan past bo'lgani uchun o'tmadi.",
 };
 
 export default uz;

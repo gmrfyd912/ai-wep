@@ -281,7 +281,8 @@ const id: Translation = {
   report_partStraight: "Kelurusan",
   report_partStraightSub: "Menyimpang paling jauh {{mm}} mm dari garis acuan",
   report_partDefects: "Cacat",
-  report_scoreNote: "Skor dihitung dengan aturan tetap. Saat ini aturan sementara: hanya retak yang tidak lulus, cacat lain mengurangi poin.",
+  report_scoreNote: "Skor dihitung dengan aturan tetap. Saat ini aturan sementara: ada retak atau skor di bawah {{pass}} berarti tidak lulus, cacat lain mengurangi poin.",
+  report_failLowScore: "Tidak lulus karena skor di bawah {{pass}}.",
 };
 
 export default id;

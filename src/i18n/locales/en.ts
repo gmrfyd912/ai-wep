@@ -281,7 +281,8 @@ const en: Translation = {
   report_partStraight: "Straightness",
   report_partStraightSub: "Up to {{mm}} mm off the baseline",
   report_partDefects: "Defects",
-  report_scoreNote: "The score is calculated by fixed rules. For now (temporary rules) only a crack means fail; other defects reduce points.",
+  report_scoreNote: "The score is calculated by fixed rules. For now (temporary rules) a crack or a score below {{pass}} means fail; other defects reduce points.",
+  report_failLowScore: "Fail because the score is below {{pass}}.",
 };
 
 export default en;
