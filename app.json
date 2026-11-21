@@ -35,11 +35,21 @@
           "imageWidth": 76
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Take photos of weld beads for analysis.",
+          "photosPermission": "Choose weld bead photos for analysis."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "apiUrl": "https://ai-wep-server.onrender.com"
     }
   }
 }

@@ -55,3 +55,20 @@ A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기�
 ## 결과 JSON 상태 코드
 
 `ok`, `marker_not_found`, `no_bead`, `bead_too_short`, `roboflow_failed`, `image_read_failed`. 경고: `bead_box_only`(비드 윤곽 없이 상자만 옴), `multiple_beads`, `rectify_too_large`.
+
+## 3단계: 분석 서버 (app.py)
+
+앱이 사진을 보내면 엔진으로 분석하고 Supabase에 저장합니다.
+
+| 주소 | 하는 일 |
+|---|---|
+| `GET /health` | 서버 상태 확인 |
+| `POST /analyze` | 사진(photo) + device_id + 공정·자세·재질 → 분석 결과 |
+| `GET /submissions?device_id=` | 이 휴대폰의 분석 목록 |
+| `GET /submissions/{id}?device_id=` | 분석 한 건 (사진·확인 그림 주소는 1시간 유효) |
+
+- 환경 변수: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `ROBOFLOW_API_KEY` (Render 설정 화면에만 입력)
+- Supabase 준비: `supabase/step3.sql` 을 SQL Editor에서 실행
+- 배포: 저장소 맨 위 `render.yaml` (Render Blueprint)
+- 로컬 실행: `uvicorn app:app --reload` / 흐름 시험: `python -m tests.server_check`
+- 로그인은 6단계. 그전까지 앱이 휴대폰마다 만든 임시 번호(device_id)로 구분합니다.

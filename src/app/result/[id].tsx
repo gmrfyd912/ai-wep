@@ -4,7 +4,9 @@ import { StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { Body, Card, Chips, ComingSoon, ImagePlaceholder, PreviewNotice, Screen, ScoreBadge } from "@/components/ui";
+import { UUID_RE } from "@/lib/api";
 import { courseById, resultById, studentById } from "@/mock/data";
+import { RealResult } from "@/screens/RealResult";
 import { colors, space } from "@/theme";
 
 type Tab = "metrics" | "report";
@@ -13,6 +15,8 @@ export default function ResultScreen() {
   const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("metrics");
+  // 실제 분석 기록(서버 번호)이면 실제 결과 화면, 아니면 1단계 가짜 데이터(갤러리·랭킹용)
+  if (id && UUID_RE.test(id)) return <RealResult id={id} />;
   const r = resultById(id);
   const s = r ? studentById(r.studentId) : undefined;
   if (!r || !s) return <Screen><Body muted>—</Body></Screen>;
