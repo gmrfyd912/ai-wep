@@ -51,6 +51,7 @@ npx expo start
 |---|---|
 | `rollback/v0.0-init` | Expo SDK 58 빈 프로젝트, 첫 화면 "AI W.E.P" |
 | `rollback/v0.1-skeleton` | 4개 역할 화면 뼈대(가짜 데이터), 8개 언어, 역할 미리보기 버튼 |
+| `rollback/v0.3-upload` | 사진 촬영·업로드 → Render 분석 서버(2단계 엔진) → Supabase 저장 → 결과 화면·내 기록, 실시간 단계 표시 (2단계 엔진 실측 검증은 보류) |
 
 이전 단계로 되돌릴 때는 해당 롤백 브랜치의 상태로 main을 되돌립니다.
 
