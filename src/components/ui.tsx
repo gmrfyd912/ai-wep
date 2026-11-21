@@ -10,7 +10,9 @@ import {
   TextInput,
   View,
   type ScrollViewInstance,
+  type TextInputInstance,
   type TextInputProps,
+  type ViewInstance,
   type ViewStyle,
 } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -20,14 +22,20 @@ import { colors, radius, space } from "@/theme";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
-/** 입력칸을 누르면 그 칸이 자판 위로 보이게 스크롤하는 함수 (Screen 이 제공, Field 가 사용) */
-const KeyboardScrollContext = createContext<(() => void) | null>(null);
+/** Screen 이 입력칸(Field)에게 주는 기능: 누른 칸을 화면 위쪽으로 올리기, 다음 칸으로 넘어가기 */
+type FormNav = {
+  reveal: (input: TextInputInstance | null) => void;
+  register: (input: RefObject<TextInputInstance | null>) => () => void;
+  focusNext: (input: TextInputInstance | null) => boolean;
+};
+const FormNavContext = createContext<FormNav | null>(null);
 
-const KEYBOARD_GAP = 24; // 자판과 입력칸 사이 여유
+const LABEL_SPACE = 40; // 칸 위의 이름표까지 보이도록 남기는 높이
 
 /** 화면 기본 틀: 어두운 배경 + 스크롤.
- * 자판이 올라오면 아래에 자판 높이만큼 빈 공간을 두고, 지금 입력 중인 칸이 자판 위에 보이도록 스크롤한다.
- * (안드로이드·아이폰 공통. 안드로이드는 화면 끝까지 그리는 방식이라 시스템이 화면을 줄여 주지 않는다) */
+ * 입력칸을 누르면 그 칸(이름표 포함)을 화면 맨 위쪽으로 올려서, 그 아래 칸들도 자판 위에 이어서 보이게 한다.
+ * 자판 높이만큼 아래 여백을 두어 마지막 칸·버튼까지 올라올 수 있게 한다.
+ * 자판 위치 값에 기대지 않고 스크롤 안에서의 칸 위치만 써서 안드로이드(화면 끝까지 그리기)·아이폰 모두 같게 동작한다. */
 export function Screen({
   children,
   scroll = true,
@@ -42,56 +50,95 @@ export function Screen({
   const edges = safeTop ? (["top", "left", "right"] as const) : (["left", "right"] as const);
   const innerRef = useRef<ScrollViewInstance | null>(null);
   const ref = scrollRef ?? innerRef;
-  const scrollY = useRef(0);
-  const keyboardTop = useRef<number | null>(null); // 자판 윗변의 화면 위치
+  const contentRef = useRef<ViewInstance | null>(null);
+  const inputs = useRef(new Set<RefObject<TextInputInstance | null>>());
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  const ensureFocusedVisible = useCallback(() => {
-    // 화면이 다시 그려진 뒤에 위치를 잰다
-    setTimeout(() => {
-      const input = TextInput.State.currentlyFocusedInput();
-      const top = keyboardTop.current;
-      if (!input || top == null || !ref.current) return;
-      input.measureInWindow((_x, y, _w, h) => {
-        const overlap = y + h + KEYBOARD_GAP - top;
-        if (overlap > 0) ref.current?.scrollTo({ y: scrollY.current + overlap, animated: true });
-      });
-    }, 80);
-  }, [ref]);
+  /** 스크롤 내용 안에서 칸의 위쪽 위치 */
+  const topOf = useCallback(
+    (input: TextInputInstance) =>
+      new Promise<number | null>((resolve) => {
+        const content = contentRef.current;
+        if (!content) return resolve(null);
+        input.measureLayout(
+          content,
+          (_x, y) => resolve(y),
+          () => resolve(null),
+        );
+      }),
+    [],
+  );
+
+  const reveal = useCallback(
+    (input: TextInputInstance | null) => {
+      if (!input) return;
+      // 자판이 올라오고 여백이 생긴 뒤에도 한 번 더 맞춘다
+      for (const delay of [60, 350]) {
+        setTimeout(async () => {
+          const y = await topOf(input);
+          if (y != null) ref.current?.scrollTo({ y: Math.max(0, y - LABEL_SPACE), animated: true });
+        }, delay);
+      }
+    },
+    [ref, topOf],
+  );
+
+  const register = useCallback((input: RefObject<TextInputInstance | null>) => {
+    inputs.current.add(input);
+    return () => {
+      inputs.current.delete(input);
+    };
+  }, []);
+
+  /** 지금 칸 바로 아래에 있는 칸으로 넘어간다. 없으면 false */
+  const focusNext = useCallback(
+    (current: TextInputInstance | null) => {
+      if (!current) return false;
+      const list = [...inputs.current].map((r) => r.current).filter((x): x is TextInputInstance => !!x && x !== current);
+      (async () => {
+        const cy = await topOf(current);
+        if (cy == null) return;
+        let best: { y: number; input: TextInputInstance } | null = null;
+        for (const input of list) {
+          const y = await topOf(input);
+          if (y != null && y > cy + 1 && (!best || y < best.y)) best = { y, input };
+        }
+        if (best) best.input.focus();
+        else Keyboard.dismiss();
+      })();
+      return list.length > 0;
+    },
+    [topOf],
+  );
 
   useEffect(() => {
     if (!scroll) return;
     const show = Keyboard.addListener("keyboardDidShow", (e) => {
-      keyboardTop.current = e.endCoordinates.screenY;
       setKeyboardHeight(e.endCoordinates.height);
-      ensureFocusedVisible();
+      reveal(TextInput.State.currentlyFocusedInput() as unknown as TextInputInstance | null);
     });
-    const hide = Keyboard.addListener("keyboardDidHide", () => {
-      keyboardTop.current = null;
-      setKeyboardHeight(0);
-    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => {
       show.remove();
       hide.remove();
     };
-  }, [scroll, ensureFocusedVisible]);
+  }, [scroll, reveal]);
 
   return (
     <SafeAreaView style={styles.screen} edges={edges}>
       {scroll ? (
-        <KeyboardScrollContext.Provider value={ensureFocusedVisible}>
+        <FormNavContext.Provider value={{ reveal, register, focusNext }}>
           <ScrollView
             ref={ref}
-            contentContainerStyle={[styles.scrollContent, keyboardHeight ? { paddingBottom: keyboardHeight + space.xl } : null]}
+            contentContainerStyle={keyboardHeight ? { paddingBottom: keyboardHeight + space.xl * 2 } : null}
             keyboardShouldPersistTaps="handled"
-            onScroll={(e) => {
-              scrollY.current = e.nativeEvent.contentOffset.y;
-            }}
-            scrollEventThrottle={32}
           >
-            {children}
+            {/* 칸 위치를 잴 기준 (스크롤 내용의 맨 위) */}
+            <View ref={contentRef} style={styles.scrollContent}>
+              {children}
+            </View>
           </ScrollView>
-        </KeyboardScrollContext.Provider>
+        </FormNavContext.Provider>
       ) : (
         <View style={[styles.scrollContent, { flex: 1 }]}>{children}</View>
       )}
@@ -167,17 +214,29 @@ export function AppButton({
   );
 }
 
-export function Field({ label, onFocus, ...props }: TextInputProps & { label: string }) {
-  const ensureVisible = useContext(KeyboardScrollContext);
+export function Field({ label, onFocus, onSubmitEditing, returnKeyType, ...props }: TextInputProps & { label: string }) {
+  const nav = useContext(FormNavContext);
+  const inputRef = useRef<TextInputInstance | null>(null);
+  const register = nav?.register;
+  const editable = props.editable !== false;
+  useEffect(() => (editable ? register?.(inputRef) : undefined), [register, editable]);
   return (
     <View style={{ gap: space.xs }}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        ref={inputRef}
         placeholderTextColor={colors.faint}
         autoCapitalize="none"
         style={styles.input}
+        // 자판의 "다음" 키를 누르면 아래 칸으로 넘어간다 (화면이 따로 정한 동작이 있으면 그걸 따름)
+        returnKeyType={returnKeyType ?? (onSubmitEditing ? "done" : "next")}
+        submitBehavior={onSubmitEditing ? "blurAndSubmit" : "submit"}
+        onSubmitEditing={(e) => {
+          if (onSubmitEditing) onSubmitEditing(e);
+          else nav?.focusNext(inputRef.current);
+        }}
         onFocus={(e) => {
-          ensureVisible?.(); // 자판이 이미 올라와 있을 때 다른 칸을 눌러도 그 칸이 보이게
+          nav?.reveal(inputRef.current); // 누른 칸을 화면 위쪽으로 올림
           onFocus?.(e);
         }}
         {...props}
