@@ -103,6 +103,14 @@ def insert_report(row):
                          headers={**h, "Prefer": "resolution=ignore-duplicates,return=minimal"}))
 
 
+def update_report(rid, fields):
+    """판정이 바뀐 리포트를 새 글로 바꾼다. created_at 은 그대로 (하루 한도에 다시 세지 않음)."""
+    url, h = _base()
+    fields = {k: v for k, v in fields.items() if k not in ("submission_id", "device_id", "lang")}
+    _check(requests.patch(f"{url}/rest/v1/reports", params={"id": f"eq.{rid}"}, json=fields,
+                          timeout=TIMEOUT, headers={**h, "Prefer": "return=minimal"}))
+
+
 def count_reports_since(device_id, since_iso):
     url, h = _base()
     r = _check(requests.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={

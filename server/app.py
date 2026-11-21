@@ -231,13 +231,17 @@ def make_report(sid: str, body: ReportRequest):
     limit = int(crit.get("report_daily_limit", 2))
 
     saved = store.get_report(sid, lang)
-    if saved:
+    # 검사기준이 바뀌어 점수·판정이 달라졌으면, 예전 글과 맞지 않으니 다시 만든다 (한도에 세지 않음)
+    stale = bool(saved) and (saved.get("verdict") != sc["verdict"] or saved.get("score") != sc["score"])
+    if saved and not stale:
         return {"report": saved.get("report"), "score": sc, "cached": True, "limit": limit}
 
     if not report.configured():
+        if saved:  # AI를 못 쓰면 예전 글이라도 보여 준다
+            return {"report": saved.get("report"), "score": sc, "cached": True, "limit": limit}
         raise HTTPException(503, {"code": "ai_not_configured"})
     used = store.count_reports_since(body.device_id, _kst_midnight_iso())
-    if used >= limit:
+    if not stale and used >= limit:
         raise HTTPException(429, {"code": "daily_limit", "limit": limit})
 
     data = report.build_input(row, sc, _history(row))
@@ -246,8 +250,10 @@ def make_report(sid: str, body: ReportRequest):
     except report.ReportError as e:
         print("[report] 실패", str(e)[:300], flush=True)
         raise HTTPException(503 if e.code == "ai_not_configured" else 502, {"code": e.code})
-    store.insert_report({
-        "submission_id": sid, "device_id": body.device_id, "lang": lang, "model": report.model_name(),
-        "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage,
-    })
+    new = {"submission_id": sid, "device_id": body.device_id, "lang": lang, "model": report.model_name(),
+           "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage}
+    if stale:
+        store.update_report(saved["id"], new)
+        return {"report": out, "score": sc, "cached": False, "limit": limit}
+    store.insert_report(new)
     return {"report": out, "score": sc, "cached": False, "limit": limit, "remaining": max(0, limit - used - 1)}

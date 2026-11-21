@@ -281,7 +281,8 @@ const fil: Translation = {
   report_partStraight: "Pagkatuwid",
   report_partStraightSub: "Hanggang {{mm}} mm ang layo sa baseline",
   report_partDefects: "Mga depekto",
-  report_scoreNote: "Kinakalkula ang score gamit ang nakatakdang patakaran. Pansamantala, crack lang ang bagsak; ang ibang depekto ay bawas-puntos.",
+  report_scoreNote: "Kinakalkula ang score gamit ang nakatakdang patakaran. Pansamantala, bagsak kapag may crack o mas mababa sa {{pass}} ang score; ang ibang depekto ay bawas-puntos.",
+  report_failLowScore: "Bagsak dahil mas mababa sa {{pass}} ang score.",
 };
 
 export default fil;

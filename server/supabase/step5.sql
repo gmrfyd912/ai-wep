@@ -36,6 +36,7 @@ insert into public.app_settings (key, value) values ('criteria', '{
                "deduct_default": 10},
   "fail_types": ["crack"],
   "fail_score_cap": 59,
+  "pass_score": 80,
   "report_daily_limit": 2
 }'::jsonb)
 on conflict (key) do nothing;

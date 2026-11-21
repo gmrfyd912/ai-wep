@@ -50,6 +50,9 @@ export type ScoreInfo = {
   score: number;
   verdict: Verdict;
   fail_reasons: string[];
+  /** 점수가 pass_score 미만이라 불합격 */
+  fail_low_score?: boolean;
+  pass_score?: number;
   parts: {
     width: { points: number; max: number; value_mm: number };
     straight: { points: number; max: number; value_mm: number };

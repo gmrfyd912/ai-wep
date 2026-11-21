@@ -281,7 +281,8 @@ const es: Translation = {
   report_partStraight: "Rectitud",
   report_partStraightSub: "Hasta {{mm}} mm fuera de la línea base",
   report_partDefects: "Defectos",
-  report_scoreNote: "La puntuación se calcula con reglas fijas. Por ahora (reglas temporales) solo una grieta es no aprobado; otros defectos restan puntos.",
+  report_scoreNote: "La puntuación se calcula con reglas fijas. Por ahora (reglas temporales) una grieta o una puntuación menor que {{pass}} es no aprobado; otros defectos restan puntos.",
+  report_failLowScore: "No aprobado porque la puntuación es menor que {{pass}}.",
 };
 
 export default es;

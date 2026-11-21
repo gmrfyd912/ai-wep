@@ -32,7 +32,12 @@ def check_scoring():
     s = scoring.score(8.0, 8.8, 0.4, [], c)  # 폭차 0.8 → 40, 직진 0.4 → 30, 결함 없음 30
     assert s["score"] == 100 and s["verdict"] == "pass", s
     s = scoring.score(7.0, 9.5, 1.75, ["Porosity", "Spatter"], c)  # 폭차 2.5 → 20, 직진 1.75 → 15, 기공 −10 → 20
-    assert s["score"] == 55 and s["verdict"] == "pass", s
+    assert s["score"] == 55 and s["verdict"] == "fail" and s["fail_low_score"] and not s["fail_reasons"], s  # 60 미만
+    s = scoring.score(7.5, 9.0, 1.0, ["Porosity"], c)  # 폭차 1.5 → 33.3, 직진 1.0 → 24, 결함 20 → 77 (80 미만)
+    assert s["score"] == 77 and s["verdict"] == "fail" and s["fail_low_score"], s  # 균열이 아니라 59로 깎이지 않음
+    s = scoring.score(7.5, 9.0, 1.0, [], c)  # 87
+    assert s["score"] == 87 and s["verdict"] == "pass", s
+    assert scoring.score(7.5, 9.0, 1.0, ["Porosity"], scoring._merge(c, {"pass_score": 60}))["verdict"] == "pass"
     s = scoring.score(8.0, 8.5, 0.3, ["Crack"], c)  # 균열 → 불합격, 최대 59
     assert s["score"] == 59 and s["verdict"] == "fail" and s["fail_reasons"] == ["Crack"], s
     s = scoring.score(6.0, 11.0, 4.0, ["porosity"] * 4, c)  # 전부 0점 아래로 안 내려감
@@ -120,6 +125,14 @@ def main():
     # 분석 실패 사진, 남의 기기
     assert c.post(f"/submissions/{DB['f']['id']}/report", json={"device_id": DEV}).status_code == 409
     assert c.post(f"/submissions/{sid}/report", json={"device_id": "other-device-999"}).status_code == 404
+    # 기준이 바뀌어 판정이 달라지면 저장된 리포트를 다시 만든다 (한도 초과여도)
+    REPORTS[0]["verdict"] = "fail"
+    n = len(sent)
+    store.update_report = lambda rid, f: REPORTS[0].update(f)
+    REPORTS[0]["id"] = "r1"
+    r = c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "vi"})
+    assert r.status_code == 200 and r.json()["cached"] is False and len(sent) == n + 1, r.text
+    assert REPORTS[0]["verdict"] == "pass" and len(REPORTS) == 2
     assert REPORTS[0]["input_tokens"] == 1200 and REPORTS[0]["score"] == d["score"]["score"]
     print("AI 리포트 흐름 시험 통과")
 

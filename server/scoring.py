@@ -8,6 +8,7 @@
 - 직진도 30점: 기준선 대비 최대 이탈이 full_mm 이하면 만점, zero_mm 이상이면 0점, 사이는 비례
 - 결함 30점: 결함 1개당 종류별 감점 (스패터는 감점 없음), 0점 아래로는 안 내려감
 - 불합격: fail_types(지금은 균열만)가 1개라도 있으면 불합격, 점수는 fail_score_cap(59점)까지만
+- 불합격: 점수가 pass_score(80점) 미만이어도 불합격 (박사 결정 2026-11-21)
 - 선급 검사표를 받기 전까지의 임시 기준이다.
 
 기준값은 교사가 아니라 시스템관리자가 정한다. Supabase app_settings 표의 'criteria' 값이
@@ -29,6 +30,8 @@ DEFAULT_CRITERIA = {
     },
     "fail_types": ["crack"],
     "fail_score_cap": 59,
+    # 이 점수 미만이면 불합격
+    "pass_score": 80,
     # 기기 1대가 하루(한국 시간)에 새로 만들 수 있는 AI 리포트 수
     "report_daily_limit": 2,
 }
@@ -103,10 +106,14 @@ def score(width_min, width_max, straight_max_dev, defect_types, crit=None):
     total = round(w_pts + s_pts + d_pts)
     if fail_reasons:
         total = min(total, int(c["fail_score_cap"]))
+    pass_score = int(c.get("pass_score", 80))
+    low = total < pass_score
     return {
         "score": int(total),
-        "verdict": "fail" if fail_reasons else "pass",
+        "verdict": "fail" if fail_reasons or low else "pass",
         "fail_reasons": fail_reasons,
+        "fail_low_score": low,
+        "pass_score": pass_score,
         "parts": {
             "width": {"points": round(w_pts, 1), "max": c["width"]["points"], "value_mm": round(wr, 2)},
             "straight": {"points": round(s_pts, 1), "max": c["straight"]["points"], "value_mm": round(sd, 2)},

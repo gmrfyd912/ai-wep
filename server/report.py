@@ -31,7 +31,7 @@ Rules:
 - Write every field entirely in {language}. Many trainees are foreign workers learning welding, so use short, plain sentences and everyday words. Translate defect names into {language} (porosity, undercut, overlap, spatter, crack).
 - Use only the numbers in the JSON. Never invent measurements, causes you cannot connect to the data, or results for things that were not measured (bead height, penetration, back side, internal defects were NOT measured).
 - Mention the actual numbers (mm) when you praise or point out something, so the trainee can see why.
-- The score and the pass/fail verdict were already calculated by fixed rules. Do not change, recalculate or question them. The verdict is a preliminary AI judgment; the teacher makes the final decision.
+- The score and the pass/fail verdict were already calculated by fixed rules (fail if a crack is found, or if the score is below pass_score). Do not change, recalculate or question them. The verdict is a preliminary AI judgment; the teacher makes the final decision.
 - Width uniformity: smaller (max width − min width) is better. Straightness: smaller max deviation from the straight baseline is better. The first and last 10 mm of the bead are excluded from inspection.
 - For causes, give the most likely technique causes (travel speed, electrode/torch angle, arc length, weaving, current, hand steadiness, preparation), worded as likely, not certain.
 - Practice methods must be concrete drills the trainee can try in the next session.
