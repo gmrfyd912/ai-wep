@@ -248,6 +248,14 @@ const th: Translation = {
   records_same: "เท่าเดิม",
   records_refOnly: "อ้างอิง",
   records_compareHint: "ความกว้างเฉลี่ยไม่มีดีหรือแย่ จึงแสดงเพื่ออ้างอิงเท่านั้น",
+  cum_title: "วิเคราะห์สะสม · {{group}}",
+  cum_count: "ครั้งที่ {{n}} จากที่สำเร็จ {{count}} ครั้ง",
+  cum_currentHint: "จุดสีส้มใหญ่ = ผลที่กำลังดู",
+  cum_firstRecord: "เป็นครั้งแรก จึงยังไม่มีผลก่อนหน้าให้เทียบ",
+  cum_pastTitle: "ผลวิเคราะห์ที่ผ่านมา · {{group}}",
+  cum_viewing: "กำลังดู",
+  records_openLatest: "ดูผลล่าสุด",
+  records_listHint: "แตะเพื่อเปิดผลของวันนั้นพร้อมการวิเคราะห์สะสม",
 };
 
 export default th;

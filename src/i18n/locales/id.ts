@@ -248,6 +248,14 @@ const id: Translation = {
   records_same: "Sama",
   records_refOnly: "Info",
   records_compareHint: "Lebar rata-rata tidak ada baik atau buruk, jadi hanya sebagai acuan.",
+  cum_title: "Analisis kumulatif · {{group}}",
+  cum_count: "Ke-{{n}} dari {{count}} analisis berhasil",
+  cum_currentHint: "Titik oranye besar = hasil yang sedang dilihat",
+  cum_firstRecord: "Ini catatan pertama, jadi belum ada hasil sebelumnya untuk dibandingkan.",
+  cum_pastTitle: "Analisis sebelumnya · {{group}}",
+  cum_viewing: "Sedang dilihat",
+  records_openLatest: "Buka hasil terbaru",
+  records_listHint: "Ketuk untuk membuka hasil hari itu beserta analisis kumulatif.",
 };
 
 export default id;

@@ -248,6 +248,14 @@ const vi: Translation = {
   records_same: "Như cũ",
   records_refOnly: "Tham khảo",
   records_compareHint: "Độ rộng trung bình không có tốt hay xấu nên chỉ để tham khảo.",
+  cum_title: "Phân tích tích lũy · {{group}}",
+  cum_count: "Lần thứ {{n}} trong {{count}} lần thành công",
+  cum_currentHint: "Chấm cam lớn = kết quả đang xem",
+  cum_firstRecord: "Đây là lần đầu nên chưa có kết quả trước để so sánh.",
+  cum_pastTitle: "Các lần phân tích trước · {{group}}",
+  cum_viewing: "Đang xem",
+  records_openLatest: "Xem kết quả mới nhất",
+  records_listHint: "Chạm để mở kết quả ngày đó cùng phân tích tích lũy.",
 };
 
 export default vi;

@@ -248,6 +248,14 @@ const fil: Translation = {
   records_same: "Pareho",
   records_refOnly: "Sanggunian",
   records_compareHint: "Walang mabuti o masama sa average na lapad, kaya sanggunian lamang.",
+  cum_title: "Naipong pagsusuri · {{group}}",
+  cum_count: "Ika-{{n}} sa {{count}} matagumpay na pagsusuri",
+  cum_currentHint: "Malaking kahel na tuldok = resultang tinitingnan",
+  cum_firstRecord: "Ito ang unang tala kaya wala pang maikukumpara.",
+  cum_pastTitle: "Mga nakaraang pagsusuri · {{group}}",
+  cum_viewing: "Tinitingnan ngayon",
+  records_openLatest: "Buksan ang pinakabagong resulta",
+  records_listHint: "I-tap para buksan ang resulta ng araw na iyon kasama ang pag-unlad.",
 };
 
 export default fil;

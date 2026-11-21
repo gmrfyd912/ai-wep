@@ -264,6 +264,14 @@ const ko = {
   records_same: "같음",
   records_refOnly: "참고",
   records_compareHint: "폭 평균은 좋고 나쁨이 없어서 참고로만 보여 줍니다.",
+  cum_title: "누적 분석 · {{group}}",
+  cum_count: "성공한 분석 {{count}}회 중 {{n}}번째",
+  cum_currentHint: "큰 주황 점 = 지금 보고 있는 결과",
+  cum_firstRecord: "첫 기록이라 비교할 이전 결과가 없어요.",
+  cum_pastTitle: "지난 분석 · {{group}}",
+  cum_viewing: "지금 보는 결과",
+  records_openLatest: "가장 최근 결과 보기",
+  records_listHint: "누르면 그 날의 결과와 누적 분석이 열려요.",
 } as const;
 
 export default ko;

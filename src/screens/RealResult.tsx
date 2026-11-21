@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { AppButton, Body, Card, Chips, ComingSoon, Screen } from "@/components/ui";
+import { AppButton, Body, Card, Chips, ComingSoon, Screen, SectionTitle } from "@/components/ui";
 import { ZoomImage } from "@/components/ZoomImage";
-import { getSubmission, statusKey, type Submission } from "@/lib/api";
+import { getSubmission, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
 import { defectName } from "@/lib/defects";
+import { Cumulative, RecordRow, groupOf } from "@/screens/Cumulative";
 import { ResultCharts } from "@/screens/ResultCharts";
 import { colors, radius, space } from "@/theme";
 
@@ -33,12 +34,17 @@ export function RealResult({ id }: { id: string }) {
   const [data, setData] = useState<Submission | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(false);
+  const [history, setHistory] = useState<SubmissionListItem[] | null>(null);
 
   useEffect(() => {
     let alive = true;
     getSubmission(id)
       .then((d) => alive && setData(d))
       .catch(() => alive && setFailed(true));
+    // 누적 분석·지난 분석 목록용 (실패해도 이번 결과는 보이게 조용히 넘어감)
+    listSubmissions()
+      .then((r) => alive && setHistory(r))
+      .catch(() => alive && setHistory([]));
     return () => {
       alive = false;
     };
@@ -161,7 +167,34 @@ export function RealResult({ id }: { id: string }) {
           <Text style={styles.note}>{t("result_betaNote")}</Text>
         </>
       )}
+      {tab === "metrics" ? <History data={data} history={history} /> : null}
     </Screen>
+  );
+}
+
+/** 결과 화면 아래: 같은 용접법·자세의 누적 분석 + 지난 분석 목록 (첫 업로드부터 지금까지) */
+function History({ data, history }: { data: Submission; history: SubmissionListItem[] | null }) {
+  const { t } = useTranslation();
+  if (history == null) return <ActivityIndicator color={colors.primary} />;
+  const group = groupOf(data);
+  const same = history
+    .filter((r) => groupOf(r) === group)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const ok = same.filter((r) => r.status === "ok");
+  return (
+    <>
+      {data.status === "ok" && ok.some((r) => r.id === data.id) ? (
+        <Cumulative rows={ok} currentId={data.id} group={group} />
+      ) : null}
+      {same.length ? (
+        <>
+          <SectionTitle>{t("cum_pastTitle", { group })}</SectionTitle>
+          {[...same].reverse().map((r) => (
+            <RecordRow key={r.id} r={r} current={r.id === data.id} showInfo={false} />
+          ))}
+        </>
+      ) : null}
+    </>
   );
 }
 

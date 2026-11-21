@@ -248,6 +248,14 @@ const uz: Translation = {
   records_same: "O'zgarmadi",
   records_refOnly: "Ma'lumot",
   records_compareHint: "O'rtacha kenglikda yaxshi yoki yomon yo'q, shuning uchun faqat ma'lumot uchun.",
+  cum_title: "Jamlangan tahlil · {{group}}",
+  cum_count: "{{count}} ta muvaffaqiyatli tahlildan {{n}}-si",
+  cum_currentHint: "Katta to'q sariq nuqta = hozir ko'rilayotgan natija",
+  cum_firstRecord: "Bu birinchi yozuv, solishtirish uchun oldingi natija yo'q.",
+  cum_pastTitle: "Oldingi tahlillar · {{group}}",
+  cum_viewing: "Hozir ko'rilmoqda",
+  records_openLatest: "Eng so'nggi natijani ochish",
+  records_listHint: "O'sha kungi natija va jamlangan tahlilni ochish uchun bosing.",
 };
 
 export default uz;
