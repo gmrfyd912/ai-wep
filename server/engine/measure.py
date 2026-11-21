@@ -75,6 +75,8 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
     dev = s[:, 2] - (a * s[:, 0] + b)
     absdev = np.abs(dev)
     i_dev = int(np.argmax(absdev))
+    # 그래프용: 1mm마다 기준선 대비 중심선 이탈 (+ = 한쪽, - = 반대쪽). 양 끝 구간도 포함(앱에서 회색)
+    dev_all = st[:, 2] - (a * st[:, 0] + b)
 
     def width_at(pos, half=1.0):
         # 캘리퍼스 턱 폭을 고려해 pos ±1mm 구간 평균
@@ -117,6 +119,7 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
             "mean_dev_mm": _r(absdev.mean()),
             "rms_dev_mm": _r(np.sqrt((dev ** 2).mean())),
             "baseline_angle_deg": _r(np.degrees(np.arctan(a))),
+            "profile": [[_r(p, 1), _r(d)] for p, d in zip(st[:, 0], dev_all)],
         },
     }
     return result, geom

@@ -69,5 +69,8 @@ def list_by_device(device_id, limit):
     url, h = _base()
     r = _check(requests.get(f"{url}/rest/v1/submissions", headers=h, timeout=TIMEOUT, params={
         "device_id": f"eq.{device_id}", "order": "created_at.desc", "limit": str(limit),
-        "select": "id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,defect_count"}))
+        "select": ("id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,defect_count,"
+                   # 누적 분석(4단계)용: 결과 JSON에서 필요한 값만 꺼낸다
+                   "width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
+                   "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")}))
     return r.json()

@@ -74,6 +74,15 @@ def _summary(row):
     return out
 
 
+def _list_item(row):
+    """내 기록 목록: 요약 + 추이·비교·결함 통계에 쓰는 값 (그래프 배열은 넣지 않아 가볍다)."""
+    out = _summary(row)
+    for k in ("width_std_mm", "width_min_mm", "width_max_mm"):
+        out[k] = row.get(k)
+    out["defect_types"] = [d.get("type") for d in (row.get("defect_types") or []) if isinstance(d, dict)]
+    return out
+
+
 @app.post("/analyze")
 async def analyze(
     photo: UploadFile = File(...),
@@ -148,10 +157,10 @@ def _detail(row):
 
 
 @app.get("/submissions")
-def list_submissions(device_id: str, limit: int = 50):
+def list_submissions(device_id: str, limit: int = 200):
     _check_device(device_id)
-    rows = store.list_by_device(device_id, max(1, min(limit, 100)))
-    return [_summary(r) for r in rows]
+    rows = store.list_by_device(device_id, max(1, min(limit, 500)))
+    return [_list_item(r) for r in rows]
 
 
 @app.get("/submissions/{sid}")
