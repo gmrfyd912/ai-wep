@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import type { ComponentProps, ReactNode, RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
 import {
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +20,14 @@ import { colors, radius, space } from "@/theme";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
-/** 화면 기본 틀: 어두운 배경 + 스크롤 */
+/** 입력칸을 누르면 그 칸이 자판 위로 보이게 스크롤하는 함수 (Screen 이 제공, Field 가 사용) */
+const KeyboardScrollContext = createContext<(() => void) | null>(null);
+
+const KEYBOARD_GAP = 24; // 자판과 입력칸 사이 여유
+
+/** 화면 기본 틀: 어두운 배경 + 스크롤.
+ * 자판이 올라오면 아래에 자판 높이만큼 빈 공간을 두고, 지금 입력 중인 칸이 자판 위에 보이도록 스크롤한다.
+ * (안드로이드·아이폰 공통. 안드로이드는 화면 끝까지 그리는 방식이라 시스템이 화면을 줄여 주지 않는다) */
 export function Screen({
   children,
   scroll = true,
@@ -32,12 +40,58 @@ export function Screen({
   scrollRef?: RefObject<ScrollViewInstance | null>;
 }) {
   const edges = safeTop ? (["top", "left", "right"] as const) : (["left", "right"] as const);
+  const innerRef = useRef<ScrollViewInstance | null>(null);
+  const ref = scrollRef ?? innerRef;
+  const scrollY = useRef(0);
+  const keyboardTop = useRef<number | null>(null); // 자판 윗변의 화면 위치
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const ensureFocusedVisible = useCallback(() => {
+    // 화면이 다시 그려진 뒤에 위치를 잰다
+    setTimeout(() => {
+      const input = TextInput.State.currentlyFocusedInput();
+      const top = keyboardTop.current;
+      if (!input || top == null || !ref.current) return;
+      input.measureInWindow((_x, y, _w, h) => {
+        const overlap = y + h + KEYBOARD_GAP - top;
+        if (overlap > 0) ref.current?.scrollTo({ y: scrollY.current + overlap, animated: true });
+      });
+    }, 80);
+  }, [ref]);
+
+  useEffect(() => {
+    if (!scroll) return;
+    const show = Keyboard.addListener("keyboardDidShow", (e) => {
+      keyboardTop.current = e.endCoordinates.screenY;
+      setKeyboardHeight(e.endCoordinates.height);
+      ensureFocusedVisible();
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardTop.current = null;
+      setKeyboardHeight(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [scroll, ensureFocusedVisible]);
+
   return (
     <SafeAreaView style={styles.screen} edges={edges}>
       {scroll ? (
-        <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          {children}
-        </ScrollView>
+        <KeyboardScrollContext.Provider value={ensureFocusedVisible}>
+          <ScrollView
+            ref={ref}
+            contentContainerStyle={[styles.scrollContent, keyboardHeight ? { paddingBottom: keyboardHeight + space.xl } : null]}
+            keyboardShouldPersistTaps="handled"
+            onScroll={(e) => {
+              scrollY.current = e.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={32}
+          >
+            {children}
+          </ScrollView>
+        </KeyboardScrollContext.Provider>
       ) : (
         <View style={[styles.scrollContent, { flex: 1 }]}>{children}</View>
       )}
@@ -113,7 +167,8 @@ export function AppButton({
   );
 }
 
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+export function Field({ label, onFocus, ...props }: TextInputProps & { label: string }) {
+  const ensureVisible = useContext(KeyboardScrollContext);
   return (
     <View style={{ gap: space.xs }}>
       <Text style={styles.label}>{label}</Text>
@@ -121,6 +176,10 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
         placeholderTextColor={colors.faint}
         autoCapitalize="none"
         style={styles.input}
+        onFocus={(e) => {
+          ensureVisible?.(); // 자판이 이미 올라와 있을 때 다른 칸을 눌러도 그 칸이 보이게
+          onFocus?.(e);
+        }}
         {...props}
       />
     </View>
