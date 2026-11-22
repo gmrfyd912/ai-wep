@@ -9,6 +9,7 @@ export default function PrivacyScreen() {
       <Card>
         <Body>{t("privacy_draft")}</Body>
         <Body>{t("signup_publicNote")}</Body>
+        <Body>{t("privacy_aiTraining")}</Body>
       </Card>
     </Screen>
   );

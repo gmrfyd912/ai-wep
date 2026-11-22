@@ -17,6 +17,8 @@ export default function ManageLayout() {
       <Stack.Screen name="members" options={{ title: t("admin_members") }} />
       <Stack.Screen name="member/[id]" options={{ title: t("manage_memberTitle") }} />
       <Stack.Screen name="signup-settings" options={{ title: t("admin_signupSettings") }} />
+      <Stack.Screen name="criteria" options={{ title: t("admin_criteria") }} />
+      <Stack.Screen name="training" options={{ title: t("admin_training") }} />
     </Stack>
   );
 }

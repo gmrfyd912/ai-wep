@@ -67,6 +67,11 @@ def criteria():
     return value
 
 
+def clear_cache():
+    """시스템관리자가 기준을 바꾸면 바로 쓰도록 기억해 둔 값을 지운다."""
+    _CACHE.update(at=0.0, value=None)
+
+
 def _linear(value, rule):
     pts = rule["points"]
     if value is None:

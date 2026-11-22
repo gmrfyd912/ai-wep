@@ -666,3 +666,36 @@ export function getRanking(q: { process: string; position: string; period: RankP
   Object.entries(q).forEach(([k, v]) => v && p.set(k, v));
   return request<{ rows: RankRow[]; me: RankRow | null; total: number }>(`/ranking?${p.toString()}`, {}, BOARD_TIMEOUT);
 }
+
+// ---- 6-4: 시스템관리자 설정·학습용 사진 받기 ----
+
+export type ScoreRule = { points: number; full_mm: number; zero_mm: number };
+export type AdminSettings = {
+  pass_score: number;
+  width: ScoreRule;
+  straight: ScoreRule;
+  defects: { points: number; porosity: number; undercut: number; overlap: number; spatter: number; other: number };
+  crack_fail: boolean;
+  fail_score_cap: number;
+  report_daily_limit: number;
+  password_min_length: number;
+  reset_password: string;
+  updated_at?: string | null;
+  updated_by?: string | null;
+};
+export const getAdminSettings = () => request<AdminSettings>("/admin/settings", {}, BOARD_TIMEOUT);
+export const saveAdminSettings = (v: AdminSettings) => request<AdminSettings>("/admin/settings", json("PUT", v), BOARD_TIMEOUT);
+
+export type ExportRange = "all" | "period" | "new";
+export type ExportQuery = {
+  range: ExportRange;
+  date_from?: string;
+  date_to?: string;
+  process: string;
+  position: string;
+  course: string;
+};
+export type ExportPart = { index: number; first: number; last: number; date_from: string; date_to: string; path: string };
+export type ExportSummary = { total: number; labeled: number; parts: ExportPart[]; expires_at: number; last_export_at: string | null };
+export const trainingExport = (q: ExportQuery) =>
+  request<ExportSummary>("/admin/training-export", json("POST", q), BOARD_TIMEOUT);
