@@ -678,9 +678,10 @@ export type RankRow = {
   created_at: string;
   process?: string | null;
   position?: string | null;
+  work_type?: "plate" | "pipe";
 } & AvatarFields &
   BeadFields;
-/** process·position 이 "" 이면 전체 */
+/** process·position·work_type 이 "" 이면 전체 */
 export function getRanking(q: { process: string; position: string; period: RankPeriod; course: string; work_type: string }) {
   const p = new URLSearchParams();
   Object.entries(q).forEach(([k, v]) => v && p.set(k, v));

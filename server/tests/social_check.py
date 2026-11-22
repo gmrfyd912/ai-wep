@@ -142,7 +142,8 @@ def main():
     assert r["rows"][0]["name"] == "s1" and r["rows"][0]["submission_id"] == old  # 예전 100점이 먼저
     assert c.get("/ranking?process=GTAW&position=1G&period=all", headers=S1).json()["rows"][0]["name"] == "s3"
     assert c.get("/ranking?process=SMAW&position=1G&period=year", headers=S1).status_code == 400
-    # 6-5: 평판·배관은 섞지 않는다 (예전 기록 = 평판)
+    # 6-5: 평판/배관 필터 (예전 기록 = 평판), 비우면 합쳐서
+    assert c.get("/ranking?period=all", headers=S1).json()["rows"][0]["work_type"] == "plate"
     assert c.get("/ranking?period=all&work_type=pipe", headers=S1).json()["rows"] == []
     assert c.get("/ranking?period=all&work_type=plate", headers=S1).json()["rows"]
     assert c.get("/ranking?period=all&work_type=x", headers=S1).status_code == 400

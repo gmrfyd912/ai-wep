@@ -412,7 +412,7 @@ const fil: Translation = {
   ranking_week: "Lingguhan (Lun–Lin)",
   ranking_month: "Buwanan (ngayong buwan)",
   ranking_all: "Pangkalahatan",
-  ranking_rule: "Ranggo · hiwalay ang plate at tubo · pinakamataas na marka sa panahon · kapag tabla, nauna ang mas maaga · i-tap para sa rekord",
+  ranking_rule: "Ranggo · pinakamataas na marka sa panahon · kapag tabla, nauna ang mas maaga · i-tap para sa rekord",
   ranking_empty: "Wala pang trainee na nagsuri sa mga setting na ito.",
   ranking_top: "Ipinapakita ang nangungunang {{n}} (sa {{total}})",
   ranking_me: "Ako",
@@ -457,7 +457,7 @@ const fil: Translation = {
   emoji_sad: "Malungkot",
   gallery_react: "Mag-react",
   gallery_comment: "Tingnan o sumulat ng komento",
-  ranking_ruleAll: "Ranggo · hiwalay ang plate at tubo · pinakamataas sa lahat ng proseso at posisyon · kapag tabla, nauna ang mas maaga · i-tap para sa rekord",
+  ranking_ruleAll: "Ranggo · pinagsasama ang mga 'Lahat', pinakamataas na marka sa panahon · kapag tabla, nauna ang mas maaga · i-tap para sa rekord",
   auth_err_avatar_required: "Maglagay ng profile photo.",
   auth_err_bad_avatar: "Hindi mabasa ang larawan. Pumili ng iba.",
   auth_err_photo_too_large: "Masyadong malaki ang larawan. Pumili ng iba.",
@@ -656,6 +656,9 @@ const fil: Translation = {
   pipe_zoneText: "OD {{od}} mm · 45° lang bawat gilid mula gitna (tuktok ng tubo), mga {{arc}} mm ng paligid ang sinuri. Mukhang kurbado ang tubo kaya kurbadong baseline ang gamit sa katuwiran.",
   legend_excludedPipe: "Hindi sinuri (lampas 45° sa tubo)",
   legend_baselineCurve: "Baseline ng katuwiran (kurba)",
+  ranking_fWork: "Hugis ng materyal",
+  ranking_fCourse: "Kurso",
+  ranking_fPeriod: "Panahon",
 };
 
 export default fil;

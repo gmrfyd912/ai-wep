@@ -428,7 +428,7 @@ const ko = {
   ranking_week: "주간(월~일)",
   ranking_month: "월간(이번 달)",
   ranking_all: "종합",
-  ranking_rule: "교육생 순위 · 평판·배관은 따로 · 기간 안 최고 점수 순 · 같은 점수면 먼저 낸 사람이 위 · 누르면 그 사람의 기록",
+  ranking_rule: "교육생 순위 · 기간 안 최고 점수 순 · 같은 점수면 먼저 낸 사람이 위 · 누르면 그 사람의 기록",
   ranking_empty: "이 조건으로 분석한 교육생이 아직 없어요.",
   ranking_top: "상위 {{n}}명만 보여요 (전체 {{total}}명)",
   ranking_me: "나",
@@ -473,7 +473,7 @@ const ko = {
   emoji_sad: "슬픔",
   gallery_react: "반응 남기기",
   gallery_comment: "댓글 보기·쓰기",
-  ranking_ruleAll: "교육생 순위 · 평판·배관은 따로 · 모든 공정·자세를 합친 기간 안 최고 점수 순 · 같은 점수면 먼저 낸 사람이 위 · 누르면 그 사람의 기록",
+  ranking_ruleAll: "교육생 순위 · '전체'로 고른 항목은 합쳐서 기간 안 최고 점수 순 · 같은 점수면 먼저 낸 사람이 위 · 누르면 그 사람의 기록",
   auth_err_avatar_required: "프로필 사진을 올려 주세요.",
   auth_err_bad_avatar: "사진 파일을 읽지 못했어요. 다른 사진을 골라 주세요.",
   auth_err_photo_too_large: "사진이 너무 커요. 다른 사진을 골라 주세요.",
@@ -672,6 +672,9 @@ const ko = {
   pipe_zoneText: "외경 {{od}}mm · 사진 가운데(배관 꼭대기)에서 양쪽 45°까지, 원둘레 약 {{arc}}mm만 검사했어요. 둥근 배관은 휘어 보여서 직진도는 곡선 기준선으로 쟀어요.",
   legend_excludedPipe: "검사 제외 구간 (배관 양쪽 45° 밖)",
   legend_baselineCurve: "직진도 기준선 (곡선)",
+  ranking_fWork: "재료 형상",
+  ranking_fCourse: "과정명",
+  ranking_fPeriod: "기간",
 } as const;
 
 export default ko;
