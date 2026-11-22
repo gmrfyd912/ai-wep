@@ -17,13 +17,14 @@ from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 import accounts
 import mail
 import manage
+import media
 import social
 import report
 import scoring
@@ -150,21 +151,23 @@ async def analyze(
     # 갤러리용 작은 사진 (긴 변 480px)
     thumb_path = None
     try:
-        th, tw = img.shape[:2]
-        s = 480 / max(th, tw)
-        small = cv2.resize(img, (max(1, round(tw * s)), max(1, round(th * s))), interpolation=cv2.INTER_AREA) if s < 1 else img
-        ok, tj = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
         thumb_path = f"{user['id']}/{sid}_thumb.jpg"
-        await _step("save_photo", store.upload, "photos", thumb_path, tj.tobytes())
+        await _step("save_photo", store.upload, "photos", thumb_path, media.thumb_bytes(img))
     except Exception as e:  # noqa: BLE001 - 작은 사진은 없어도 원본으로 보인다
         print("[analyze] 작은 사진 실패", str(e)[:200], flush=True)
         thumb_path = None
 
-    check_path = None
+    check_path = check_thumb_path = None
     if vis is not None:
         ok, cj = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 88])
         check_path = f"{user['id']}/{sid}_check.jpg"
         await _step("save_check_image", store.upload, "results", check_path, cj.tobytes())
+        try:  # 목록·랭킹용 비드 이미지 (확인 그림 작은 것)
+            check_thumb_path = f"{user['id']}/{sid}_check_thumb.jpg"
+            await _step("save_check_image", store.upload, "results", check_thumb_path, media.check_thumb_bytes(vis))
+        except Exception as e:  # noqa: BLE001
+            print("[analyze] 비드 이미지 실패", str(e)[:200], flush=True)
+            check_thumb_path = None
 
     bead = res.get("bead") or {}
     status = res.get("status", "error")
@@ -174,6 +177,7 @@ async def analyze(
         "status": status,
         "check_path": check_path,
         "thumb_path": thumb_path,
+        "check_thumb_path": check_thumb_path,
         "result": res,
         "width_mean_mm": (bead.get("width") or {}).get("mean_mm"),
         "straight_max_dev_mm": (bead.get("straightness") or {}).get("max_dev_mm"),
@@ -194,10 +198,18 @@ def _detail(row):
     return out
 
 
+def list_items(rows, bg: BackgroundTasks | None = None):
+    """기록 목록 항목 + 비드 이미지. 예전 기록에 작은 그림이 없으면 뒤에서 만들어 둔다."""
+    items = media.attach_bead([_list_item(r) for r in rows], rows)
+    if bg is not None and media.needs_backfill(rows):
+        bg.add_task(media.backfill, rows)
+    return items
+
+
 @app.get("/submissions")
-def list_submissions(limit: int = 200, user=Depends(accounts.current_user)):
+def list_submissions(bg: BackgroundTasks, limit: int = 200, user=Depends(accounts.current_user)):
     rows = store.list_by_user(user["id"], max(1, min(limit, 500)))
-    return [_list_item(r) for r in rows]
+    return list_items(rows, bg)
 
 
 def _own_row(sid, user):
@@ -219,20 +231,23 @@ def get_submission(sid: str, user=Depends(accounts.current_user)):
     out["user_id"] = row["user_id"]
     out["can_report"] = social.can_make_report(user, row)
     if row["user_id"] != user["id"]:  # 교사 등이 학생 결과를 볼 때 화면 위에 이름 표시
-        owner = store.select("users", {"id": f"eq.{row['user_id']}", "select": "name"})
+        owner = store.select("users", {"id": f"eq.{row['user_id']}", "select": "id,name,avatar_path"})
         out["owner_name"] = owner[0]["name"] if owner else None
+        if owner:
+            av = media.avatars_of(owner).get(owner[0]["id"]) or {}
+            out["owner_avatar_url"], out["owner_avatar_key"] = av.get("avatar_url"), av.get("avatar_key")
     return out
 
 
 @app.get("/students/{uid}/submissions")
-def list_student_submissions(uid: str, limit: int = 200, user=Depends(accounts.current_user)):
+def list_student_submissions(uid: str, bg: BackgroundTasks, limit: int = 200, user=Depends(accounts.current_user)):
     """그 사람의 기록 목록 (랭킹·교사 보드에서). 본인·담당 교사·관리자는 전부, 그 밖의 사람은 갤러리에 있는 것만."""
     if not accounts.UUID_RE.match(uid or ""):
         raise HTTPException(404, "not_found")
     rows = store.list_by_user(uid, max(1, min(limit, 500)))
     if not manage.can_view_student(user, uid):
         rows = [r for r in rows if r.get("status") == "ok" and not r.get("hidden")]
-    return [_list_item(r) for r in rows]
+    return list_items(rows, bg)
 
 
 # ---- 5단계: AI 종합리포트 ----

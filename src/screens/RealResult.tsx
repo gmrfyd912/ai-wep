@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ScrollViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { Avatar } from "@/components/Avatar";
 import { AppButton, Body, Card, Chips, Screen, SectionTitle } from "@/components/ui";
 import { ZoomImage } from "@/components/ZoomImage";
 import { getSubmission, listStudentSubmissions, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
@@ -88,7 +89,10 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
       <View>
         {data.owner_name ? (
           <Pressable onPress={() => data.user_id && router.push({ pathname: "/student-view/[id]", params: { id: data.user_id } })}>
-            <Text style={styles.owner}>{t("result_ownerOf", { name: data.owner_name })} ›</Text>
+            <View style={styles.ownerRow}>
+              <Avatar url={data.owner_avatar_url} cacheKey={data.owner_avatar_key} name={data.owner_name} size={26} />
+              <Text style={styles.owner}>{t("result_ownerOf", { name: data.owner_name })} ›</Text>
+            </View>
           </Pressable>
         ) : null}
         <Text style={styles.title}>{info || t("result_title")}</Text>
@@ -277,6 +281,7 @@ function Metric({
 
 const styles = StyleSheet.create({
   owner: { color: colors.primary, fontWeight: "700", fontSize: 14 },
+  ownerRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   title: { color: colors.text, fontSize: 20, fontWeight: "800" },
   meta: { color: colors.muted, fontSize: 13 },
   caption: { color: colors.muted, fontSize: 13 },

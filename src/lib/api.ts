@@ -59,7 +59,17 @@ export type Me = {
   /** 행정 관리자 추가 권한 (시스템관리자가 부여) */
   permissions?: { manage_courses: boolean; manage_members: boolean };
   courses: Course[];
+  /** 프로필 사진 (서명 주소는 바뀌어도 key 는 그대로라 캐시가 유지된다) */
+  avatar_url?: string | null;
+  avatar_key?: string | null;
+  /** 사진 필수인데 아직 없음 → 로그인 뒤 사진 올리기 화면 */
+  needs_avatar?: boolean;
 };
+
+/** 이름 옆 둥근 사진 */
+export type AvatarFields = { avatar_url?: string | null; avatar_key?: string | null };
+/** 목록에 함께 보이는 비드 그림 (확인 그림 작은 판) */
+export type BeadFields = { bead_url?: string | null; bead_key?: string | null; bead_ratio?: number | null };
 
 export type AuthResult = { token: string; user: Me } | { pending: true };
 
@@ -86,7 +96,7 @@ export type SubmissionListItem = SubmissionSummary & {
   /** 5단계 점수(100점)·AI 예비판정. 분석 실패면 null */
   score?: number | null;
   verdict?: Verdict | null;
-};
+} & BeadFields;
 
 export type Verdict = "pass" | "fail";
 
@@ -159,6 +169,8 @@ export type Submission = SubmissionSummary & {
   owner_name?: string | null;
   /** 이 사람이 AI 리포트를 새로 만들 수 있는지 (본인·담당 교사·관리자) */
   can_report?: boolean;
+  owner_avatar_url?: string | null;
+  owner_avatar_key?: string | null;
   score?: ScoreInfo | null;
   result: EngineResult | null;
   photo_url: string | null;
@@ -354,9 +366,53 @@ export async function signup(form: {
   role: Exclude<Role, "admin">;
   email: string | null;
   course_ids: string[];
+  avatar_b64?: string | null;
 }): Promise<AuthResult> {
   const device_id = await getDeviceId();
   return request("/auth/signup", json("POST", { ...form, device_id }), AUTH_TIMEOUT);
+}
+
+export async function getSignupPhotoRule(): Promise<{ avatar_required: boolean }> {
+  return request("/auth/signup-rules", {}, AUTH_TIMEOUT);
+}
+
+/** 프로필 사진 올리기·바꾸기 (줄인 JPEG 파일) */
+export async function uploadAvatar(uri: string): Promise<Me> {
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(uri)).blob();
+    form.append("photo", blob, "avatar.jpg");
+  } else {
+    form.append("photo", { uri, name: "avatar.jpg", type: "image/jpeg" } as unknown as Blob);
+  }
+  return new Promise<Me>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/me/avatar`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.timeout = 90000;
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as Me);
+        } catch {
+          reject(new NetworkError("avatar: bad response"));
+        }
+        return;
+      }
+      if (xhr.status === 401) onUnauthorized?.();
+      let detail: { code?: string } | null = null;
+      try {
+        const d = JSON.parse(xhr.responseText)?.detail;
+        if (d && typeof d === "object") detail = d;
+      } catch {
+        /* 본문이 JSON 이 아님 */
+      }
+      reject(new NetworkError(`avatar: server ${xhr.status}`, xhr.status, detail));
+    };
+    xhr.onerror = () => reject(new NetworkError("avatar: network"));
+    xhr.ontimeout = () => reject(new NetworkError("avatar: timeout"));
+    xhr.send(form);
+  });
 }
 
 export async function getMe(): Promise<Me> {
@@ -442,7 +498,7 @@ export type Member = {
 };
 /** 사람 기록 화면 머리글. 담당 교사·관리자가 아니면 이름·역할·과정만 온다 */
 export type StudentInfo = Pick<Member, "id" | "name" | "role" | "courses"> &
-  Partial<Omit<Member, "id" | "name" | "role" | "courses">> & { can_care: boolean; can_edit: boolean };
+  Partial<Omit<Member, "id" | "name" | "role" | "courses">> & { can_care: boolean; can_edit: boolean } & AvatarFields;
 export type Trend = "up" | "down" | "flat";
 export type CourseCard = {
   id: string;
@@ -465,7 +521,7 @@ export type StudentCard = {
   trend: Trend;
   frequent_defect: string | null;
   last_at: string | null;
-};
+} & AvatarFields;
 export type CourseBoard = {
   course: { id: string; name: string; active: boolean };
   teachers: CourseTeacher[];
@@ -498,7 +554,7 @@ export const updateMember = (
   },
 ) => request<Member>(`/manage/members/${id}`, json("PATCH", fields), BOARD_TIMEOUT);
 
-export type SignupRules = { student_approval: boolean; staff_approval: boolean };
+export type SignupRules = { student_approval: boolean; staff_approval: boolean; avatar_required: boolean };
 export const getSignupRules = () => request<SignupRules>("/manage/settings/signup", {}, BOARD_TIMEOUT);
 export const saveSignupRules = (v: SignupRules) =>
   request<SignupRules>("/manage/settings/signup", json("PUT", v), BOARD_TIMEOUT);
@@ -534,10 +590,12 @@ export type GalleryItem = {
   score: number | null;
   verdict: string | null;
   photo_url: string | null;
+  /** 사진 파일 경로: 캐시 열쇠 (주소의 서명은 매번 달라도 같은 사진이면 다시 받지 않음) */
+  photo_key?: string | null;
   reactions: Partial<Record<Emoji, number>>;
   my_reaction: Emoji | null;
   comment_count: number;
-};
+} & AvatarFields;
 
 export function getGallery(q: { course?: string; process?: string; position?: string; before?: string }) {
   const p = new URLSearchParams();
@@ -554,7 +612,7 @@ export type CommentItem = {
   body: string;
   created_at: string;
   can_delete: boolean;
-};
+} & AvatarFields;
 export type Social = {
   reactions: Partial<Record<Emoji, number>>;
   my_reaction: Emoji | null;
@@ -582,7 +640,7 @@ export type NotificationItem = {
   position: string | null;
   created_at: string;
   read: boolean;
-};
+} & AvatarFields;
 export const listNotifications = () => request<NotificationItem[]>("/notifications", {}, BOARD_TIMEOUT);
 export const unreadCount = () => request<{ count: number }>("/notifications/unread", {}, 20000);
 export const markNotificationsRead = (ids?: string[]) =>
@@ -598,8 +656,13 @@ export type RankRow = {
   verdict: string;
   submission_id: string;
   created_at: string;
-};
+  process?: string | null;
+  position?: string | null;
+} & AvatarFields &
+  BeadFields;
+/** process·position 이 "" 이면 전체 */
 export function getRanking(q: { process: string; position: string; period: RankPeriod; course: string }) {
-  const p = new URLSearchParams(q);
+  const p = new URLSearchParams();
+  Object.entries(q).forEach(([k, v]) => v && p.set(k, v));
   return request<{ rows: RankRow[]; me: RankRow | null; total: number }>(`/ranking?${p.toString()}`, {}, BOARD_TIMEOUT);
 }

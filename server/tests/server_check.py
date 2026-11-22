@@ -20,6 +20,7 @@ def main():
         {"class": "Weld_Bead", "confidence": 0.9, "polygon": pts, "box": (*pts.min(0), *pts.max(0))}]
     ok, jpg = cv2.imencode(".jpg", img)
     db.install()
+    db.SETTINGS["signup"] = {"avatar_required": False}
     c = TestClient(server.app)
     assert c.get("/health").json()["ok"]
     dev = "test-device-1234"

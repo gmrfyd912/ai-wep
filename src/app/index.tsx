@@ -10,5 +10,6 @@ export default function Index() {
   if (isFirstLaunch()) return <Redirect href="/language?first=1" />;
   if (!user) return <Redirect href="/login" />;
   if (user.must_change_password) return <Redirect href={{ pathname: "/change-password", params: { forced: "1" } }} />;
+  if (user.needs_avatar) return <Redirect href="/profile-photo" />;
   return <Redirect href={homeOf(user.role)} />;
 }

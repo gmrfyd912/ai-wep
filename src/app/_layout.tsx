@@ -56,6 +56,7 @@ function RootStack() {
       <Stack.Screen name="pending" options={{ headerShown: false }} />
       <Stack.Screen name="forgot" options={{ title: t("forgot_title") }} />
       <Stack.Screen name="change-password" options={{ title: t("pw_title") }} />
+      <Stack.Screen name="profile-photo" options={{ title: t("avatar_title") }} />
       <Stack.Screen name="student" options={{ headerShown: false }} />
       <Stack.Screen name="teacher" options={{ headerShown: false }} />
       <Stack.Screen name="staff" options={{ headerShown: false }} />

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { BeadStrip } from "@/components/Avatar";
 import { BarList, LineChart, type YBand } from "@/components/charts";
 import { Card, Chips, SectionTitle } from "@/components/ui";
 import type { SubmissionListItem } from "@/lib/api";
@@ -250,27 +251,31 @@ export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: b
   return (
     <Card
       onPress={current ? undefined : () => router.push(`/result/${r.id}`)}
-      style={current ? { ...styles.row, ...styles.rowCurrent } : styles.row}
+      style={current ? { ...styles.rowCard, ...styles.rowCurrent } : styles.rowCard}
     >
-      <View style={{ flex: 1 }}>
-        <Text style={styles.title}>{showInfo ? info : date}</Text>
-        <Text style={styles.meta}>
-          {showInfo ? date : ""}
-          {current ? `${showInfo ? "  " : ""}${t("cum_viewing")}` : ""}
-        </Text>
-      </View>
-      {r.status === "ok" ? (
-        <View style={{ alignItems: "flex-end", gap: 4 }}>
-          <Text style={styles.value}>{r.width_mean_mm != null ? `${Number(r.width_mean_mm).toFixed(1)} mm` : "—"}</Text>
-          <View style={styles.dots}>
-            <LabeledDot label={t("dot_width")} signal={widthSignal(num(r.width_min_mm), num(r.width_max_mm))} />
-            <LabeledDot label={t("dot_straight")} signal={straightSignal(num(r.straight_max_dev_mm))} />
-            <LabeledDot label={t("dot_defects")} signal={defectSignal(r.defect_types)} />
-          </View>
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>{showInfo ? info : date}</Text>
+          <Text style={styles.meta}>
+            {showInfo ? date : ""}
+            {current ? `${showInfo ? "  " : ""}${t("cum_viewing")}` : ""}
+          </Text>
         </View>
-      ) : (
-        <Text style={styles.bad}>{t(r.status === "processing" ? "status_processing" : "status_short_failed")}</Text>
-      )}
+        {r.status === "ok" ? (
+          <View style={{ alignItems: "flex-end", gap: 4 }}>
+            <Text style={styles.value}>{r.width_mean_mm != null ? `${Number(r.width_mean_mm).toFixed(1)} mm` : "—"}</Text>
+            <View style={styles.dots}>
+              <LabeledDot label={t("dot_width")} signal={widthSignal(num(r.width_min_mm), num(r.width_max_mm))} />
+              <LabeledDot label={t("dot_straight")} signal={straightSignal(num(r.straight_max_dev_mm))} />
+              <LabeledDot label={t("dot_defects")} signal={defectSignal(r.defect_types)} />
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.bad}>{t(r.status === "processing" ? "status_processing" : "status_short_failed")}</Text>
+        )}
+      </View>
+      {/* 비드 그림 (결과 화면 확인 그림을 줄인 것) */}
+      {r.status === "ok" ? <BeadStrip url={r.bead_url} cacheKey={r.bead_key} ratio={r.bead_ratio} /> : null}
     </Card>
   );
 }
@@ -286,6 +291,7 @@ const styles = StyleSheet.create({
   cmpVal: { flex: 1, color: colors.muted, fontSize: 13, textAlign: "right" },
   cmpArrow: { width: 74, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 2 },
   cmpWord: { fontSize: 11 },
+  rowCard: { gap: space.sm },
   row: { flexDirection: "row", alignItems: "center", gap: space.md },
   rowCurrent: { borderColor: colors.primary, borderWidth: 1 },
   title: { color: colors.text, fontWeight: "700", fontSize: 15 },

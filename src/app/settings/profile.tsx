@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { Avatar } from "@/components/Avatar";
 import { AppButton, Field, Screen } from "@/components/ui";
 import { authErrorKey, updateEmail } from "@/lib/api";
 import { useSession } from "@/state/session";
@@ -37,6 +38,10 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
+      <Pressable style={styles.photo} onPress={() => router.push("/profile-photo")} accessibilityLabel={t("avatar_change")}>
+        <Avatar url={user.avatar_url} cacheKey={user.avatar_key} name={user.name} size={88} />
+        <Text style={styles.photoText}>{t("avatar_change")}</Text>
+      </Pressable>
       <Field label={t("signup_name")} editable={false} value={user.name} />
       <Field label={t("login_id")} editable={false} value={user.login_id} />
       <Field label={t("profile_role")} editable={false} value={t(`role_${user.role}`)} />
@@ -61,6 +66,8 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 13 },
+  photo: { alignItems: "center", gap: space.xs, paddingVertical: space.sm },
+  photoText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
   deleteBox: { marginTop: space.xl * 2, paddingTop: space.lg, borderTopWidth: 1, borderTopColor: colors.border, alignItems: "center" },
   deleteBtn: { flexDirection: "row", alignItems: "center", gap: 6, padding: space.sm },
   deleteText: { color: colors.danger, fontSize: 14 },

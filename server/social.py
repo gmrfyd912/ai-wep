@@ -6,13 +6,15 @@
 - 랭킹: 교육생만, 기간 안 최고 점수, 같은 용접법·자세끼리, 반별/전과정.
 """
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 import accounts
 import manage
+import media
 import scoring
 import store
 
@@ -20,7 +22,8 @@ router = APIRouter()
 
 EMOJIS = ("heart", "thumbs", "check", "smile", "wow", "sad")
 COMMENT_MAX = 500
-GALLERY_PAGE = 30
+GALLERY_PAGE = 12
+_pool = ThreadPoolExecutor(max_workers=6)
 
 
 def _err(status, code, **extra):
@@ -65,8 +68,9 @@ def _users(ids):
     ids = [i for i in dict.fromkeys(ids) if i]
     if not ids:
         return {}
-    rows = store.select("users", {"id": _in(ids), "select": "id,name,role"})
-    return {u["id"]: u for u in rows}
+    rows = store.select("users", {"id": _in(ids), "select": "id,name,role,avatar_path"})
+    av = media.avatars_of(rows)
+    return {u["id"]: {**u, **(av.get(u["id"]) or {})} for u in rows}
 
 
 def _courses_of(ids):
@@ -100,11 +104,11 @@ def _viewable(sid, user):
 # ---- 갤러리 ----
 
 @router.get("/gallery")
-def gallery(course: str = "all", process: str = "", position: str = "", before: str = "",
+def gallery(bg: BackgroundTasks, course: str = "all", process: str = "", position: str = "", before: str = "",
             limit: int = GALLERY_PAGE, user=Depends(accounts.current_user)):
     """갤러리 목록 (최근 → 예전). course = all 또는 과정 id. before = 이 시각보다 예전 것 (더 보기)."""
     params = {"status": "eq.ok", "hidden": "is.false", "user_id": "not.is.null",
-              "select": store.LIST_SELECT + ",photo_path,thumb_path",
+              "select": store.LIST_SELECT,
               "order": "created_at.desc", "limit": str(max(1, min(limit, 60)))}
     if process:
         params["process"] = f"eq.{process}"
@@ -120,11 +124,16 @@ def gallery(course: str = "all", process: str = "", position: str = "", before: 
         params["user_id"] = _in(members)
     rows = store.select("submissions", params)
     ids = [r["id"] for r in rows]
-    users = _users([r["user_id"] for r in rows])
-    courses = _courses_of([r["user_id"] for r in rows])
-    reactions = store.select("reactions", {"submission_id": _in(ids), "select": "submission_id,user_id,emoji"}) if ids else []
-    comments = store.select("comments", {"submission_id": _in(ids), "select": "submission_id"}) if ids else []
-    thumbs = store.signed_urls("photos", [r.get("thumb_path") or r.get("photo_path") for r in rows])
+    uids = [r["user_id"] for r in rows]
+    # 서로 상관없는 조회는 동시에 (응답 시간 줄이기)
+    f_users = _pool.submit(_users, uids)
+    f_courses = _pool.submit(_courses_of, uids)
+    f_react = _pool.submit(lambda: store.select("reactions", {"submission_id": _in(ids), "select": "submission_id,user_id,emoji"}) if ids else [])
+    f_comm = _pool.submit(lambda: store.select("comments", {"submission_id": _in(ids), "select": "submission_id"}) if ids else [])
+    f_thumbs = _pool.submit(media.sign, "photos", [r.get("thumb_path") or r.get("photo_path") for r in rows])
+    users, courses, reactions, comments, thumbs = (f.result() for f in (f_users, f_courses, f_react, f_comm, f_thumbs))
+    if media.needs_backfill(rows):
+        bg.add_task(media.backfill, rows)
     crit = scoring.criteria()
     items = []
     for r in rows:
@@ -138,6 +147,8 @@ def gallery(course: str = "all", process: str = "", position: str = "", before: 
             "created_at": r.get("created_at"),
             "score": sc["score"] if sc else None, "verdict": sc["verdict"] if sc else None,
             "photo_url": thumbs.get(r.get("thumb_path") or r.get("photo_path")),
+            "photo_key": r.get("thumb_path") or r.get("photo_path"),
+            "avatar_url": u.get("avatar_url"), "avatar_key": u.get("avatar_key"),
             "reactions": _count(rs), "my_reaction": next((x["emoji"] for x in rs if x["user_id"] == user["id"]), None),
             "comment_count": sum(1 for c in comments if c["submission_id"] == r["id"]),
         })
@@ -171,6 +182,7 @@ def _comment_out(c, users, user, owner_id):
     u = users.get(c["user_id"]) or {}
     return {
         "id": c["id"], "parent_id": c.get("parent_id"), "user_id": c["user_id"], "name": u.get("name"),
+        "avatar_url": u.get("avatar_url"), "avatar_key": u.get("avatar_key"),
         "role": u.get("role"), "body": c["body"], "created_at": c.get("created_at"),
         "can_delete": c["user_id"] == user["id"] or can_moderate(user, owner_id),
     }
@@ -270,9 +282,10 @@ def notifications(user=Depends(accounts.current_user)):
     out = []
     for n in rows:
         s = subs.get(n.get("submission_id")) or {}
+        a = actors.get(n.get("actor_id")) or {}
         out.append({
             "id": n["id"], "kind": n["kind"], "submission_id": n.get("submission_id"),
-            "actor_name": (actors.get(n.get("actor_id")) or {}).get("name"),
+            "actor_name": a.get("name"), "avatar_url": a.get("avatar_url"), "avatar_key": a.get("avatar_key"),
             "body": (bodies.get(n.get("comment_id")) or "")[:80],
             "process": s.get("process"), "position": s.get("position"),
             "created_at": n.get("created_at"), "read": bool(n.get("read_at")),
@@ -318,13 +331,17 @@ def period_start(period, now=None):
 
 
 @router.get("/ranking")
-def ranking(process: str, position: str, period: str = "week", course: str = "all",
+def ranking(bg: BackgroundTasks, process: str = "", position: str = "", period: str = "week", course: str = "all",
             user=Depends(accounts.current_user)):
-    """같은 용접법·자세의 교육생 순위 (기간 안 최고 점수, 같으면 먼저 낸 사람이 위)."""
+    """교육생 순위 (기간 안 최고 점수, 같으면 먼저 낸 사람이 위). 공정·자세가 비면 전체를 합쳐서."""
     if period not in PERIODS:
         _err(400, "bad_period")
-    params = {"status": "eq.ok", "process": f"eq.{process}", "position": f"eq.{position}",
-              "user_id": "not.is.null", "select": store.LIST_SELECT, "order": "created_at.asc", "limit": "20000"}
+    params = {"status": "eq.ok", "user_id": "not.is.null", "select": store.LIST_SELECT,
+              "order": "created_at.asc", "limit": "20000"}
+    if process:
+        params["process"] = f"eq.{process}"
+    if position:
+        params["position"] = f"eq.{position}"
     start = period_start(period)
     if start:
         params["created_at"] = f"gte.{start}"
@@ -332,11 +349,11 @@ def ranking(process: str, position: str, period: str = "week", course: str = "al
         cid = _uuid(course)
         members = [r["user_id"] for r in store.select("user_courses", {"course_id": f"eq.{cid}", "select": "user_id"})]
         if not members:
-            return {"rows": [], "me": None}
+            return {"rows": [], "me": None, "total": 0}
         params["user_id"] = _in(members)
     rows = store.select("submissions", params)
     users = {u["id"]: u for u in store.select("users", {"id": _in(list({r["user_id"] for r in rows})),
-                                                         "select": "id,name,role,status"})} if rows else {}
+                                                         "select": "id,name,role,status,avatar_path"})} if rows else {}
     crit = scoring.criteria()
     best = {}
     for r in rows:  # 오래된 → 최근이라, 같은 점수면 먼저 낸 것이 남는다
@@ -349,10 +366,23 @@ def ranking(process: str, position: str, period: str = "week", course: str = "al
         cur = best.get(r["user_id"])
         if cur is None or sc["score"] > cur["score"]:
             best[r["user_id"]] = {"user_id": r["user_id"], "name": u["name"], "score": sc["score"],
-                                  "verdict": sc["verdict"], "submission_id": r["id"], "created_at": r["created_at"]}
+                                  "verdict": sc["verdict"], "submission_id": r["id"], "created_at": r["created_at"],
+                                  "process": r.get("process"), "position": r.get("position"), "_row": r}
     ordered = sorted(best.values(), key=lambda x: (-x["score"], x["created_at"]))
-    courses = _courses_of([x["user_id"] for x in ordered])
-    # 같은 점수라도 먼저 낸 사람이 위 (순위 번호도 다름)
-    out = [{**x, "rank": i + 1, "courses": courses.get(x["user_id"], [])} for i, x in enumerate(ordered)]
+    top = ordered[:100]
+    mine = next((x for x in ordered if x["user_id"] == user["id"]), None)
+    shown = top + ([mine] if mine and mine not in top else [])
+    f_courses = _pool.submit(_courses_of, [x["user_id"] for x in shown])
+    f_av = _pool.submit(media.avatars_of, [users[x["user_id"]] for x in shown])
+    rows_shown = [x.pop("_row") for x in shown]
+    for x in ordered:
+        x.pop("_row", None)
+    beads = media.attach_bead([{} for _ in shown], rows_shown)
+    courses, avatars = f_courses.result(), f_av.result()
+    if media.needs_backfill(rows_shown):
+        bg.add_task(media.backfill, rows_shown)
+    rank_of = {x["user_id"]: i + 1 for i, x in enumerate(ordered)}  # 같은 점수라도 먼저 낸 사람이 위
+    out = [{**x, **b, **(avatars.get(x["user_id"]) or {}), "rank": rank_of[x["user_id"]],
+            "courses": courses.get(x["user_id"], [])} for x, b in zip(shown, beads)]
     me = next((x for x in out if x["user_id"] == user["id"]), None)
-    return {"rows": out[:100], "me": me, "total": len(out)}
+    return {"rows": out[:len(top)], "me": me, "total": len(ordered)}

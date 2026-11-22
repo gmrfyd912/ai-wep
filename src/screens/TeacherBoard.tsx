@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { Avatar } from "@/components/Avatar";
 import { AppButton, Body, Card, ScoreBadge } from "@/components/ui";
 import { approveMember, getCourseBoard, type CourseBoard, type CourseTeacher, type StudentCard } from "@/lib/api";
 import { colors, space } from "@/theme";
@@ -84,6 +85,7 @@ function StudentRow({ s, canApprove, onApprove }: { s: StudentCard; canApprove: 
     return (
       <Card style={{ borderColor: colors.warning }}>
         <View style={styles.cardTop}>
+          <Avatar url={s.avatar_url} cacheKey={s.avatar_key} name={s.name} size={30} />
           <Text style={styles.name}>{s.name}</Text>
           <Text style={styles.meta}>{s.login_id}</Text>
           <View style={{ flex: 1 }} />
@@ -96,6 +98,7 @@ function StudentRow({ s, canApprove, onApprove }: { s: StudentCard; canApprove: 
   return (
     <Card onPress={() => router.push({ pathname: "/student-view/[id]", params: { id: s.id } })}>
       <View style={styles.cardTop}>
+        <Avatar url={s.avatar_url} cacheKey={s.avatar_key} name={s.name} size={30} />
         <Text style={styles.name}>{s.name}</Text>
         <Ionicons name={TREND_ICON[s.trend]} size={20} color={TREND_COLOR[s.trend]} />
         {s.status === "disabled" ? <Text style={styles.meta}>{t("manage_statusDisabled")}</Text> : null}

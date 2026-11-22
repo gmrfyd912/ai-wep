@@ -16,6 +16,10 @@ export function goAfterLogin(user: Me, t: TFunction) {
     router.replace({ pathname: "/change-password", params: { forced: "1" } });
     return;
   }
+  if (user.needs_avatar) {
+    router.replace("/profile-photo");
+    return;
+  }
   router.replace(homeOf(user.role));
   offerDeviceRecords(user, t).catch(() => null);
 }

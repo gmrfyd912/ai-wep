@@ -144,11 +144,12 @@ def install():
     store.patch = patch
     store.delete = delete
     store.remove_files = remove_files
-    store.get_setting = lambda k: SETTINGS.get(k)
+    store.get_setting = lambda k: next((r["value"] for r in TABLES.get("app_settings", []) if r.get("key") == k), SETTINGS.get(k))
     store.configured = lambda: True
     store.upload = lambda b, p, d, content_type="image/jpeg": FILES.__setitem__(f"{b}/{p}", d)
     store.signed_url = lambda b, p, expires=3600: p and f"https://fake/{b}/{p}"
     store.signed_urls = lambda b, ps, expires=3600: {p: f"https://fake/{b}/{p}" for p in ps if p}
+    store.download = lambda b, p: FILES[f"{b}/{p}"]
     store.insert = lambda row: insert_rows("submissions", row, returning=False)
     store.update = lambda sid, f: patch("submissions", {"id": f"eq.{sid}"}, f)[0]
     store.get = lambda sid: next((dict(r) for r in TABLES.get("submissions", []) if r["id"] == sid), None)

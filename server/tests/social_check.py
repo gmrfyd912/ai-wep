@@ -144,6 +144,30 @@ def main():
     assert c.get("/ranking?process=SMAW&position=1G&period=year", headers=S1).status_code == 400
     assert week <= today and month <= today
 
+    # 공정·자세 전체: 모두 합쳐서 각자 최고 점수 (s3 은 GTAW 100점)
+    r = c.get("/ranking?period=day", headers=S1).json()
+    assert {x["name"]: x["score"] for x in r["rows"]} == {"s1": 100, "s2": 100, "s3": 100}
+    assert r["rows"][0]["bead_key"] is None and "avatar_url" in r["rows"][0]
+
+    # 예전 기록: 작은 사진·비드 이미지를 뒤에서 만든다 → 다음 목록부터 작은 것
+    import cv2
+    import numpy as np
+    import media
+    big = cv2.imencode(".jpg", np.full((2000, 3000, 3), 128, np.uint8))[1].tobytes()
+    db.FILES[f"photos/{s1}/x.jpg"] = big
+    db.FILES[f"results/{s1}/a_check.jpg"] = cv2.imencode(".jpg", np.full((300, 1800, 3), 60, np.uint8))[1].tobytes()
+    db.patch("submissions", {"id": f"eq.{a}"}, {"check_path": f"{s1}/a_check.jpg"})
+    c.get("/submissions", headers=S1)  # 뒤에서 만들기 (TestClient 는 응답 뒤 작업까지 기다림)
+    row = next(x for x in db.TABLES["submissions"] if x["id"] == a)
+    assert row["thumb_path"].endswith("_thumb.jpg") and row["check_thumb_path"].endswith("_check_thumb.jpg"), row
+    th = cv2.imdecode(np.frombuffer(db.FILES[f"photos/{row['thumb_path']}"], np.uint8), cv2.IMREAD_COLOR)
+    assert max(th.shape[:2]) == 480
+    item = next(x for x in c.get("/submissions", headers=S1).json() if x["id"] == a)
+    assert item["bead_key"] == row["check_thumb_path"] and item["bead_url"]
+    g0 = next(x for x in c.get("/gallery", headers=S1).json()["items"] if x["id"] == a)
+    assert g0["photo_key"] == row["thumb_path"]
+    assert media.needs_backfill([row]) == []
+
     # 계정 삭제하면 댓글·반응·알림도 사라짐
     c.post(f"/submissions/{b}/comments", headers=S3, json={"body": "bye"})
     c.post("/me/delete", headers=S3, json={"password": "p"})

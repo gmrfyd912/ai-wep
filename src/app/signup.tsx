@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { ProfilePhotoPicker, type PickedPhoto } from "@/components/ProfilePhoto";
 import { AppButton, Body, Chips, Field, Label, Screen } from "@/components/ui";
 import { goAfterLogin } from "@/lib/afterLogin";
-import { authErrorKey, listCourses, signup, type Course } from "@/lib/api";
+import { authErrorKey, getSignupPhotoRule, listCourses, signup, type Course } from "@/lib/api";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
@@ -28,6 +29,8 @@ export default function SignupScreen() {
   const [busy, setBusy] = useState(false);
   const [courses, setCourses] = useState<Course[] | null>(null);
   const [coursesFailed, setCoursesFailed] = useState(false);
+  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
+  const [photoRequired, setPhotoRequired] = useState(true); // 기본은 필수 (시스템관리자가 바꿀 수 있음)
 
   // 과정 목록은 서버에서 (시스템관리자가 만든 운영 중인 과정)
   const loadCourses = useCallback(() => {
@@ -37,6 +40,11 @@ export default function SignupScreen() {
       .catch(() => setCoursesFailed(true));
   }, []);
   useEffect(loadCourses, [loadCourses]);
+  useEffect(() => {
+    getSignupPhotoRule()
+      .then((r) => setPhotoRequired(r.avatar_required))
+      .catch(() => null);
+  }, []);
   const activeCourses = courses ?? [];
 
   const toggleTeacherCourse = (cid: string) =>
@@ -47,11 +55,15 @@ export default function SignupScreen() {
     if (pw !== pw2) return setError(t("signup_errorPasswordMatch"));
     if (role === "student" && !course) return setError(t("signup_errorCourse"));
     if (role === "teacher" && teacherCourses.length === 0) return setError(t("signup_errorTeacherCourse"));
+    if (photoRequired && !photo) return setError(t("auth_err_avatar_required"));
     setError("");
     setBusy(true);
     try {
       const course_ids = role === "student" ? [course!] : role === "teacher" ? teacherCourses : [];
-      const r = await signup({ login_id: id, password: pw, name, role, email: email.trim() || null, course_ids });
+      const r = await signup({ login_id: id, password: pw, name, role, email: email.trim() || null,
+        course_ids,
+        avatar_b64: photo?.base64 || null,
+      });
       if ("pending" in r) {
         router.replace("/pending");
         return;
@@ -78,6 +90,10 @@ export default function SignupScreen() {
         value={role}
         onChange={setRole}
       />
+
+      <Label>{photoRequired ? t("avatar_label") : t("avatar_labelOptional")}</Label>
+      <ProfilePhotoPicker url={photo?.uri} name={name} busy={busy} onPick={setPhoto} onDenied={() => setError(t("upload_permissionDenied"))} />
+      <Text style={styles.hint}>{t("avatar_hint")}</Text>
 
       <Field label={t("signup_name")} value={name} onChangeText={setName} autoCapitalize="words" />
       <Field label={t("login_id")} value={id} onChangeText={setId} />

@@ -14,6 +14,7 @@ def H(tok):
 
 def main():
     db.install()
+    db.SETTINGS["signup"] = {"avatar_required": False}
     c = TestClient(server.app)
     db.insert_rows("users", {"login_id": "admin", "login_key": "admin", "name": "관리자", "role": "admin",
                              "password_hash": accounts.hash_password("a")})
@@ -121,8 +122,8 @@ def main():
     S2 = H(c.post("/auth/login", json={"login_id": "s2", "password": "p"}).json()["token"])
 
     # 가입 방식 설정 + 교사가 자기 반 가입 승인
-    assert c.get("/manage/settings/signup", headers=A).json() == {"student_approval": False, "staff_approval": False}
-    assert c.put("/manage/settings/signup", headers=A, json={"student_approval": True, "staff_approval": False}).status_code == 200
+    assert c.get("/manage/settings/signup", headers=A).json() == {"student_approval": False, "staff_approval": False, "avatar_required": False}
+    assert c.put("/manage/settings/signup", headers=A, json={"student_approval": True, "staff_approval": False, "avatar_required": False}).status_code == 200
     db.SETTINGS["signup"] = next(r["value"] for r in db.TABLES["app_settings"] if r["key"] == "signup")
     r = c.post("/auth/signup", json={"login_id": "s3", "password": "p", "name": "s3", "role": "student", "course_ids": [c1]})
     assert r.json() == {"pending": True}
@@ -130,7 +131,14 @@ def main():
     board = c.get(f"/boards/courses/{c1}", headers=T1).json()
     assert board["students"][0]["login_id"] == "s3" and board["students"][0]["status"] == "pending"
     assert c.post(f"/manage/members/{s3}/approve", headers=T2).json()["status"] == "active"
-    db.SETTINGS.pop("signup")
+    # 프로필 사진 필수 켜기 → 가입 화면·사진 없는 회원에게 바로 적용, 끄면 다시 선택
+    c.put("/manage/settings/signup", headers=A, json={"student_approval": True, "staff_approval": False, "avatar_required": True})
+    assert c.get("/auth/signup-rules").json() == {"avatar_required": True}
+    assert c.get("/me", headers=S2).json()["needs_avatar"] is True
+    assert c.get("/me", headers=A).json()["needs_avatar"] is False  # 시스템관리자는 제외
+    c.put("/manage/settings/signup", headers=A, json={"student_approval": True, "staff_approval": False, "avatar_required": False})
+    assert c.get("/me", headers=S2).json()["needs_avatar"] is False
+    db.SETTINGS["signup"] = {"avatar_required": False}
 
     # 보드: 분석 기록 넣기 (이번 주·지난주)
     week = manage.week_start_iso()
