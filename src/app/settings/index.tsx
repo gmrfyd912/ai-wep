@@ -33,14 +33,6 @@ export default function SettingsScreen() {
       <ListRow icon="key-outline" title={t("pw_title")} onPress={() => router.push("/change-password")} />
       <ListRow icon="shield-outline" title={t("settings_privacy")} onPress={() => router.push("/settings/privacy")} />
       <ListRow icon="log-out-outline" title={t("settings_logout")} onPress={logout} />
-      {user?.role !== "admin" ? (
-        <ListRow
-          icon="trash-outline"
-          title={t("settings_deleteAccount")}
-          onPress={() => router.push("/settings/delete-account")}
-          danger
-        />
-      ) : null}
     </Screen>
   );
 }

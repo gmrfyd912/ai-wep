@@ -75,7 +75,16 @@ export function ResultCharts({ result, checkUrl }: { result: EngineResult; check
               xLabel={mmLabel}
               caption={t("chart_xDist")}
             />
-            <Legend items={[[C.width, t("chart_widthY")], [C.mean, t("chart_mean")], [C.min, t("result_widthMin")], [C.max, t("result_widthMax")], [GRAY, t("legend_excluded")]]} />
+            <Legend
+              items={[
+                [C.width, t("legend_actualWidth"), "line"],
+                [C.mean, t("result_widthMean"), "dash"],
+                [C.min, t("result_widthMin")],
+                [C.max, t("result_widthMax")],
+                ...(layout && bead.straightness.max_dev_pos_mm != null ? ([[C.dev, t("legend_maxDevPos"), "vdash"]] as LegendItem[]) : []),
+                [GRAY, t("legend_excluded"), "box"],
+              ]}
+            />
           </>
         ) : (
           <Text style={styles.empty}>{t("chart_noData")}</Text>
@@ -102,7 +111,21 @@ export function ResultCharts({ result, checkUrl }: { result: EngineResult; check
               xLabel={mmLabel}
               caption={t("chart_xDist")}
             />
-            <Legend items={[[C.center, t("legend_center")], [C.base, t("legend_baseline")], [C.dev, t("legend_maxDev")], ["rgba(34,197,94,0.35)", t("chart_greenZone", { mm: SIGNAL_RULES.straight.green })]]} />
+            <Legend
+              items={[
+                [C.center, t("legend_center"), "line"],
+                [C.base, t("legend_baseline"), "line"],
+                [C.dev, t("legend_maxDev")],
+                ...(layout
+                  ? ([
+                      ...(bead.width.min_pos_mm != null ? [[C.min, t("legend_minPos"), "vdash"]] : []),
+                      ...(bead.width.max_pos_mm != null ? [[C.max, t("legend_maxPos"), "vdash"]] : []),
+                    ] as LegendItem[])
+                  : []),
+                ["rgba(34,197,94,0.35)", t("chart_greenZone", { mm: SIGNAL_RULES.straight.green }), "box"],
+                [GRAY, t("legend_excluded"), "box"],
+              ]}
+            />
           </>
         ) : (
           <Text style={styles.empty}>{t("chart_noStraightData")}</Text>
@@ -213,12 +236,37 @@ function SignalRow({ signal, title, value, rule, detail }: { signal: Signal | nu
   );
 }
 
-function Legend({ items }: { items: [string, string][] }) {
+/** 범례 한 줄: [색, 이름, 모양]. 모양: dot 점(기본) · line 실선 · dash 가로 점선 · vdash 세로 점선 · box 배경 */
+type LegendItem = [string, string, ("dot" | "line" | "dash" | "vdash" | "box")?];
+
+function Swatch({ color, kind = "dot" }: { color: string; kind?: LegendItem[2] }) {
+  if (kind === "line") return <View style={{ width: 16, height: 3, borderRadius: 2, backgroundColor: color }} />;
+  if (kind === "dash")
+    return (
+      <View style={{ flexDirection: "row", gap: 2 }}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={{ width: 4, height: 2, backgroundColor: color }} />
+        ))}
+      </View>
+    );
+  if (kind === "vdash")
+    return (
+      <View style={{ gap: 2, width: 10, alignItems: "center" }}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={{ width: 2, height: 3, backgroundColor: color }} />
+        ))}
+      </View>
+    );
+  if (kind === "box") return <View style={{ width: 14, height: 10, borderRadius: 2, backgroundColor: color }} />;
+  return <View style={[styles.swatch, { backgroundColor: color }]} />;
+}
+
+function Legend({ items }: { items: LegendItem[] }) {
   return (
     <View style={styles.legend}>
-      {items.map(([c, label]) => (
+      {items.map(([c, label, kind]) => (
         <View key={label} style={styles.legendItem}>
-          <View style={[styles.swatch, { backgroundColor: c }]} />
+          <Swatch color={c} kind={kind} />
           <Text style={styles.legendText}>{label}</Text>
         </View>
       ))}
@@ -234,7 +282,7 @@ const styles = StyleSheet.create({
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: colors.muted, fontSize: 11 },
+  legendText: { color: colors.muted, fontSize: 12 },
   sigRow: { flexDirection: "row", gap: space.md, alignItems: "flex-start" },
   sigHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space.sm },
   sigTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },

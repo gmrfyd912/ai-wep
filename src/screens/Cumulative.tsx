@@ -8,7 +8,7 @@ import { BarList, LineChart, type YBand } from "@/components/charts";
 import { Card, Chips, SectionTitle } from "@/components/ui";
 import type { SubmissionListItem } from "@/lib/api";
 import { defectName } from "@/lib/defects";
-import { SIGNAL_RULES, defectSignal, isCrack, straightSignal, widthSignal } from "@/lib/signals";
+import { SIGNAL_RULES, defectSignal, isCrack, straightSignal, widthSignal, type Signal } from "@/lib/signals";
 import { SignalDot } from "@/screens/ResultCharts";
 import { colors, space } from "@/theme";
 
@@ -193,6 +193,38 @@ function Compare({ rows, cur }: { rows: Row[]; cur: number }) {
   );
 }
 
+function LabeledDot({ label, signal }: { label: string; signal: Signal | null }) {
+  return (
+    <View style={styles.dotCol}>
+      <SignalDot size={12} signal={signal} />
+      <Text style={styles.dotLabel}>{label}</Text>
+    </View>
+  );
+}
+
+/** 기록 목록 위 설명: 숫자와 점 3개가 무엇인지, 색이 무엇인지 */
+export function RecordLegend() {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.recLegend}>
+      <Text style={styles.recLegendText}>{t("records_legendWhat")}</Text>
+      <View style={styles.recLegendColors}>
+        {(["green", "yellow", "red"] as const).map((s) => (
+          <View key={s} style={styles.recLegendItem}>
+            <SignalDot size={12} signal={s} />
+            <Text style={styles.recLegendText}>{t(`signal_${s}`)}</Text>
+          </View>
+        ))}
+        <View style={styles.recLegendItem}>
+          <SignalDot size={12} signal={null} />
+          <Text style={styles.recLegendText}>{t("records_legendNone")}</Text>
+        </View>
+      </View>
+      <Text style={styles.recLegendHint}>{t("records_legendHint")}</Text>
+    </View>
+  );
+}
+
 /** 분석 기록 한 줄 (누르면 그 결과 화면). current = 지금 보고 있는 것 */
 export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: boolean; showInfo?: boolean }) {
   const { t, i18n } = useTranslation();
@@ -214,9 +246,9 @@ export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: b
         <View style={{ alignItems: "flex-end", gap: 4 }}>
           <Text style={styles.value}>{r.width_mean_mm != null ? `${Number(r.width_mean_mm).toFixed(1)} mm` : "—"}</Text>
           <View style={styles.dots}>
-            <SignalDot size={10} signal={widthSignal(num(r.width_min_mm), num(r.width_max_mm))} />
-            <SignalDot size={10} signal={straightSignal(num(r.straight_max_dev_mm))} />
-            <SignalDot size={10} signal={defectSignal(r.defect_types)} />
+            <LabeledDot label={t("dot_width")} signal={widthSignal(num(r.width_min_mm), num(r.width_max_mm))} />
+            <LabeledDot label={t("dot_straight")} signal={straightSignal(num(r.straight_max_dev_mm))} />
+            <LabeledDot label={t("dot_defects")} signal={defectSignal(r.defect_types)} />
           </View>
         </View>
       ) : (
@@ -242,6 +274,13 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontWeight: "700", fontSize: 15 },
   meta: { color: colors.muted, fontSize: 12, marginTop: 2 },
   value: { color: colors.text, fontWeight: "700", fontSize: 16 },
-  dots: { flexDirection: "row", gap: 4 },
+  dots: { flexDirection: "row", gap: 6 },
+  dotCol: { alignItems: "center", gap: 2, minWidth: 28 },
+  dotLabel: { color: colors.muted, fontSize: 10 },
+  recLegend: { gap: 4, paddingHorizontal: 2 },
+  recLegendColors: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  recLegendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  recLegendText: { color: colors.muted, fontSize: 12 },
+  recLegendHint: { color: colors.faint, fontSize: 11 },
   bad: { color: colors.danger, fontSize: 13 },
 });

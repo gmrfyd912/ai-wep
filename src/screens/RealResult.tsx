@@ -9,7 +9,7 @@ import { ZoomImage } from "@/components/ZoomImage";
 import { getSubmission, listStudentSubmissions, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
 import { defectName } from "@/lib/defects";
 import { AiReport } from "@/screens/AiReport";
-import { Cumulative, RecordRow, groupOf } from "@/screens/Cumulative";
+import { Cumulative, RecordLegend, RecordRow, groupOf } from "@/screens/Cumulative";
 import { ResultCharts } from "@/screens/ResultCharts";
 import { colors, radius, space } from "@/theme";
 
@@ -163,8 +163,8 @@ export function RealResult({ id }: { id: string }) {
                 [C.center, "legend_center"],
                 [C.baseline, "legend_baseline"],
                 [C.maxDev, "legend_maxDev"],
-                [C.min, "result_widthMin"],
-                [C.max, "result_widthMax"],
+                [C.min, "legend_minPos"],
+                [C.max, "legend_maxPos"],
                 [C.defect, "legend_defect"],
                 [C.excluded, "legend_excluded"],
               ] as const
@@ -203,6 +203,7 @@ function History({ data, history }: { data: Submission; history: SubmissionListI
       {same.length ? (
         <>
           <SectionTitle>{t("cum_pastTitle", { group })}</SectionTitle>
+          <RecordLegend />
           {[...same].reverse().map((r) => (
             <RecordRow key={r.id} r={r} current={r.id === data.id} showInfo={false} />
           ))}
