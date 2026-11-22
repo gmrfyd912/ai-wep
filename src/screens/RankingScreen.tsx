@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar, BeadStrip } from "@/components/Avatar";
 import { Body, Card, Chips, Label, Screen } from "@/components/ui";
 import { getRanking, listCourses, type Course, type RankPeriod, type RankRow } from "@/lib/api";
-import { POSITIONS, PROCESSES } from "@/lib/weld";
+import { PROCESSES, WORK_TYPES, getLastWorkType, positionsOf, type WorkType } from "@/lib/weld";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
 
@@ -23,24 +23,27 @@ export function RankingScreen() {
   const [period, setPeriod] = useState<RankPeriod>("week");
   const [proc, setProc] = useState<string>(""); // "" = 전체
   const [pos, setPos] = useState<string>("");
+  const [work, setWork] = useState<WorkType | null>(null); // 평판·배관은 섞지 않음. 처음엔 마지막으로 올린 종류
   const [data, setData] = useState<{ rows: RankRow[]; me: RankRow | null; total: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const req = useRef(0);
 
   useEffect(() => {
+    getLastWorkType().then(setWork);
     listCourses()
       .then(setCourses)
       .catch(() => null);
   }, []);
 
   const load = useCallback(() => {
+    if (!work) return;
     const n = ++req.current;
     setFailed(false);
     setData(null);
-    getRanking({ process: proc, position: pos, period, course })
+    getRanking({ process: proc, position: pos, period, course, work_type: work })
       .then((r) => n === req.current && setData(r))
       .catch(() => n === req.current && setFailed(true));
-  }, [proc, pos, period, course]);
+  }, [proc, pos, period, course, work]);
   useFocusEffect(load);
 
   const courseOptions = [
@@ -52,6 +55,14 @@ export function RankingScreen() {
 
   return (
     <Screen>
+      <Chips<WorkType>
+        options={WORK_TYPES.map((w) => ({ value: w, label: t(`work_${w}`) }))}
+        value={work ?? "plate"}
+        onChange={(w) => {
+          setWork(w);
+          if (pos && !positionsOf(w).includes(pos)) setPos("");
+        }}
+      />
       <Chips options={courseOptions} value={course} onChange={setCourse} />
       <Chips<RankPeriod>
         options={[
@@ -71,7 +82,7 @@ export function RankingScreen() {
       />
       <Label>{t("upload_position")}</Label>
       <Chips
-        options={[{ value: "", label: t("common_all") }, ...POSITIONS.map((v) => ({ value: v, label: v }))]}
+        options={[{ value: "", label: t("common_all") }, ...positionsOf(work ?? "plate").map((v) => ({ value: v, label: v }))]}
         value={pos}
         onChange={setPos}
       />

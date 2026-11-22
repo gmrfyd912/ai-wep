@@ -35,7 +35,14 @@ def _crossings(poly, x):
     return ys
 
 
-def measure_bead(poly_mm, marker_center_mm, cfg):
+def _arc(R, top, x):
+    """배관: 사진(접평면)에서 꼭대기로부터 x 떨어진 점의 원둘레 거리."""
+    return R * np.arcsin(np.clip((x - top) / R, -1.0, 1.0))
+
+
+def measure_bead(poly_mm, marker_center_mm, cfg, pipe_od_mm=None):
+    """pipe_od_mm 가 있으면 배관: 마커(배관 꼭대기) 위치에서 양쪽 45°까지만 검사하고,
+    직진도 기준선은 곡선(2차식)이다. 둥근 배관을 비스듬히 찍으면 원둘레 비드가 휘어 보이기 때문."""
     c, u, n = bead_axis(poly_mm)
     # 시작점 = 마커에 가까운 쪽 끝
     local = np.stack([(poly_mm - c) @ u, (poly_mm - c) @ n], 1)
@@ -59,9 +66,18 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
         raise ValueError("bead_too_short")
     st = np.array(stations)  # pos_mm, width_mm, center_offset_mm
     trim = cfg.end_trim_mm
-    keep = (st[:, 0] >= trim) & (st[:, 0] <= length - trim)
+    z0, z1 = trim, length - trim
+    pipe = None
+    if pipe_od_mm:
+        R = float(pipe_od_mm) / 2.0
+        top = float(np.clip((marker_center_mm - c) @ u - xmin, 0.0, length))
+        half = R * np.sin(np.radians(45.0))
+        z0, z1 = max(trim, top - half), min(length - trim, top + half)
+        pipe = {"R": R, "top": top}
+    keep = (st[:, 0] >= z0) & (st[:, 0] <= z1)
     if keep.sum() < 3:
         keep[:] = True
+        z0, z1 = 0.0, float(length)
     s = st[keep]
     w = s[:, 1]
     i_min, i_max = int(np.argmin(w)), int(np.argmax(w))
@@ -70,13 +86,14 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
     k = int(len(ws) * cfg.width_trim_percent / 100.0)
     w_trim = ws[k:len(ws) - k] if len(ws) - 2 * k >= 1 else ws
 
-    # 직진도: 중심선을 최소제곱 직선(기준선)과 비교
-    a, b = np.polyfit(s[:, 0], s[:, 2], 1)
-    dev = s[:, 2] - (a * s[:, 0] + b)
+    # 직진도: 중심선을 최소제곱 직선(배관은 2차 곡선) 기준선과 비교
+    deg = 2 if pipe and len(s) >= 5 else 1
+    fit = np.polyfit(s[:, 0], s[:, 2], deg)
+    dev = s[:, 2] - np.polyval(fit, s[:, 0])
     absdev = np.abs(dev)
     i_dev = int(np.argmax(absdev))
     # 그래프용: 1mm마다 기준선 대비 중심선 이탈 (+ = 한쪽, - = 반대쪽). 양 끝 구간도 포함(앱에서 회색)
-    dev_all = st[:, 2] - (a * st[:, 0] + b)
+    dev_all = st[:, 2] - np.polyval(fit, st[:, 0])
 
     def width_at(pos, half=1.0):
         # 캘리퍼스 턱 폭을 고려해 pos ±1mm 구간 평균
@@ -90,16 +107,17 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
 
     geom = {
         "origin": c, "u": u, "n": n, "xmin": xmin,
-        "stations": st, "keep": keep, "fit": (a, b),
+        "stations": st, "keep": keep, "fit": fit, "zone": (z0, z1),
         "i_min": int(np.nonzero(keep)[0][i_min]), "i_max": int(np.nonzero(keep)[0][i_max]),
         "i_dev": int(np.nonzero(keep)[0][i_dev]),
-        "to_plane": to_plane, "length": length, "trim": trim if not keep.all() else 0.0,
+        "to_plane": to_plane, "length": length, "trim": trim if not keep.all() else 0.0, "pipe": pipe,
     }
     result = {
         "length_mm": _r(length),
         "width": {
             "step_mm": step,
             "end_trim_mm": trim,
+            "zone_start_mm": _r(z0, 1), "zone_end_mm": _r(z1, 1),  # 검사 구간 (시작에서 거리)
             "mean_mm": _r(w_trim.mean()),  # 절사평균 (화면에 보이는 평균)
             "mean_all_mm": _r(w.mean()),
             "trim_percent": cfg.width_trim_percent,
@@ -118,10 +136,22 @@ def measure_bead(poly_mm, marker_center_mm, cfg):
             "max_dev_pos_mm": _r(s[i_dev, 0], 1),  # 시작점에서 떨어진 거리
             "mean_dev_mm": _r(absdev.mean()),
             "rms_dev_mm": _r(np.sqrt((dev ** 2).mean())),
-            "baseline_angle_deg": _r(np.degrees(np.arctan(a))),
+            "baseline_angle_deg": _r(np.degrees(np.arctan(fit[-2]))),
+            "baseline": "curve" if deg == 2 else "line",
             "profile": [[_r(p, 1), _r(d)] for p, d in zip(st[:, 0], dev_all)],
         },
     }
+    if pipe:
+        R, top = pipe["R"], pipe["top"]
+
+        def arc_pos(x):  # 검사 구간 왼쪽 끝(45° 지점)에서 원둘레 거리
+            return _r(_arc(R, top, x) - _arc(R, top, z0), 1)
+        pipe["arc0"] = float(_arc(R, top, z0))
+        result["pipe"] = {"od_mm": _r(pipe_od_mm, 1), "top_pos_mm": _r(top, 1),
+                          "zone_arc_mm": _r(_arc(R, top, z1) - _arc(R, top, z0), 1)}
+        result["width"]["min_pos_arc_mm"] = arc_pos(s[i_min, 0])
+        result["width"]["max_pos_arc_mm"] = arc_pos(s[i_max, 0])
+        result["straightness"]["max_dev_pos_arc_mm"] = arc_pos(s[i_dev, 0])
     return result, geom
 
 
@@ -150,7 +180,7 @@ def measure_defect(pred, pts_mm, bead_geom, cfg):
     pos = None
     if bead_geom is not None:
         pos = (center - bead_geom["origin"]) @ bead_geom["u"] - bead_geom["xmin"]
-    return {
+    out = {
         "type": pred["class"],
         "confidence": _r(pred["confidence"], 3),
         "length_mm": _r(length),
@@ -158,7 +188,11 @@ def measure_defect(pred, pts_mm, bead_geom, cfg):
         "area_mm2": _r(area),
         "pos_along_bead_mm": _r(pos, 1),
         # 양 끝 제외 구간 안의 결함은 그림에만 보이고 결함 목록·개수에서는 뺀다
-        "in_end_zone": bool(pos is not None and bead_geom.get("trim", 0) > 0
-                            and (pos < bead_geom["trim"] or pos > bead_geom["length"] - bead_geom["trim"])),
+        "in_end_zone": bool(pos is not None and not bead_geom["keep"].all()
+                            and (pos < bead_geom["zone"][0] or pos > bead_geom["zone"][1])),
         "shape": "polygon" if pred["polygon"] is not None else "box",
     }
+    pp = bead_geom.get("pipe") if bead_geom is not None else None
+    if pp and pos is not None:
+        out["pos_arc_mm"] = _r(_arc(pp["R"], pp["top"], pos) - pp["arc0"], 1)
+    return out

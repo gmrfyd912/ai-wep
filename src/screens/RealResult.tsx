@@ -82,8 +82,22 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
   const res = data.result;
   const bead = res?.bead;
   const date = new Date(data.created_at).toLocaleString(i18n.language);
-  const info = [data.process, data.position, data.material].filter(Boolean).join(" · ");
-  const at = (v: number | undefined) => (v == null ? undefined : t("result_atPos", { mm: v.toFixed(0) }));
+  const pipe = data.work_type === "pipe";
+  const info = [
+    pipe ? t("work_pipe") : null,
+    data.process,
+    data.position,
+    data.material,
+    pipe && data.pipe_od_mm ? t("pipe_odShort", { od: data.pipe_od_mm }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const at = (v: number | undefined, arc?: number) =>
+    pipe && arc != null
+      ? t("pipe_atArc", { mm: arc.toFixed(0) }) // 배관: 검사 구간 왼쪽 끝(45°)에서 원둘레 거리
+      : v == null
+        ? undefined
+        : t("result_atPos", { mm: v.toFixed(0) });
 
   return (
     <Screen scrollRef={scrollRef}>
@@ -134,6 +148,13 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
         </>
       ) : (
         <>
+          {pipe && bead?.pipe ? (
+            <Card>
+              <Text style={styles.pipeTitle}>{t("pipe_zoneTitle")}</Text>
+              <Text style={styles.pipeText}>{t("pipe_zoneText", { od: bead.pipe.od_mm, arc: bead.pipe.zone_arc_mm.toFixed(0) })}</Text>
+              {data.position?.endsWith("F") ? <Text style={styles.pipeWarn}>{t("pipe_filletTemp")}</Text> : null}
+            </Card>
+          ) : null}
           {res ? <ResultCharts result={res} checkUrl={data.check_url} /> : null}
           {data.check_url && !res?.check_layout ? (
             <Text style={styles.caption}>{t("result_checkImage")}</Text>
@@ -148,13 +169,13 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
             </>
           ) : null}
           <Metric label={t("result_widthMean")} value={mm(bead?.width.mean_mm)} big />
-          <Metric label={t("result_widthMin")} value={mm(bead?.width.min_mm)} sub={at(bead?.width.min_pos_mm)} colors={[C.min]} />
-          <Metric label={t("result_widthMax")} value={mm(bead?.width.max_mm)} sub={at(bead?.width.max_pos_mm)} colors={[C.max]} />
+          <Metric label={t("result_widthMin")} value={mm(bead?.width.min_mm)} sub={at(bead?.width.min_pos_mm, bead?.width.min_pos_arc_mm)} colors={[C.min]} />
+          <Metric label={t("result_widthMax")} value={mm(bead?.width.max_mm)} sub={at(bead?.width.max_pos_mm, bead?.width.max_pos_arc_mm)} colors={[C.max]} />
           <Metric label={t("result_widthStd")} value={mm(bead?.width.std_mm)} />
           <Metric
             label={t("result_straightMax")}
             value={mm(bead?.straightness.max_dev_mm)}
-            sub={at(bead?.straightness.max_dev_pos_mm)}
+            sub={at(bead?.straightness.max_dev_pos_mm, bead?.straightness.max_dev_pos_arc_mm)}
             colors={[C.center, C.baseline, C.maxDev]}
           />
           <Metric label={t("result_length")} value={mm(bead?.length_mm)} colors={[C.outline]} />
@@ -182,12 +203,12 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
               [
                 [C.outline, "legend_outline"],
                 [C.center, "legend_center"],
-                [C.baseline, "legend_baseline"],
+                [C.baseline, pipe ? "legend_baselineCurve" : "legend_baseline"],
                 [C.maxDev, "legend_maxDev"],
                 [C.min, "legend_minPos"],
                 [C.max, "legend_maxPos"],
                 [C.defect, "legend_defect"],
-                [C.excluded, "legend_excluded"],
+                [C.excluded, pipe ? "legend_excludedPipe" : "legend_excluded"],
               ] as const
             ).map(([c, k]) => (
               <View key={k} style={styles.legendRow}>
@@ -225,9 +246,9 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
 function History({ data, history }: { data: Submission; history: SubmissionListItem[] | null }) {
   const { t } = useTranslation();
   if (history == null) return <ActivityIndicator color={colors.primary} />;
-  const group = groupOf(data);
+  const group = groupOf(data, t("work_pipe"));
   const same = history
-    .filter((r) => groupOf(r) === group)
+    .filter((r) => groupOf(r, t("work_pipe")) === group)
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
   const ok = same.filter((r) => r.status === "ok");
   return (
@@ -282,6 +303,9 @@ function Metric({
 }
 
 const styles = StyleSheet.create({
+  pipeTitle: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  pipeText: { color: colors.muted, fontSize: 13, lineHeight: 19 },
+  pipeWarn: { color: colors.warning, fontSize: 13, lineHeight: 19 },
   owner: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   ownerRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   title: { color: colors.text, fontSize: 20, fontWeight: "800" },

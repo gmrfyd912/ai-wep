@@ -78,6 +78,9 @@ export type Status = "ok" | "processing" | "marker_not_found" | "no_bead" | "rob
 export type SubmissionSummary = {
   id: string;
   status: Status;
+  /** 6-5: 평판/배관 (예전 기록 = 평판) */
+  work_type?: "plate" | "pipe";
+  pipe_od_mm?: number | null;
   process: string | null;
   position: string | null;
   material: string | null;
@@ -150,15 +153,26 @@ export type EngineResult = {
       min_pos_mm?: number;
       max_pos_mm?: number;
       end_trim_mm?: number;
+      /** 검사 구간 (시작에서 거리 mm). 평판 = 양 끝 10mm 제외, 배관 = 꼭대기 양쪽 45° */
+      zone_start_mm?: number;
+      zone_end_mm?: number;
+      /** 배관: 검사 구간 왼쪽 끝(45° 지점)에서 원둘레 거리 */
+      min_pos_arc_mm?: number;
+      max_pos_arc_mm?: number;
       /** [시작에서 거리 mm, 폭 mm] 1mm마다 (양 끝 구간 포함) */
       profile?: [number, number][];
     };
     straightness: {
       max_dev_mm: number;
       max_dev_pos_mm?: number;
+      max_dev_pos_arc_mm?: number;
+      /** 기준선: 평판 = 직선, 배관 = 곡선 */
+      baseline?: "line" | "curve";
       /** [시작에서 거리 mm, 기준선 대비 이탈 mm] 1mm마다. 4단계 이전 결과에는 없음 */
       profile?: [number, number][];
     };
+    /** 6-5 배관: 외경, 꼭대기 위치, 검사 구간 원둘레 길이 */
+    pipe?: { od_mm: number; top_pos_mm: number; zone_arc_mm: number };
   };
   defects?: { type: string; length_mm: number | null; confidence: number; pos_along_bead_mm?: number | null }[];
 };
@@ -241,7 +255,7 @@ export async function wakeServer(): Promise<void> {
  * { uri } 형태 파일을 FormData 에 담는 방식을 지원하지 않는다.) */
 export async function analyzePhoto(
   uri: string,
-  info: { process: string; position: string; material: string },
+  info: { process: string; position: string; material: string; work_type: "plate" | "pipe"; pipe_od_mm?: string },
   opts: { jobId?: string; onUploadProgress?: (ratio: number) => void } = {},
 ): Promise<Submission> {
   const form = new FormData();
@@ -250,6 +264,8 @@ export async function analyzePhoto(
   form.append("process", info.process);
   form.append("position", info.position);
   form.append("material", info.material);
+  form.append("work_type", info.work_type);
+  if (info.work_type === "pipe") form.append("pipe_od_mm", info.pipe_od_mm ?? "");
   if (Platform.OS === "web") {
     const blob = await (await fetch(uri)).blob();
     form.append("photo", blob, "photo.jpg");
@@ -588,6 +604,8 @@ export type GalleryItem = {
   process: string | null;
   position: string | null;
   material: string | null;
+  work_type?: "plate" | "pipe";
+  pipe_od_mm?: number | null;
   created_at: string;
   score: number | null;
   verdict: string | null;
@@ -599,7 +617,7 @@ export type GalleryItem = {
   comment_count: number;
 } & AvatarFields;
 
-export function getGallery(q: { course?: string; process?: string; position?: string; before?: string }) {
+export function getGallery(q: { course?: string; process?: string; position?: string; before?: string; work_type?: string }) {
   const p = new URLSearchParams();
   Object.entries(q).forEach(([k, v]) => v && p.set(k, v));
   return request<{ items: GalleryItem[]; more: boolean }>(`/gallery?${p.toString()}`, {}, BOARD_TIMEOUT);
@@ -663,7 +681,7 @@ export type RankRow = {
 } & AvatarFields &
   BeadFields;
 /** process·position 이 "" 이면 전체 */
-export function getRanking(q: { process: string; position: string; period: RankPeriod; course: string }) {
+export function getRanking(q: { process: string; position: string; period: RankPeriod; course: string; work_type: string }) {
   const p = new URLSearchParams();
   Object.entries(q).forEach(([k, v]) => v && p.set(k, v));
   return request<{ rows: RankRow[]; me: RankRow | null; total: number }>(`/ranking?${p.toString()}`, {}, BOARD_TIMEOUT);
@@ -696,6 +714,7 @@ export type ExportQuery = {
   process: string;
   position: string;
   course: string;
+  work_type: string;
 };
 export type ExportPart = { index: number; first: number; last: number; date_from: string; date_to: string; path: string };
 export type ExportSummary = { total: number; labeled: number; parts: ExportPart[]; expires_at: number; last_export_at: string | null };

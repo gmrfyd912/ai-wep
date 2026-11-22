@@ -17,8 +17,11 @@ type Tab = "trend" | "defects" | "compare";
 type Row = SubmissionListItem;
 
 export const num = (v: number | null | undefined) => (v == null ? null : Number(v));
-export const groupOf = (r: { process: string | null; position: string | null }) =>
-  [r.process, r.position].filter(Boolean).join(" ") || "—";
+/** 같은 묶음 = 같은 평판/배관·용접법·자세 (평판·배관은 섞지 않음). pipeWord = 화면에 쓰는 "배관" */
+export const groupOf = (
+  r: { process: string | null; position: string | null; work_type?: string | null },
+  pipeWord = "Pipe",
+) => [r.work_type === "pipe" ? pipeWord : null, r.process, r.position].filter(Boolean).join(" ") || "—";
 const rangeOf = (r: Row) => {
   const lo = num(r.width_min_mm);
   const hi = num(r.width_max_mm);
@@ -247,7 +250,9 @@ export function DatedRecords({ rows }: { rows: Row[] }) {
 export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: boolean; showInfo?: boolean }) {
   const { t, i18n } = useTranslation();
   const date = new Date(r.created_at).toLocaleString(i18n.language);
-  const info = [r.process, r.position, r.material].filter(Boolean).join(" · ") || t("result_title");
+  const info =
+    [r.work_type === "pipe" ? t("work_pipe") : null, r.process, r.position, r.material].filter(Boolean).join(" · ") ||
+    t("result_title");
   return (
     <Card
       onPress={current ? undefined : () => router.push(`/result/${r.id}`)}

@@ -15,7 +15,7 @@ import {
   type ExportRange,
   type ExportSummary,
 } from "@/lib/api";
-import { POSITIONS, PROCESSES } from "@/lib/weld";
+import { PROCESSES, WORK_TYPES, positionsOf, type WorkType } from "@/lib/weld";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
 
@@ -35,6 +35,7 @@ export default function TrainingScreen() {
   const [to, setTo] = useState(today());
   const [proc, setProc] = useState("");
   const [pos, setPos] = useState("");
+  const [work, setWork] = useState<WorkType | "">("");
   const [course, setCourse] = useState("all");
   const [courses, setCourses] = useState<Course[]>([]);
   const [sum, setSum] = useState<ExportSummary | null>(null);
@@ -60,13 +61,13 @@ export default function TrainingScreen() {
     setError("");
     setMsg("");
     const timer = setTimeout(() => {
-      trainingExport({ range, date_from: from, date_to: to, process: proc, position: pos, course })
+      trainingExport({ range, date_from: from, date_to: to, process: proc, position: pos, course, work_type: work })
         .then((s) => n === req.current && setSum(s))
         .catch((e) => n === req.current && setError(t(authErrorKey(e).key as "error_network")))
         .finally(() => n === req.current && setLoading(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [range, from, to, proc, pos, course, t]);
+  }, [range, from, to, proc, pos, course, work, t]);
 
   if (user?.role !== "admin") return <Redirect href="/" />;
 
@@ -120,10 +121,19 @@ export default function TrainingScreen() {
       ) : null}
       {range === "period" ? <Text style={styles.hint}>{t("train_dateHint")}</Text> : null}
 
+      <Label>{t("work_label")}</Label>
+      <Chips<WorkType | "">
+        options={[{ value: "", label: t("work_all") }, ...WORK_TYPES.map((w) => ({ value: w, label: t(`work_${w}`) }))]}
+        value={work}
+        onChange={(w) => {
+          setWork(w);
+          if (pos && !positionsOf(w).includes(pos)) setPos("");
+        }}
+      />
       <Label>{t("upload_process")}</Label>
       <Chips options={[{ value: "", label: t("common_all") }, ...PROCESSES.map((v) => ({ value: v, label: v }))]} value={proc} onChange={setProc} />
       <Label>{t("upload_position")}</Label>
-      <Chips options={[{ value: "", label: t("common_all") }, ...POSITIONS.map((v) => ({ value: v, label: v }))]} value={pos} onChange={setPos} />
+      <Chips options={[{ value: "", label: t("common_all") }, ...positionsOf(work).map((v) => ({ value: v, label: v }))]} value={pos} onChange={setPos} />
       <Label>{t("signup_course")}</Label>
       <Chips
         options={[{ value: "all", label: t("common_all") }, ...courses.map((c) => ({ value: c.id, label: c.name }))]}

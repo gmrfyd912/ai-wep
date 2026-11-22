@@ -105,7 +105,7 @@ def _viewable(sid, user):
 
 @router.get("/gallery")
 def gallery(bg: BackgroundTasks, course: str = "all", process: str = "", position: str = "", before: str = "",
-            limit: int = GALLERY_PAGE, user=Depends(accounts.current_user)):
+            limit: int = GALLERY_PAGE, work_type: str = "", user=Depends(accounts.current_user)):
     """갤러리 목록 (최근 → 예전). course = all 또는 과정 id. before = 이 시각보다 예전 것 (더 보기)."""
     params = {"status": "eq.ok", "hidden": "is.false", "user_id": "not.is.null",
               "select": store.LIST_SELECT,
@@ -114,6 +114,8 @@ def gallery(bg: BackgroundTasks, course: str = "all", process: str = "", positio
         params["process"] = f"eq.{process}"
     if position:
         params["position"] = f"eq.{position}"
+    if work_type in ("plate", "pipe"):  # 비면 평판·배관 모두
+        params["work_type"] = f"eq.{work_type}"
     if before:
         params["created_at"] = f"lt.{before}"
     if course != "all":
@@ -144,6 +146,7 @@ def gallery(bg: BackgroundTasks, course: str = "all", process: str = "", positio
             "id": r["id"], "user_id": r["user_id"], "name": u.get("name"), "role": u.get("role"),
             "courses": courses.get(r["user_id"], []),
             "process": r.get("process"), "position": r.get("position"), "material": r.get("material"),
+            "work_type": r.get("work_type") or "plate", "pipe_od_mm": r.get("pipe_od_mm"),
             "created_at": r.get("created_at"),
             "score": sc["score"] if sc else None, "verdict": sc["verdict"] if sc else None,
             "photo_url": thumbs.get(r.get("thumb_path") or r.get("photo_path")),
@@ -332,12 +335,14 @@ def period_start(period, now=None):
 
 @router.get("/ranking")
 def ranking(bg: BackgroundTasks, process: str = "", position: str = "", period: str = "week", course: str = "all",
-            user=Depends(accounts.current_user)):
+            work_type: str = "plate", user=Depends(accounts.current_user)):
     """교육생 순위 (기간 안 최고 점수, 같으면 먼저 낸 사람이 위). 공정·자세가 비면 전체를 합쳐서."""
     if period not in PERIODS:
         _err(400, "bad_period")
+    if work_type not in ("plate", "pipe"):  # 평판·배관은 섞어서 비교하지 않는다
+        _err(400, "bad_work_type")
     params = {"status": "eq.ok", "user_id": "not.is.null", "select": store.LIST_SELECT,
-              "order": "created_at.asc", "limit": "20000"}
+              "order": "created_at.asc", "limit": "20000", "work_type": f"eq.{work_type}"}
     if process:
         params["process"] = f"eq.{process}"
     if position:

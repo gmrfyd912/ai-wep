@@ -2,13 +2,15 @@ import { Image } from "expo-image";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View, type ScrollViewInstance } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type ScrollViewInstance } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTranslation } from "react-i18next";
 
+import { PipeOdTable } from "@/components/PipeOdTable";
 import { AppButton, Body, Card, Chips, Label, Screen, SectionTitle } from "@/components/ui";
 import { analyzePhoto, getProgress, NetworkError, newJobId, STAGES, wakeServer, type Stage } from "@/lib/api";
-import { POSITIONS, PROCESSES } from "@/lib/weld";
+import { PROCESSES, WORK_TYPES, getLastWorkType, positionsOf, setLastWorkType, type WorkType } from "@/lib/weld";
 import { colors, radius, space } from "@/theme";
 
 // 공정·자세·재질 값은 영어 코드로 저장한다. 화면 표시는 국제 표준 약어(언어와 무관).
@@ -36,6 +38,9 @@ export default function UploadScreen() {
   const [proc, setProc] = useState<string>("SMAW");
   const [pos, setPos] = useState<string>("1G");
   const [mat, setMat] = useState<string>("CS");
+  const [work, setWork] = useState<WorkType>("plate");
+  const [od, setOd] = useState("");
+  const [odTable, setOdTable] = useState(false);
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +48,19 @@ export default function UploadScreen() {
   const [uploadPct, setUploadPct] = useState(0);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef = useRef<ScrollViewInstance>(null);
+
+  useEffect(() => {
+    getLastWorkType().then(setWork);
+  }, []);
+
+  const changeWork = (w: WorkType) => {
+    setWork(w);
+    setError(null);
+    // 그 종류에 없는 자세면 첫 자세로
+    if (!positionsOf(w).includes(pos)) setPos(positionsOf(w)[0]);
+  };
+  const odNum = Number(od.replace(",", "."));
+  const odOk = work === "plate" || (Number.isFinite(odNum) && odNum >= 10 && odNum <= 2000);
 
   async function choose(fromCamera: boolean) {
     setError(null);
@@ -62,6 +80,10 @@ export default function UploadScreen() {
 
   async function analyze() {
     if (!photo) return;
+    if (!odOk) {
+      setError(t("pipe_odRequired"));
+      return;
+    }
     setBusy(true);
     setError(null);
     // 분석 단계 목록이 보이도록 화면 맨 아래로 내린다
@@ -88,7 +110,7 @@ export default function UploadScreen() {
       }, 1000);
       const res = await analyzePhoto(
         send.uri,
-        { process: proc, position: pos, material: mat },
+        { process: proc, position: pos, material: mat, work_type: work, pipe_od_mm: od.replace(",", ".") },
         {
           jobId,
           onUploadProgress: (r) => {
@@ -98,6 +120,7 @@ export default function UploadScreen() {
         },
       );
       setPhoto(null);
+      setLastWorkType(work);
       router.push(`/result/${res.id}`);
     } catch (e) {
       const code = e instanceof NetworkError ? e.code : `app: ${(e as Error)?.message ?? String(e)}`;
@@ -133,12 +156,62 @@ export default function UploadScreen() {
       </View>
 
       <SectionTitle>{t("upload_infoTitle")}</SectionTitle>
+      <Label>{t("work_label")}</Label>
+      <View style={styles.workRow}>
+        {WORK_TYPES.map((w) => {
+          const on = work === w;
+          return (
+            <Pressable
+              key={w}
+              onPress={() => changeWork(w)}
+              disabled={busy}
+              style={[styles.workBtn, on && styles.workBtnOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+            >
+              <Ionicons name={w === "pipe" ? "ellipse-outline" : "square-outline"} size={18} color={on ? colors.text : colors.muted} />
+              <Text style={[styles.workText, on && styles.workTextOn]}>{t(`work_${w}`)}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <Label>{t("upload_process")}</Label>
       <Chips options={PROCESSES.map((v) => ({ value: v, label: v }))} value={proc} onChange={setProc} />
       <Label>{t("upload_position")}</Label>
-      <Chips options={POSITIONS.map((v) => ({ value: v, label: v }))} value={pos} onChange={setPos} />
+      <Chips options={positionsOf(work).map((v) => ({ value: v, label: v }))} value={pos} onChange={setPos} />
       <Label>{t("upload_material")}</Label>
       <Chips options={MATERIALS.map((v) => ({ value: v, label: v }))} value={mat} onChange={setMat} />
+      {work === "pipe" ? (
+        <Card>
+          <View style={styles.odRow}>
+            <Text style={styles.odLabel}>{t("pipe_od")}</Text>
+            <TextInput
+              style={[styles.odInput, !odOk && od !== "" && { borderColor: colors.danger }]}
+              value={od}
+              onChangeText={(v) => (setOd(v), setError(null))}
+              keyboardType="decimal-pad"
+              placeholder="114.3"
+              placeholderTextColor={colors.faint}
+              accessibilityLabel={t("pipe_od")}
+              maxLength={6}
+            />
+            <Text style={styles.odUnit}>mm</Text>
+          </View>
+          <AppButton label={t("pipe_openTable")} icon="list-outline" variant="secondary" onPress={() => setOdTable(true)} disabled={busy} />
+          <Text style={styles.hint}>{t("pipe_odHint")}</Text>
+          {pos.endsWith("F") ? <Text style={[styles.hint, { color: colors.warning }]}>{t("pipe_filletTemp")}</Text> : null}
+        </Card>
+      ) : null}
+      <PipeOdTable
+        visible={odTable}
+        stainless={mat === "SS"}
+        onClose={() => setOdTable(false)}
+        onPick={(v) => {
+          setOd(String(v));
+          setOdTable(false);
+          setError(null);
+        }}
+      />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -176,4 +249,36 @@ const styles = StyleSheet.create({
   busy: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
   stages: { marginTop: space.sm, gap: 4 },
   stage: { fontSize: 14 },
+  hint: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  workRow: { flexDirection: "row", gap: space.sm },
+  workBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  workBtnOn: { borderColor: colors.primary, backgroundColor: colors.primaryDim },
+  workText: { color: colors.muted, fontSize: 16, fontWeight: "700" },
+  workTextOn: { color: colors.text },
+  odRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  odLabel: { color: colors.text, fontSize: 15, fontWeight: "700", flex: 1 },
+  odInput: {
+    width: 100,
+    color: colors.text,
+    fontSize: 18,
+    textAlign: "right",
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: space.sm,
+    paddingVertical: 8,
+  },
+  odUnit: { color: colors.muted, fontSize: 14 },
 });

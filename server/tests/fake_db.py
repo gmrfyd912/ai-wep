@@ -107,6 +107,7 @@ def insert_rows(table, rows, returning=True):
             r.setdefault("active", True)
         if table == "submissions":
             r.setdefault("hidden", False)
+            r.setdefault("work_type", "plate")
         if table == "users":
             r.setdefault("permissions", {})
         if table == "email_codes":
