@@ -155,6 +155,7 @@ export default function SignupScreen() {
       ) : null}
 
       <Text style={styles.hint}>{t("signup_publicNote")}</Text>
+      <Text style={styles.hint}>{t("privacy_aiTraining")}</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <AppButton label={busy ? t("auth_working") : t("signup_submit")} onPress={submit} disabled={busy} />
     </Screen>

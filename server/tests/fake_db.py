@@ -48,8 +48,11 @@ def _match(row, col, cond):
 
 def _filter(table, params):
     rows = TABLES.setdefault(table, [])
-    special = {"select", "order", "limit", "on_conflict", "or"}
+    special = {"select", "order", "limit", "on_conflict", "or", "and"}
     out = [r for r in rows if all(_match(r, k, v) for k, v in params.items() if k not in special)]
+    if "and" in params:  # and=(열.조건,열.조건)
+        conds = [c.split(".", 1) for c in params["and"].strip("()").split(",")]
+        out = [r for r in out if all(_match(r, col, cond) for col, cond in conds)]
     return out
 
 
@@ -64,9 +67,13 @@ def _project(table, row, select):
             col, target = FKEYS[(table, name)]
             ref = next((r for r in TABLES.get(target, []) if r["id"] == row.get(col)), None)
             out[name] = _project(target, ref, inner) if ref else None
-        elif ":" in part:  # 별명:JSON경로 → 시험 행에는 별명 이름으로 값을 넣어 둔다
-            name = part.split(":", 1)[0]
-            out[name] = row.get(name)
+        elif ":" in part:  # 별명:열->키->키 (JSON 경로). 시험 행에 별명 이름 값이 있으면 그것
+            name, path = part.split(":", 1)
+            keys = path.split("->")
+            v = row.get(keys[0])
+            for k in keys[1:]:
+                v = v.get(k) if isinstance(v, dict) else None
+            out[name] = row[name] if name in row else v
         else:
             out[part] = row.get(part)
     return out

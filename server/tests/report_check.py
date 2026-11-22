@@ -130,13 +130,19 @@ def main():
     assert r.status_code == 429 and r.json()["detail"] == {"code": "daily_limit", "limit": 2}, r.text
     # 이미 만든 리포트는 한도와 상관없이 다시 볼 수 있음
     assert c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "vi"}).status_code == 200
-    # 한도 없는 기기(박사 시험용)는 한도를 넘어도 만들 수 있음
+    # 6-4: 한도는 교육생 계정 기준. 예전 "한도 없는 기기" 목록은 더 쓰지 않음
     SETTINGS["report_unlimited_devices"] = [DEV]
     scoring._CACHE.update(at=0, value=None)
     r = c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "th"})
-    assert r.status_code == 200 and "remaining" not in r.json(), r.text
+    assert r.status_code == 429, r.text
     del SETTINGS["report_unlimited_devices"]
     scoring._CACHE.update(at=0, value=None)
+    # 시스템관리자는 한도 없음
+    me = dict(who["user"])
+    who["user"] = {**me, "role": "admin"}
+    r = c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "th"})
+    assert r.status_code == 200 and "remaining" not in r.json(), r.text
+    who["user"] = me
     # 분석 실패 사진, 남의 기기
     assert c.post(f"/submissions/{DB['f']['id']}/report", json={"device_id": DEV}).status_code == 409
     who["user"] = {"id": "user-2", "role": "student"}  # 6-3: 남은 만들어진 리포트만 봄 (새로 만들지 않음)

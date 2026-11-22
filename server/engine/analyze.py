@@ -23,6 +23,12 @@ def _pred_points(p):
     return np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float)
 
 
+def _box_of(p):
+    x0, y0, x1, y1 = p["box"]
+    return {"class": p["class"], "confidence": round(float(p.get("confidence", 0.0)), 3),
+            "x": round(x0, 1), "y": round(y0, 1), "w": round(x1 - x0, 1), "h": round(y1 - y0, 1)}
+
+
 def analyze_image(img, cfg=None, predictions=None, progress=None):
     """img: BGR 배열 또는 파일 경로. predictions: 테스트용(주면 Roboflow 호출 생략).
     progress: 단계 이름을 받는 함수 (marker → roboflow → measure). 앱 진행 표시용.
@@ -58,7 +64,9 @@ def analyze_image(img, cfg=None, predictions=None, progress=None):
         except Exception as e:  # 네트워크·키 오류
             return _error("roboflow_failed", str(e)), None, None
     step("measure")
-    res["detections"] = {"classes": sorted({p["class"] for p in predictions})}
+    res["detections"] = {"classes": sorted({p["class"] for p in predictions}),
+                         # AI가 찾은 상자 (원본 px, 왼쪽 위 x·y + 폭·높이): 학습용 사진 받기의 라벨
+                         "boxes": [_box_of(p) for p in predictions]}
     predictions = [p for p in predictions if not any(k in p["class"].lower() for k in cfg.ignore_class_keywords)]
     beads = [p for p in predictions if _is_bead(p["class"], cfg)]
     others = [p for p in predictions if not _is_bead(p["class"], cfg)]

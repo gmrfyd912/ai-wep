@@ -22,6 +22,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 import accounts
+import admin_settings
 import mail
 import manage
 import media
@@ -41,6 +42,7 @@ app = FastAPI(title="AI W.E.P analysis server")
 app.include_router(accounts.router)
 app.include_router(manage.router)
 app.include_router(social.router)
+app.include_router(admin_settings.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
@@ -295,9 +297,8 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
         return {"report": saved.get("report"), "score": sc, "cached": True, "lang": saved.get("lang")}
     crit = scoring.criteria()
     limit = int(crit.get("report_daily_limit", 5))
-    # 시스템관리자·교사·행정 관리자와 박사님 시험용 휴대폰은 한도 없음
-    unlimited = user["role"] in ("admin", "teacher", "staff") or (
-        bool(body.device_id) and body.device_id in (crit.get("report_unlimited_devices") or []))
+    # 하루 한도는 교육생 계정마다. 시스템관리자·교사·행정 관리자는 한도 없음
+    unlimited = user["role"] in ("admin", "teacher", "staff")
 
     saved = store.get_report(sid, lang)
     # 검사기준이 바뀌어 점수·판정이 달라졌으면, 예전 글과 맞지 않으니 다시 만든다 (한도에 세지 않음)
