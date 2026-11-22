@@ -9,6 +9,7 @@ export function useRoleRedirect(role: Role) {
   const { user } = useSession();
   if (!user) return <Redirect href="/login" />;
   if (user.must_change_password) return <Redirect href={{ pathname: "/change-password", params: { forced: "1" } }} />;
+  if (user.needs_avatar) return <Redirect href="/profile-photo" />;
   if (user.role !== role) return <Redirect href={homeOf(user.role)} />;
   return null;
 }

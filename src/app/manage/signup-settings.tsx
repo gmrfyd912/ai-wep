@@ -42,6 +42,12 @@ export default function SignupSettings() {
       {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
       <Body muted>{t("admin_approveHint")}</Body>
       <Body muted>{t("manage_approveWho")}</Body>
+      {rules ? (
+        <Card>
+          <Row label={t("admin_avatarRequired")} value={rules.avatar_required} onChange={(v) => change({ ...rules, avatar_required: v })} />
+          <Text style={styles.hint}>{t("admin_avatarRequiredHint")}</Text>
+        </Card>
+      ) : null}
     </Screen>
   );
 }
@@ -58,4 +64,5 @@ function Row({ label, value, onChange }: { label: string; value: boolean; onChan
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md, paddingVertical: 6 },
   label: { color: colors.text, fontSize: 15, flex: 1 },
+  hint: { color: colors.muted, fontSize: 12, lineHeight: 18 },
 });

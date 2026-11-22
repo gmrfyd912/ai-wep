@@ -5,16 +5,18 @@
 - 로그인하면 긴 무작위 토큰을 앱에 준다. 로그아웃·계정 삭제·비밀번호 초기화 전까지 계속 유효하다.
   서버에는 토큰 원문이 아니라 SHA-256 값만 저장한다.
 """
+import base64
 import hashlib
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
 import mail
+import media
 import store
 
 router = APIRouter()
@@ -90,8 +92,20 @@ def _courses_of(user_id):
     return [{"id": c["id"], "name": c["name"]} for c in cs]
 
 
+SIGNUP_DEFAULT = {"student_approval": False, "staff_approval": False, "avatar_required": True}
+AVATAR_MAX = 8 * 1024 * 1024
+
+
+def avatar_required():
+    return bool(_setting("signup", SIGNUP_DEFAULT).get("avatar_required", True))
+
+
 def public_user(u):
+    av = media.avatars_of([u]).get(u["id"]) or {}
     return {
+        "avatar_url": av.get("avatar_url"), "avatar_key": av.get("avatar_key"),
+        # 프로필 사진이 필수인데 없으면 앱이 사진 올리기 화면을 먼저 보여 준다 (시스템관리자 제외)
+        "needs_avatar": u["role"] != "admin" and not u.get("avatar_path") and avatar_required(),
         "id": u["id"], "login_id": u["login_id"], "name": u["name"], "role": u["role"],
         "email": u.get("email"), "status": u.get("status"),
         "must_change_password": bool(u.get("must_change_password")),
@@ -156,6 +170,12 @@ def list_courses():
     return rows
 
 
+@router.get("/auth/signup-rules")
+def signup_rules():
+    """가입 화면이 알아야 할 설정 (프로필 사진 필수 여부)."""
+    return {"avatar_required": avatar_required()}
+
+
 class SignupBody(BaseModel):
     login_id: str
     password: str
@@ -164,6 +184,7 @@ class SignupBody(BaseModel):
     email: str | None = None
     course_ids: list[str] = []
     device_id: str | None = None
+    avatar_b64: str | None = None  # 프로필 사진 (앱이 줄여서 보낸 JPEG, base64)
 
 
 @router.post("/auth/signup")
@@ -191,10 +212,22 @@ def signup(body: SignupBody):
         if len(ok) != len(course_ids):
             _err(400, "bad_course")
 
+    avatar = None
+    if body.avatar_b64:
+        try:
+            avatar = base64.b64decode(body.avatar_b64.split(",")[-1], validate=False)
+            if len(avatar) > AVATAR_MAX:
+                _err(413, "photo_too_large")
+            media.avatar_bytes(avatar)  # 사진이 맞는지 먼저 확인
+        except (ValueError, TypeError):
+            _err(400, "bad_avatar")
+    rules = _setting("signup", SIGNUP_DEFAULT)
+    if avatar is None and rules.get("avatar_required", True):
+        _err(400, "avatar_required")
+
     if _find_by_login(login_id):
         _err(409, "id_taken")
 
-    rules = _setting("signup", {"student_approval": False, "staff_approval": False})
     need = rules["student_approval"] if body.role == "student" else rules["staff_approval"]
     try:
         user = store.insert_rows("users", {
@@ -210,6 +243,11 @@ def signup(body: SignupBody):
         store.insert_rows("user_courses", [
             {"user_id": user["id"], "course_id": c, "course_role": "assistant" if body.role == "teacher" else None}
             for c in course_ids], returning=False)
+    if avatar is not None:
+        try:
+            user["avatar_path"] = media.save_avatar(user["id"], avatar)
+        except Exception as e:  # noqa: BLE001 - 사진 저장이 안 돼도 가입은 된다 (다음 로그인 때 다시 올림)
+            print("[signup] 프로필 사진 저장 실패", str(e)[:200], flush=True)
     if need:
         return {"pending": True}
     return _new_session(user, body.device_id)
@@ -403,8 +441,23 @@ def delete_me(body: DeleteBody, user=Depends(current_user)):
         _err(403, "admin_cannot_delete")
     if not check_password(body.password, user["password_hash"]):
         _err(400, "wrong_password")
-    rows = store.select("submissions", {"user_id": f"eq.{user['id']}", "select": "photo_path,thumb_path,check_path"})
-    store.remove_files("photos", [r.get("photo_path") for r in rows] + [r.get("thumb_path") for r in rows])
-    store.remove_files("results", [r.get("check_path") for r in rows])
+    rows = store.select("submissions", {"user_id": f"eq.{user['id']}",
+                                        "select": "photo_path,thumb_path,check_path,check_thumb_path"})
+    store.remove_files("photos", [r.get("photo_path") for r in rows] + [r.get("thumb_path") for r in rows]
+                       + [user.get("avatar_path")])
+    store.remove_files("results", [r.get("check_path") for r in rows] + [r.get("check_thumb_path") for r in rows])
     store.delete("users", {"id": f"eq.{user['id']}"})  # 기록·리포트·로그인은 함께 지워진다 (on delete cascade)
     return {"ok": True}
+
+
+@router.post("/me/avatar")
+async def upload_avatar(photo: UploadFile = File(...), user=Depends(current_user)):
+    """프로필 사진 올리기·바꾸기."""
+    data = await photo.read(AVATAR_MAX + 1)
+    if len(data) > AVATAR_MAX:
+        _err(413, "photo_too_large")
+    try:
+        path = media.save_avatar(user["id"], data)
+    except ValueError:
+        _err(400, "bad_avatar")
+    return public_user({**user, "avatar_path": path})

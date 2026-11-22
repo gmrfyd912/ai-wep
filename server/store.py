@@ -43,6 +43,12 @@ def signed_url(bucket, path, expires=3600):
     return f"{url}/storage/v1{rel}" if rel else None
 
 
+def download(bucket, path):
+    url, h = _base()
+    r = _check(requests.get(f"{url}/storage/v1/object/{bucket}/{path}", headers=h, timeout=TIMEOUT))
+    return r.content
+
+
 def signed_urls(bucket, paths, expires=3600):
     """여러 파일의 서명 주소를 한 번에 {경로: 주소}."""
     paths = [p for p in dict.fromkeys(paths) if p]
@@ -89,7 +95,9 @@ def list_by_device(device_id, limit):
 # 목록·누적 분석에 쓰는 열 (결과 JSON에서 필요한 값만 꺼낸다, 그래프 배열은 빼서 가볍다)
 LIST_SELECT = ("id,user_id,device_id,status,hidden,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,"
                "defect_count,width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
-               "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")
+               "width_max_mm:result->bead->width->max_mm,defect_types:result->defects,"
+               "photo_path,thumb_path,check_path,check_thumb_path,"
+               "check_w:result->check_layout->width,check_h:result->check_layout->height")
 
 
 def _list_submissions(col, value, limit):

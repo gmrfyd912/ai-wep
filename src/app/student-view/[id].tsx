@@ -1,8 +1,9 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { Avatar } from "@/components/Avatar";
 import { AppButton, Body, Card, Screen, SectionTitle } from "@/components/ui";
 import { getStudentInfo, listStudentSubmissions, type Member, type StudentInfo, type SubmissionListItem } from "@/lib/api";
 import { DatedRecords, RecordLegend } from "@/screens/Cumulative";
@@ -51,18 +52,21 @@ export default function StudentView() {
   return (
     <Screen>
       <Stack.Screen options={{ title: t("person_title", { name: info.name }) }} />
-      <Card>
-        <Text style={styles.name}>
-          {info.name} {info.login_id ? <Text style={styles.meta}>{info.login_id}</Text> : null}
-        </Text>
-        <Text style={styles.meta}>
-          {t(`role_${info.role}`)}
-          {courseNames ? ` · ${courseNames}` : ""}
-        </Text>
-        <Text style={styles.meta}>{t("person_count", { count: okCount })}</Text>
-        {info.login_id ? (
-          <Text style={styles.meta}>{lastLogin ? t("manage_lastLogin", { date: lastLogin }) : t("manage_never")}</Text>
-        ) : null}
+      <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <Avatar url={info.avatar_url} cacheKey={info.avatar_key} name={info.name} size={56} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={styles.name}>
+            {info.name} {info.login_id ? <Text style={styles.meta}>{info.login_id}</Text> : null}
+          </Text>
+          <Text style={styles.meta}>
+            {t(`role_${info.role}`)}
+            {courseNames ? ` · ${courseNames}` : ""}
+          </Text>
+          <Text style={styles.meta}>{t("person_count", { count: okCount })}</Text>
+          {info.login_id ? (
+            <Text style={styles.meta}>{lastLogin ? t("manage_lastLogin", { date: lastLogin }) : t("manage_never")}</Text>
+          ) : null}
+        </View>
       </Card>
       {info.can_care && info.login_id ? <MemberActions member={info as Member} onChanged={load} /> : null}
       {info.can_edit ? (

@@ -5,6 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { setUnread } from "@/components/NotificationBell";
+import { Avatar } from "@/components/Avatar";
 import { Body, Card, Screen } from "@/components/ui";
 import { listNotifications, markNotificationsRead, type NotificationItem } from "@/lib/api";
 import { colors, space } from "@/theme";
@@ -43,7 +44,12 @@ export default function Notifications() {
           style={n.read ? styles.row : { ...styles.row, ...styles.unread }}
           onPress={n.submission_id ? () => router.push({ pathname: "/result/[id]", params: { id: n.submission_id!, focus: "comments" } }) : undefined}
         >
-          <Ionicons name={n.kind === "reply" ? "return-down-forward-outline" : "chatbubble-outline"} size={20} color={colors.primary} />
+          <View>
+            <Avatar url={n.avatar_url} cacheKey={n.avatar_key} name={n.actor_name} size={36} />
+            <View style={styles.kind}>
+              <Ionicons name={n.kind === "reply" ? "return-down-forward" : "chatbubble"} size={11} color="#fff" />
+            </View>
+          </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={styles.title}>
               {t(n.kind === "reply" ? "noti_reply" : "noti_comment", { name: n.actor_name ?? "?" })}
@@ -68,6 +74,17 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 15, fontWeight: "700" },
   body: { color: colors.muted, fontSize: 14 },
   meta: { color: colors.faint, fontSize: 12 },
+  kind: {
+    position: "absolute",
+    right: -4,
+    bottom: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger, marginTop: 6 },
   error: { color: colors.danger },
 });

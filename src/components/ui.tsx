@@ -42,11 +42,14 @@ export function Screen({
   scroll = true,
   safeTop = false,
   scrollRef,
+  onEndReached,
 }: {
   children: ReactNode;
   scroll?: boolean;
   safeTop?: boolean;
   scrollRef?: RefObject<ScrollViewInstance | null>;
+  /** 맨 아래 가까이 내려오면 (목록 이어 받기) */
+  onEndReached?: () => void;
 }) {
   const edges = safeTop ? (["top", "left", "right"] as const) : (["left", "right"] as const);
   const innerRef = useRef<ScrollViewInstance | null>(null);
@@ -133,6 +136,15 @@ export function Screen({
             ref={ref}
             contentContainerStyle={keyboardHeight ? { paddingBottom: keyboardHeight + space.xl * 2 } : null}
             keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={200}
+            onScroll={
+              onEndReached
+                ? (e) => {
+                    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+                    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 600) onEndReached();
+                  }
+                : undefined
+            }
           >
             {/* 칸 위치를 잴 기준 (스크롤 내용의 맨 위) */}
             <View ref={contentRef} style={styles.scrollContent}>

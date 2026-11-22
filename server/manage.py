@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import accounts
+import media
 import scoring
 import store
 
@@ -352,16 +353,18 @@ def manage_update_member(uid: str, body: MemberPatch, user=Depends(need_members)
 class SignupSettings(BaseModel):
     student_approval: bool
     staff_approval: bool
+    avatar_required: bool = True
 
 
 @router.get("/manage/settings/signup")
 def get_signup_settings(user=Depends(need_members)):
-    return accounts._setting("signup", {"student_approval": False, "staff_approval": False})
+    return accounts._setting("signup", accounts.SIGNUP_DEFAULT)
 
 
 @router.put("/manage/settings/signup")
 def put_signup_settings(body: SignupSettings, user=Depends(need_members)):
-    value = {"student_approval": body.student_approval, "staff_approval": body.staff_approval}
+    value = {"student_approval": body.student_approval, "staff_approval": body.staff_approval,
+             "avatar_required": body.avatar_required}
     if store.select("app_settings", {"key": "eq.signup", "select": "key"}):
         store.patch("app_settings", {"key": "eq.signup"}, {"value": value, "updated_at": datetime.now(timezone.utc).isoformat()})
     else:
@@ -416,7 +419,7 @@ def _frequent_defect(rows):
 
 def _students_of(course_id):
     links = store.select("user_courses", {"course_id": f"eq.{course_id}",
-                                          "select": "user_id,course_role,users(id,name,login_id,role,status)"})
+                                          "select": "user_id,course_role,users(id,name,login_id,role,status,avatar_path)"})
     students = [r["users"] for r in links if r.get("users") and r["users"]["role"] == "student"]
     teachers = [{"id": r["users"]["id"], "name": r["users"]["name"], "course_role": r.get("course_role")}
                 for r in links if r.get("users") and r["users"]["role"] == "teacher"]
@@ -469,6 +472,7 @@ def board_course(cid: str, user=Depends(accounts.current_user)):
     by_user = {}
     for r in rows:
         by_user.setdefault(r["user_id"], []).append(r)
+    avatars = media.avatars_of(students)
     cards = []
     for s in students:
         mine = by_user.get(s["id"], [])
@@ -483,6 +487,7 @@ def board_course(cid: str, user=Depends(accounts.current_user)):
             "trend": _trend(scores),
             "frequent_defect": _frequent_defect([r for r, _ in scored]),
             "last_at": mine[0]["created_at"] if mine else None,
+            **(avatars.get(s["id"]) or {}),
         })
     # 승인 대기 먼저, 그다음 이름순
     cards.sort(key=lambda c: (c["status"] != "pending", c["name"]))
@@ -509,8 +514,9 @@ def student_info(uid: str, user=Depends(accounts.current_user)):
         # 6-3: 누구나 랭킹·갤러리에서 기록을 볼 수 있다 → 이름·역할·과정만
         courses = _courses_by_user([target["id"]]).get(target["id"], [])
         return {"id": target["id"], "name": target["name"], "role": target["role"], "courses": courses,
-                "can_care": False, "can_edit": False}
+                "can_care": False, "can_edit": False, **(media.avatars_of([target]).get(target["id"]) or {})}
     m = _member(target, _courses_by_user([target["id"]]))
+    m.update(media.avatars_of([target]).get(target["id"]) or {})
     m["can_care"] = _can_care(user, target)
     m["can_edit"] = can_manage_members(user)
     return m

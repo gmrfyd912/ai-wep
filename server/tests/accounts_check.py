@@ -1,6 +1,10 @@
 """6-1단계 계정 흐름 시험: 가입·로그인·세션 유지·비밀번호 변경/찾기·기록 가져오기·계정 삭제.
 Supabase·메일은 가짜. 실행: python -m tests.accounts_check"""
+import base64
 import os
+
+import cv2
+import numpy as np
 
 from fastapi.testclient import TestClient
 
@@ -29,10 +33,21 @@ def main():
     assert c.post("/auth/signup", json=base | {"course_ids": [c_old]}).json()["detail"]["code"] == "bad_course"
     assert c.post("/auth/signup", json=base | {"course_ids": [c1], "password": ""}).json()["detail"]["code"] == "password_short"
     assert c.post("/auth/signup", json=base | {"course_ids": [c1], "email": "x"}).json()["detail"]["code"] == "bad_email"
-    r = c.post("/auth/signup", json=base | {"course_ids": [c1], "email": " Kim@Example.com ", "device_id": DEV})
+    # 프로필 사진: 기본 필수
+    assert c.post("/auth/signup", json=base | {"course_ids": [c1]}).json()["detail"]["code"] == "avatar_required"
+    assert c.post("/auth/signup", json=base | {"course_ids": [c1], "avatar_b64": "bm90IGFuIGltYWdl"}).json()["detail"]["code"] == "bad_avatar"
+    face = base64.b64encode(cv2.imencode(".jpg", np.full((300, 400, 3), 90, np.uint8))[1].tobytes()).decode()
+    r = c.post("/auth/signup", json=base | {"course_ids": [c1], "email": " Kim@Example.com ", "device_id": DEV,
+                                            "avatar_b64": face})
     assert r.status_code == 200, r.text
     tok = r.json()["token"]
     u = r.json()["user"]
+    assert u["avatar_url"] and u["avatar_key"].startswith("avatars/") and u["needs_avatar"] is False
+    av = cv2.imdecode(np.frombuffer(db.FILES[f"photos/{u['avatar_key']}"], np.uint8), cv2.IMREAD_COLOR)
+    assert av.shape[:2] == (256, 256)
+    assert c.get("/auth/signup-rules").json() == {"avatar_required": True}
+    db.SETTINGS["signup"] = {"avatar_required": False}  # 아래 시험은 사진 없이
+    assert c.get("/auth/signup-rules").json() == {"avatar_required": False}
     assert u["role"] == "student" and u["courses"] == [{"id": c1, "name": "뉴딜2기"}] and u["email"] == "kim@example.com"
     assert "password_hash" not in u
     assert db.TABLES["users"][0]["password_hash"].startswith("$2")  # 원문 저장 안 함
@@ -61,11 +76,11 @@ def main():
     assert c.post("/auth/signup", json={"login_id": "a2", "password": "pw", "name": "x", "role": "admin"}).status_code == 400
 
     # 승인 필요 설정이 켜지면 승인 대기
-    db.SETTINGS["signup"] = {"student_approval": True, "staff_approval": False}
+    db.SETTINGS["signup"] = {"student_approval": True, "staff_approval": False, "avatar_required": False}
     r = c.post("/auth/signup", json=base | {"login_id": "wait1", "course_ids": [c2]})
     assert r.json() == {"pending": True}
     assert c.post("/auth/login", json={"login_id": "wait1", "password": "1"}).json()["detail"]["code"] == "pending"
-    db.SETTINGS.pop("signup")
+    db.SETTINGS["signup"] = {"avatar_required": False}
 
     # 비밀번호 규칙 (6-4단계 관리자 설정)
     db.SETTINGS["auth"] = {"password_min_length": 4}
@@ -146,6 +161,20 @@ def main():
     assert not any(r.get("device_id") == DEV for r in db.TABLES["submissions"])
     assert not db.TABLES["reports"] and f"photos/{DEV}/a.jpg" not in db.FILES
     assert c.post("/auth/login", json={"login_id": "kim01", "password": "reset"}).status_code == 401
+    # 사진 없이 가입한 사람: 필수로 바뀌면 needs_avatar → 올리면 해제, 바꾸면 예전 파일 삭제
+    r = c.post("/auth/signup", json={"login_id": "noface", "password": "p", "name": "무사진", "role": "staff"}).json()
+    HN = {"Authorization": f"Bearer {r['token']}"}
+    assert r["user"]["needs_avatar"] is False and r["user"]["avatar_url"] is None
+    db.SETTINGS["signup"] = {}
+    assert c.get("/me", headers=HN).json()["needs_avatar"] is True
+    img = cv2.imencode(".jpg", np.full((500, 300, 3), 200, np.uint8))[1].tobytes()
+    me = c.post("/me/avatar", headers=HN, files={"photo": ("a.jpg", img, "image/jpeg")}).json()
+    assert me["needs_avatar"] is False and me["avatar_key"]
+    first = me["avatar_key"]
+    me = c.post("/me/avatar", headers=HN, files={"photo": ("b.jpg", img, "image/jpeg")}).json()
+    assert me["avatar_key"] != first and f"photos/{first}" not in db.FILES
+    assert c.post("/me/avatar", headers=HN, files={"photo": ("c.jpg", b"xx", "image/jpeg")}).status_code == 400
+    db.SETTINGS["signup"] = {"avatar_required": False}
     print("계정 흐름 시험 통과")
 
 
