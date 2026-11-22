@@ -142,6 +142,12 @@ def main():
     assert r["rows"][0]["name"] == "s1" and r["rows"][0]["submission_id"] == old  # 예전 100점이 먼저
     assert c.get("/ranking?process=GTAW&position=1G&period=all", headers=S1).json()["rows"][0]["name"] == "s3"
     assert c.get("/ranking?process=SMAW&position=1G&period=year", headers=S1).status_code == 400
+    # 6-5: 평판·배관은 섞지 않는다 (예전 기록 = 평판)
+    assert c.get("/ranking?period=all&work_type=pipe", headers=S1).json()["rows"] == []
+    assert c.get("/ranking?period=all&work_type=plate", headers=S1).json()["rows"]
+    assert c.get("/ranking?period=all&work_type=x", headers=S1).status_code == 400
+    assert c.get("/gallery?work_type=pipe", headers=S1).json()["items"] == []
+    assert all(x["work_type"] == "plate" for x in c.get("/gallery?work_type=plate", headers=S1).json()["items"])
     assert week <= today and month <= today
 
     # 공정·자세 전체: 모두 합쳐서 각자 최고 점수 (s3 은 GTAW 100점)

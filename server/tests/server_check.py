@@ -56,6 +56,23 @@ def main():
     print("빈 사진 status", r2["status"])
     assert r2["status"] == "marker_not_found"
     assert c.get(f"/submissions/{r2['id']}", headers=H2).status_code == 404  # 실패한 건 남이 못 봄
+    # 6-5 배관: 외경 없으면 거절, 배관에 없는 자세 거절, 배관이면 가운데 ±45°만 검사
+    pj = {"photo": ("p.jpg", jpg.tobytes(), "image/jpeg")}
+    base = {"device_id": dev, "process": "SMAW", "material": "CS", "work_type": "pipe"}
+    assert c.post("/analyze", headers=H, data={**base, "position": "5G"}, files=pj).json()["detail"] == "pipe_od_required"
+    assert c.post("/analyze", headers=H, data={**base, "position": "3G", "pipe_od_mm": "114.3"}, files=pj).json()["detail"] == "bad_position"
+    assert c.post("/analyze", headers=H, data={**base, "position": "6GR", "work_type": "x"}, files=pj).json()["detail"] == "bad_work_type"
+    r = c.post("/analyze", headers=H, data={**base, "position": "5G", "pipe_od_mm": "60.5"}, files=pj)
+    assert r.status_code == 200, r.text
+    pjs = r.json()
+    bead = pjs["result"]["bead"]
+    assert pjs["work_type"] == "pipe" and pjs["pipe_od_mm"] == 60.5 and pjs["status"] == "ok", pjs["status"]
+    assert bead["pipe"]["od_mm"] == 60.5 and bead["straightness"]["baseline"] == "curve"
+    zone = bead["width"]["zone_end_mm"] - bead["width"]["zone_start_mm"]
+    assert zone < 60.5 * 0.71 + 1.5, zone
+    assert js["work_type"] == "plate"
+    lst = c.get("/submissions", headers=H).json()
+    assert {x["work_type"] for x in lst} == {"plate", "pipe"}
     print("서버 흐름 시험 통과")
 
 

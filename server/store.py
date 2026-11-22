@@ -93,7 +93,7 @@ def list_by_device(device_id, limit):
 
 
 # 목록·누적 분석에 쓰는 열 (결과 JSON에서 필요한 값만 꺼낸다, 그래프 배열은 빼서 가볍다)
-LIST_SELECT = ("id,user_id,device_id,status,hidden,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,"
+LIST_SELECT = ("id,user_id,device_id,status,hidden,work_type,pipe_od_mm,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,"
                "defect_count,width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
                "width_max_mm:result->bead->width->max_mm,defect_types:result->defects,"
                "photo_path,thumb_path,check_path,check_thumb_path,"

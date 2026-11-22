@@ -8,7 +8,7 @@ from . import marker as mk
 from . import measure, rectify, roboflow_client, visualize
 from .config import Config
 
-ENGINE_VERSION = "0.2.0"
+ENGINE_VERSION = "0.3.0"
 
 
 def _is_bead(cls, cfg):
@@ -29,9 +29,10 @@ def _box_of(p):
             "x": round(x0, 1), "y": round(y0, 1), "w": round(x1 - x0, 1), "h": round(y1 - y0, 1)}
 
 
-def analyze_image(img, cfg=None, predictions=None, progress=None):
+def analyze_image(img, cfg=None, predictions=None, progress=None, pipe_od_mm=None):
     """img: BGR 배열 또는 파일 경로. predictions: 테스트용(주면 Roboflow 호출 생략).
     progress: 단계 이름을 받는 함수 (marker → roboflow → measure). 앱 진행 표시용.
+    pipe_od_mm: 배관 외경. 있으면 배관 방식(가운데 ±45°만 검사, 곡선 기준선).
     반환: (result dict, 확인용 그림, 보정 이미지)"""
     cfg = cfg or Config()
     t0 = time.time()
@@ -83,7 +84,7 @@ def analyze_image(img, cfg=None, predictions=None, progress=None):
             res["warnings"].append("multiple_beads")
         bead_mm = to_mm(_pred_points(best))
         try:
-            res["bead"], geom = measure.measure_bead(bead_mm, marker_mm.mean(0), cfg)
+            res["bead"], geom = measure.measure_bead(bead_mm, marker_mm.mean(0), cfg, pipe_od_mm)
             res["bead"]["confidence"] = round(best["confidence"], 3)
         except ValueError as e:
             res["status"] = str(e)

@@ -44,7 +44,17 @@ export function ResultCharts({ result, checkUrl }: { result: EngineResult; check
   const vl = layout ? { vlines: guides } : {};
   const L = bead.length_mm;
   const trim = bead.width.end_trim_mm ?? 10;
-  const ends = L > 2 * trim ? [{ x0: 0, x1: trim, color: GRAY }, { x0: L - trim, x1: L, color: GRAY }] : [];
+  const pipe = !!bead.pipe;
+  // 검사 구간 밖은 회색 (평판 = 양 끝 10mm, 배관 = 꼭대기 양쪽 45° 밖)
+  const z0 = bead.width.zone_start_mm ?? trim;
+  const z1 = bead.width.zone_end_mm ?? L - trim;
+  const ends =
+    z1 - z0 < L - 0.5 && z1 > z0
+      ? [
+          ...(z0 > 0 ? [{ x0: 0, x1: z0, color: GRAY }] : []),
+          ...(z1 < L ? [{ x0: z1, x1: L, color: GRAY }] : []),
+        ]
+      : [];
   const mmLabel = (x: number) => String(Math.round(x));
 
   return (
@@ -82,7 +92,7 @@ export function ResultCharts({ result, checkUrl }: { result: EngineResult; check
                 [C.min, t("result_widthMin")],
                 [C.max, t("result_widthMax")],
                 ...(layout && bead.straightness.max_dev_pos_mm != null ? ([[C.dev, t("legend_maxDevPos"), "vdash"]] as LegendItem[]) : []),
-                [GRAY, t("legend_excluded"), "box"],
+                [GRAY, t(pipe ? "legend_excludedPipe" : "legend_excluded"), "box"],
               ]}
             />
           </>
@@ -114,7 +124,7 @@ export function ResultCharts({ result, checkUrl }: { result: EngineResult; check
             <Legend
               items={[
                 [C.center, t("legend_center"), "line"],
-                [C.base, t("legend_baseline"), "line"],
+                [C.base, t(pipe ? "legend_baselineCurve" : "legend_baseline"), "line"],
                 [C.dev, t("legend_maxDev")],
                 ...(layout
                   ? ([
@@ -123,7 +133,7 @@ export function ResultCharts({ result, checkUrl }: { result: EngineResult; check
                     ] as LegendItem[])
                   : []),
                 ["rgba(34,197,94,0.35)", t("chart_greenZone", { mm: SIGNAL_RULES.straight.green }), "box"],
-                [GRAY, t("legend_excluded"), "box"],
+                [GRAY, t(pipe ? "legend_excludedPipe" : "legend_excluded"), "box"],
               ]}
             />
           </>

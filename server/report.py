@@ -36,7 +36,8 @@ Rules:
 - For causes, give the most likely technique causes (travel speed, electrode/torch angle, arc length, weaving, current, hand steadiness, preparation), worded as likely, not certain.
 - Practice methods must be concrete drills the trainee can try in the next session.
 - strengths: 2-3 items. improvements: 2-3 items, each with the number and the likely cause. practice: 2-3 items. Each item 1-2 sentences.
-- comparison: compare with the trainee's earlier records of the same process and position (oldest to newest). Say what improved or got worse with numbers. If there is no earlier record, say this is the first record and it will be the baseline.
+- work_type tells plate or pipe. For a pipe, mention pipe-specific technique (following the curve, changing torch/electrode angle around the pipe) where it fits the numbers.
+- comparison: compare with the trainee's earlier records of the same work type (plate/pipe), process and position (oldest to newest). Say what improved or got worse with numbers. If there is no earlier record, say this is the first record and it will be the baseline.
 - summary: one sentence overall comment.
 - class_rule_judgment (only when present): a separate preliminary check against the institute's classification society rule set. If an item failed, mention it in improvements with the measured value and the limit (and the rule name). Do not change that verdict either, and do not mix it with the 100-point score. Items in its "teacher_check" list could not be judged from the photo: do not judge them; you may remind the trainee that the teacher checks them."""
 
@@ -91,12 +92,19 @@ def build_input(row, score, history, class_judgment=None):
             "straightness_max_dev_mm": _num(h.get("straight_max_dev_mm")),
             "defects": [x.get("type") if isinstance(x, dict) else x for x in (h.get("defect_types") or [])],
         })
+    pipe = row.get("work_type") == "pipe"
+    pz = bead.get("pipe") or {}
     out = {
+        "work_type": "pipe (circumferential weld on a pipe)" if pipe else "plate",
+        **({"pipe_outer_diameter_mm": _num(row.get("pipe_od_mm"), 1)} if pipe else {}),
         "process": row.get("process"),
         "position": row.get("position"),
         "material": row.get("material"),
         "bead_length_mm": _num(bead.get("length_mm"), 0),
-        "inspected_zone": "bead excluding first and last 10 mm",
+        "inspected_zone": (f"pipe: only the middle of the photo, 45 degrees to each side of the pipe top "
+                           f"(about {_num(pz.get('zone_arc_mm'), 0)} mm of circumference); straightness is measured "
+                           f"against a curved baseline; positions are measured along the bead as seen in the photo")
+        if pipe else "bead excluding first and last 10 mm",
         "width": {
             "mean_mm": _num(w.get("mean_mm")),
             "min_mm": _num(w.get("min_mm")),

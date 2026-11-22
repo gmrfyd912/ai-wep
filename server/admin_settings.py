@@ -164,6 +164,7 @@ class ExportQuery(BaseModel):
     date_to: str | None = None
     process: str = ""
     position: str = ""
+    work_type: str = ""
     course: str = "all"
 
 
@@ -198,6 +199,8 @@ def _rows(q: ExportQuery, select="id,created_at"):
         params["process"] = f"eq.{q.process}"
     if q.position:
         params["position"] = f"eq.{q.position}"
+    if q.work_type in ("plate", "pipe"):
+        params["work_type"] = f"eq.{q.work_type}"
     if q.course != "all":
         members = [r["user_id"] for r in store.select("user_courses", {"course_id": f"eq.{q.course}", "select": "user_id"})]
         if not members:
@@ -262,7 +265,7 @@ def _courses_by_user(user_ids):
 
 def build_zip(ids, start, path):
     """사진(번호 파일명) + COCO 라벨 + 목록표를 path 에 ZIP 으로 쓴다. 넣은 행들을 돌려준다."""
-    sel = ("id,user_id,created_at,process,position,material,photo_path,"
+    sel = ("id,user_id,created_at,work_type,pipe_od_mm,process,position,material,photo_path,"
            "boxes:result->detections->boxes,img_w:result->image->width,img_h:result->image->height")
     got = {r["id"]: r for r in store.select("submissions", {"id": f"in.({','.join(ids)})", "select": sel})}
     rows = [got[i] for i in ids if i in got]
@@ -278,7 +281,7 @@ def build_zip(ids, start, path):
     images, anns, cats = [], [], {}
     table = io.StringIO()
     w = csv.writer(table)
-    w.writerow(["number", "file", "labeled", "date_kst", "process", "position", "material", "course"])
+    w.writerow(["number", "file", "labeled", "date_kst", "work_type", "pipe_od_mm", "process", "position", "material", "course"])
     with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as z:
         for n, (r, data) in enumerate(zip(rows, _pool.map(fetch, rows)), start=start):
             if data is None:
@@ -289,7 +292,8 @@ def build_zip(ids, start, path):
             folder = "labeled" if labeled else "unlabeled"
             z.writestr(f"{folder}/{name}", data)
             day = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")).astimezone(KST).strftime("%Y-%m-%d %H:%M")
-            w.writerow([n, f"{folder}/{name}", "yes" if labeled else "no", day, r.get("process") or "",
+            w.writerow([n, f"{folder}/{name}", "yes" if labeled else "no", day, r.get("work_type") or "plate",
+                        r.get("pipe_od_mm") or "", r.get("process") or "",
                         r.get("position") or "", r.get("material") or "", ", ".join(courses.get(r["user_id"], []))])
             if not labeled:
                 continue

@@ -38,6 +38,9 @@ MAX_BYTES = 15 * 1024 * 1024
 MAX_SIDE = 4000  # 이보다 큰 사진은 줄여서 분석 (앱은 약 3000px로 보낸다)
 DEVICE_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 CODE_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
+# 6-5: 평판/배관 자세 (박사 확정 2026-11-21). 평판·배관 기록은 섞지 않는다
+POSITIONS = {"plate": ("1G", "2G", "3G", "4G", "1F", "2F", "3F", "4F"),
+             "pipe": ("1G", "2G", "5G", "6G", "6GR", "1F", "2F", "4F", "5F")}
 
 app = FastAPI(title="AI W.E.P analysis server")
 app.include_router(accounts.router)
@@ -93,8 +96,9 @@ def _device_or_none(device_id):
 def _summary(row):
     """목록·결과 화면에 쓰는 형태. 사진 주소는 1시간짜리 서명 주소."""
     out = {k: row.get(k) for k in (
-        "id", "status", "process", "position", "material", "created_at",
+        "id", "status", "process", "position", "material", "created_at", "pipe_od_mm",
         "width_mean_mm", "straight_max_dev_mm", "defect_count")}
+    out["work_type"] = row.get("work_type") or "plate"  # 예전 기록은 평판
     return out
 
 
@@ -118,6 +122,8 @@ async def analyze(
     position: str = Form(""),
     material: str = Form(""),
     job_id: str = Form(""),
+    work_type: str = Form("plate"),
+    pipe_od_mm: str = Form(""),
     user=Depends(accounts.current_user),
 ):
     device_id = _device_or_none(device_id)
@@ -127,6 +133,19 @@ async def analyze(
     for v in (process, position, material):
         if v and not CODE_RE.match(v):
             raise HTTPException(400, "bad_field")
+    work_type = work_type or "plate"
+    if work_type not in POSITIONS:
+        raise HTTPException(400, "bad_work_type")
+    if position and position not in POSITIONS[work_type]:
+        raise HTTPException(400, "bad_position")
+    od = None
+    if work_type == "pipe":  # 배관은 외경이 있어야 검사 구간(가운데 ±45°)을 정할 수 있다
+        try:
+            od = round(float(pipe_od_mm.replace(",", ".")), 1)
+        except ValueError:
+            raise HTTPException(400, "pipe_od_required")
+        if not 10 <= od <= 2000:
+            raise HTTPException(400, "pipe_od_required")
     data = await photo.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise HTTPException(413, "photo_too_large")
@@ -145,11 +164,12 @@ async def analyze(
     await _step("save_record", store.insert, {
         "id": sid, "user_id": user["id"], "device_id": device_id or "-", "process": process or None,
         "position": position or None, "material": material or None,
+        "work_type": work_type, "pipe_od_mm": od,
         "status": "processing", "photo_path": photo_path,
     })
 
     res, vis, _ = await _step("analyze", analyze_image, img, Config(), None,
-                              lambda name: _set_progress(job_id, name))
+                              lambda name: _set_progress(job_id, name), od)
     _set_progress(job_id, "save_result")
 
     # 갤러리용 작은 사진 (긴 변 480px)
@@ -277,6 +297,7 @@ def _history(row, limit=10):
     rows = store.list_by_user(row["user_id"], 500) if row.get("user_id") else []
     same = [r for r in rows if r.get("status") == "ok" and r.get("id") != row["id"]
             and r.get("process") == row.get("process") and r.get("position") == row.get("position")
+            and (r.get("work_type") or "plate") == (row.get("work_type") or "plate")
             and (r.get("created_at") or "") <= (row.get("created_at") or "")]
     same.sort(key=lambda r: r.get("created_at") or "")
     same = same[-limit:]

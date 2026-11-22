@@ -17,7 +17,7 @@ import {
   type Emoji,
   type GalleryItem,
 } from "@/lib/api";
-import { POSITIONS, PROCESSES } from "@/lib/weld";
+import { PROCESSES, WORK_TYPES, getLastWorkType, positionsOf, type WorkType } from "@/lib/weld";
 import { CommentSheet } from "@/screens/Comments";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
@@ -37,7 +37,8 @@ export function GalleryScreen() {
   const [course, setCourse] = useState<string>(mine[0] ?? "all");
   const [proc, setProc] = useState("");
   const [pos, setPos] = useState("");
-  const key = `${course}|${proc}|${pos}`;
+  const [work, setWork] = useState<WorkType | "" | null>(null); // "" = 평판·배관 모두, 처음엔 마지막으로 올린 종류
+  const key = `${course}|${work}|${proc}|${pos}`;
   const [list, setList] = useState<List | null>(lastLists.get(key) ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -47,6 +48,7 @@ export function GalleryScreen() {
   const req = useRef(0);
 
   useEffect(() => {
+    getLastWorkType().then((w) => setWork((cur) => (cur === null ? w : cur)));
     listCourses()
       .then((c) => {
         lastCourses = c;
@@ -64,20 +66,21 @@ export function GalleryScreen() {
   );
 
   const load = useCallback(() => {
+    if (work === null) return;
     const n = ++req.current; // 필터를 빨리 바꿔도 마지막 것만 보이게
     setFailed(false);
     setList(lastLists.get(key) ?? null);
-    getGallery({ course, process: proc, position: pos })
+    getGallery({ course, process: proc, position: pos, work_type: work })
       .then((r) => n === req.current && keep(r))
       .catch(() => n === req.current && !lastLists.get(key) && setFailed(true));
-  }, [course, proc, pos, key, keep]);
+  }, [course, proc, pos, work, key, keep]);
   useFocusEffect(load);
 
   const loadMore = () => {
     if (!list?.more || !list.items.length || loadingMore) return;
     const n = req.current;
     setLoadingMore(true);
-    getGallery({ course, process: proc, position: pos, before: list.items[list.items.length - 1].created_at })
+    getGallery({ course, process: proc, position: pos, work_type: work ?? "", before: list.items[list.items.length - 1].created_at })
       .then((r) => {
         if (n !== req.current) return;
         const seen = new Set(list.items.map((g) => g.id));
@@ -121,6 +124,14 @@ export function GalleryScreen() {
   return (
     <Screen onEndReached={loadMore}>
       <Chips options={courseOptions} value={course} onChange={setCourse} />
+      <Chips<WorkType | "">
+        options={[{ value: "", label: t("work_all") }, ...WORK_TYPES.map((w) => ({ value: w, label: t(`work_${w}`) }))]}
+        value={work ?? ""}
+        onChange={(w) => {
+          setWork(w);
+          if (pos && !positionsOf(w).includes(pos)) setPos("");
+        }}
+      />
       <Label>{t("upload_process")}</Label>
       <Chips
         options={[{ value: "", label: t("common_all") }, ...PROCESSES.map((v) => ({ value: v, label: v }))]}
@@ -129,7 +140,7 @@ export function GalleryScreen() {
       />
       <Label>{t("upload_position")}</Label>
       <Chips
-        options={[{ value: "", label: t("common_all") }, ...POSITIONS.map((v) => ({ value: v, label: v }))]}
+        options={[{ value: "", label: t("common_all") }, ...positionsOf(work ?? "").map((v) => ({ value: v, label: v }))]}
         value={pos}
         onChange={setPos}
       />
@@ -228,7 +239,7 @@ function GalleryCard({
             {g.courses.join(", ")}
           </Text>
           <Text style={styles.meta} numberOfLines={1}>
-            {[g.process, g.position].filter(Boolean).join(" · ")} · {date}
+            {[g.work_type === "pipe" ? t("work_pipe") : null, g.process, g.position].filter(Boolean).join(" · ")} · {date}
           </Text>
         </View>
       </Pressable>
