@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ScrollViewIn
 import { useTranslation } from "react-i18next";
 
 import { Avatar } from "@/components/Avatar";
+import { ClassJudgmentCard } from "@/components/ClassJudgmentCard";
 import { AppButton, Body, Card, Chips, Screen, SectionTitle } from "@/components/ui";
 import { ZoomImage } from "@/components/ZoomImage";
 import { getSubmission, listStudentSubmissions, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
@@ -114,7 +115,7 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
       {/* AI 리포트: 탭을 처음 열 때 만들고, 다른 탭에 갔다 와도 다시 부르지 않게 숨겨 둔다 */}
       {reportOpened ? (
         <View style={{ gap: space.md, display: tab === "report" ? "flex" : "none" }}>
-          <AiReport sid={data.id} score={data.score} />
+          <AiReport sid={data.id} score={data.score} classJudgment={data.class_judgment} />
         </View>
       ) : null}
       {tab === "report" ? null : data.status !== "ok" ? (
@@ -166,6 +167,7 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
                 : t("defect_none")
             }
           />
+          {data.class_judgment ? <ClassJudgmentCard cj={data.class_judgment} /> : null}
           {res?.warnings?.length ? (
             <Card>
               <Text style={styles.warnTitle}>{t("result_warnings")}</Text>

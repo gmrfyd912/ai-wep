@@ -172,6 +172,8 @@ export type Submission = SubmissionSummary & {
   owner_avatar_url?: string | null;
   owner_avatar_key?: string | null;
   score?: ScoreInfo | null;
+  /** 6-4b: 적용 중인 선급규정으로 본 예비판정 (없으면 카드 숨김) */
+  class_judgment?: ClassJudgment;
   result: EngineResult | null;
   photo_url: string | null;
   check_url: string | null;
@@ -699,3 +701,120 @@ export type ExportPart = { index: number; first: number; last: number; date_from
 export type ExportSummary = { total: number; labeled: number; parts: ExportPart[]; expires_at: number; last_export_at: string | null };
 export const trainingExport = (q: ExportQuery) =>
   request<ExportSummary>("/admin/training-export", json("POST", q), BOARD_TIMEOUT);
+
+// ---- 6-4b: 선급규정 ----
+
+export const RULE_KEYS = ["crack", "porosity", "undercut", "overlap", "spatter", "width_variation", "straightness"] as const;
+export type RuleKey = (typeof RULE_KEYS)[number];
+/** 규정의 어디에서 나온 기준인지 (쪽·표 번호·원문) */
+export type RuleSource = { page: number | null; ref: string; quote: string } | null;
+export type RuleItem = {
+  /** 이 항목을 판정할지 */
+  check: boolean;
+  /** 결함 항목: false 면 1개라도 있으면 불합격 */
+  allowed?: boolean;
+  max_diameter_mm?: number | null;
+  max_count?: number | null;
+  per_length_mm?: number | null;
+  max_length_mm?: number | null;
+  /** 폭 변화·직진도 한계 */
+  max_mm?: number | null;
+  source: RuleSource;
+  note: string;
+};
+export type ManualRule = { name: string; rule: string; source: RuleSource };
+export type RuleFile = { name: string; type: string; pages: number; url?: string | null };
+export type RuleSet = {
+  id: string;
+  name: string;
+  society: string;
+  notes: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string | null;
+  updated_by?: string | null;
+  items: Record<RuleKey, RuleItem>;
+  manual: ManualRule[];
+  files: RuleFile[];
+};
+export type RuleSetSummary = Pick<RuleSet, "id" | "name" | "society" | "active" | "updated_at"> & {
+  files: number;
+  checked: number;
+  manual: number;
+};
+export type ClassJudgmentItem = {
+  key: RuleKey;
+  check: "none" | "max_diameter" | "count" | "max_length" | "allowed" | "max";
+  ok: boolean;
+  measured: number;
+  limit: number | null;
+  unit: "mm" | "count";
+  /** 개수 기준이 적용되는 길이 (예: 100mm 당 2개) */
+  per_mm?: number | null;
+  source: RuleSource;
+  note: string;
+};
+/** 결과 화면 '선급 예비판정' (적용 중인 규정이 있을 때만 온다) */
+export type ClassJudgment = {
+  set_id: string;
+  name: string;
+  society: string;
+  verdict: "pass" | "fail" | null;
+  items: ClassJudgmentItem[];
+  manual: ManualRule[];
+};
+
+export const listRules = () => request<{ items: RuleSetSummary[]; model: string }>("/admin/rules", {}, BOARD_TIMEOUT);
+export const getRule = (id: string) => request<RuleSet>(`/admin/rules/${id}`, {}, BOARD_TIMEOUT);
+export const createRule = (name: string) => request<RuleSet>("/admin/rules", json("POST", { name }), BOARD_TIMEOUT);
+export const saveRule = (id: string, v: Pick<RuleSet, "name" | "society" | "notes" | "items" | "manual">) =>
+  request<RuleSet>(`/admin/rules/${id}`, json("PUT", v), BOARD_TIMEOUT);
+export const activateRule = (id: string, active: boolean) =>
+  request<{ ok: boolean; active: boolean }>(`/admin/rules/${id}/activate`, json("POST", { active }), BOARD_TIMEOUT);
+export const deleteRule = (id: string) => request<{ ok: boolean }>(`/admin/rules/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
+
+/** 고른 규정 파일 (PDF·사진). 웹은 file, 휴대폰은 uri */
+export type PickedFile = { uri: string; name: string; mimeType?: string | null; file?: Blob | null };
+
+/** 규정 파일을 올리면 AI가 읽고 초안 세트를 만든다 (1~3분 걸림) */
+export async function extractRule(files: PickedFile[], name: string): Promise<RuleSet> {
+  const form = new FormData();
+  form.append("name", name);
+  for (const f of files) {
+    const type = f.mimeType || (/\.pdf$/i.test(f.name) ? "application/pdf" : "image/jpeg");
+    if (Platform.OS === "web") {
+      const blob = f.file ?? (await (await fetch(f.uri)).blob());
+      form.append("files", blob, f.name);
+    } else {
+      form.append("files", { uri: f.uri, name: f.name, type } as unknown as Blob);
+    }
+  }
+  return new Promise<RuleSet>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/admin/rules/extract`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.timeout = 300000;
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as RuleSet);
+        } catch {
+          reject(new NetworkError("rules: bad response"));
+        }
+        return;
+      }
+      if (xhr.status === 401) onUnauthorized?.();
+      let detail: { code?: string; limit?: number; min?: number } | null = null;
+      try {
+        const d = JSON.parse(xhr.responseText)?.detail;
+        if (d && typeof d === "object") detail = d;
+      } catch {
+        /* 본문이 JSON 이 아님 */
+      }
+      reject(new NetworkError(`rules: server ${xhr.status}`, xhr.status, detail));
+    };
+    xhr.onerror = () => reject(new NetworkError("rules: network"));
+    xhr.ontimeout = () => reject(new NetworkError("rules: timeout"));
+    xhr.send(form);
+  });
+}

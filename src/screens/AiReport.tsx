@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { ClassJudgmentCard } from "@/components/ClassJudgmentCard";
 import { AppButton, Card, SectionTitle } from "@/components/ui";
-import { NetworkError, getReport, type ReportResponse, type ScoreInfo } from "@/lib/api";
+import { NetworkError, getReport, type ClassJudgment, type ReportResponse, type ScoreInfo } from "@/lib/api";
 import { defectName } from "@/lib/defects";
 import { colors, radius, space } from "@/theme";
 
@@ -13,7 +14,15 @@ type IconName = keyof typeof Ionicons.glyphMap;
 
 /** AI 리포트 탭. 탭을 처음 열 때 만들고(서버에 언어별로 저장), 언어가 바뀌면 그 언어로 다시 받는다.
  * 점수·예비판정은 서버 공식으로 계산된 값이라 AI 리포트가 실패해도 먼저 보여 준다. */
-export function AiReport({ sid, score }: { sid: string; score: ScoreInfo | null | undefined }) {
+export function AiReport({
+  sid,
+  score,
+  classJudgment,
+}: {
+  sid: string;
+  score: ScoreInfo | null | undefined;
+  classJudgment?: ClassJudgment;
+}) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const [data, setData] = useState<ReportResponse | null>(null);
@@ -49,6 +58,7 @@ export function AiReport({ sid, score }: { sid: string; score: ScoreInfo | null 
   return (
     <>
       <ScoreCard sc={sc} />
+      {classJudgment ? <ClassJudgmentCard cj={classJudgment} /> : null}
 
       {loading ? (
         <Card style={styles.center}>

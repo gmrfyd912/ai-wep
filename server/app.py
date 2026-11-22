@@ -28,6 +28,7 @@ import manage
 import media
 import social
 import report
+import rules
 import scoring
 import store
 from engine.analyze import ENGINE_VERSION, analyze_image
@@ -43,6 +44,7 @@ app.include_router(accounts.router)
 app.include_router(manage.router)
 app.include_router(social.router)
 app.include_router(admin_settings.router)
+app.include_router(rules.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
@@ -197,6 +199,9 @@ def _detail(row):
     out["photo_url"] = store.signed_url("photos", row.get("photo_path"))
     out["check_url"] = store.signed_url("results", row.get("check_path"))
     out["score"] = scoring.score_of_row(row)
+    cj = rules.judgment_for(row.get("result")) if row.get("status") == "ok" else None
+    if cj:  # 적용 중인 선급규정이 있을 때만 (6-4b)
+        out["class_judgment"] = cj
     return out
 
 
@@ -302,7 +307,10 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
 
     saved = store.get_report(sid, lang)
     # 검사기준이 바뀌어 점수·판정이 달라졌으면, 예전 글과 맞지 않으니 다시 만든다 (한도에 세지 않음)
-    stale = bool(saved) and (saved.get("verdict") != sc["verdict"] or saved.get("score") != sc["score"])
+    rs = rules.active_set()
+    rkey = rules.rule_key(rs)
+    stale = bool(saved) and (saved.get("verdict") != sc["verdict"] or saved.get("score") != sc["score"]
+                             or (saved.get("report") or {}).get("_rule") != rkey)
     if saved and not stale:
         return {"report": saved.get("report"), "score": sc, "cached": True, "limit": limit}
 
@@ -314,12 +322,14 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
     if not stale and not unlimited and used >= limit:
         raise HTTPException(429, {"code": "daily_limit", "limit": limit})
 
-    data = report.build_input(row, sc, _history(row))
+    data = report.build_input(row, sc, _history(row), rules.judge(row.get("result"), rs))
     try:
         out, usage = report.generate(data, lang)
     except report.ReportError as e:
         print("[report] 실패", str(e)[:300], flush=True)
         raise HTTPException(503 if e.code == "ai_not_configured" else 502, {"code": e.code})
+    if rkey:
+        out["_rule"] = rkey  # 어떤 선급규정으로 만든 글인지 (규정이 바뀌면 다시 만든다)
     new = {"submission_id": sid, "user_id": row["user_id"], "created_by": user["id"], "device_id": _device_or_none(body.device_id) or "-", "lang": lang, "model": report.model_name(),
            "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage}
     if stale:
