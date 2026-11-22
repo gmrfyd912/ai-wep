@@ -14,7 +14,9 @@ FKEYS = {("sessions", "users"): ("user_id", "users"), ("user_courses", "courses"
          ("user_courses", "users"): ("user_id", "users")}
 UNIQUE = {"users": "login_key", "sessions": "token_hash"}
 CASCADE = {"users": [("sessions", "user_id"), ("user_courses", "user_id"), ("email_codes", "user_id"),
-                     ("submissions", "user_id"), ("reports", "user_id")]}
+                     ("submissions", "user_id"), ("reports", "user_id"), ("comments", "user_id"),
+                     ("reactions", "user_id"), ("notifications", "user_id")],
+           "comments": [("comments", "parent_id"), ("notifications", "comment_id")]}
 
 
 def _now():
@@ -28,15 +30,19 @@ def _match(row, col, cond):
         return str(v).lower() == arg.lower() if isinstance(v, bool) else str(v) == arg and v is not None
     if op == "neq":
         return str(v) != arg
+    if op == "not":
+        return not _match(row, col, arg)
     if op == "is":
+        if arg in ("true", "false"):
+            return bool(v) == (arg == "true")
         return v is None if arg == "null" else False
     if op == "in":
         return str(v) in arg.strip("()").split(",")
-    if op in ("gt", "gte"):
+    if op in ("gt", "gte", "lt"):
         if v is None:
             return False
         a, b = str(v), arg
-        return a > b if op == "gt" else a >= b
+        return a > b if op == "gt" else a >= b if op == "gte" else a < b
     raise ValueError(cond)
 
 
@@ -92,6 +98,8 @@ def insert_rows(table, rows, returning=True):
             r.setdefault("must_change_password", False)
         if table == "courses":
             r.setdefault("active", True)
+        if table == "submissions":
+            r.setdefault("hidden", False)
         if table == "users":
             r.setdefault("permissions", {})
         if table == "email_codes":
@@ -140,12 +148,14 @@ def install():
     store.configured = lambda: True
     store.upload = lambda b, p, d, content_type="image/jpeg": FILES.__setitem__(f"{b}/{p}", d)
     store.signed_url = lambda b, p, expires=3600: p and f"https://fake/{b}/{p}"
+    store.signed_urls = lambda b, ps, expires=3600: {p: f"https://fake/{b}/{p}" for p in ps if p}
     store.insert = lambda row: insert_rows("submissions", row, returning=False)
     store.update = lambda sid, f: patch("submissions", {"id": f"eq.{sid}"}, f)[0]
     store.get = lambda sid: next((dict(r) for r in TABLES.get("submissions", []) if r["id"] == sid), None)
     store.list_by_user = lambda uid, n: [dict(r) for r in TABLES.get("submissions", []) if r.get("user_id") == uid][:n]
     store.get_report = lambda sid, lang: next(
         (r for r in TABLES.get("reports", []) if r["submission_id"] == sid and r["lang"] == lang), None)
+    store.get_any_report = lambda sid: next((dict(r) for r in TABLES.get("reports", []) if r["submission_id"] == sid), None)
     store.insert_report = lambda r: insert_rows("reports", r, returning=False)
     store.update_report = lambda rid, f: patch("reports", {"id": f"eq.{rid}"}, f)
     store.count_reports_since_user = lambda uid, since: sum(

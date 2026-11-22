@@ -27,7 +27,7 @@ def main():
     me = c.post("/auth/signup", json={"login_id": "u1", "password": "p", "name": "갑", "role": "student",
                                       "course_ids": [cid]}).json()
     other = c.post("/auth/signup", json={"login_id": "u2", "password": "p", "name": "을", "role": "student",
-                                         "course_ids": [cid]}).json()  # 같은 반 교육생끼리도 남의 기록은 못 봄
+                                         "course_ids": [cid]}).json()  # 6-3: 성공한 결과는 누구나 볼 수 있음 (실패한 건 본인만)
     H = {"Authorization": f"Bearer {me['token']}"}
     assert c.post("/analyze", data={"device_id": dev}, files={"photo": ("a.jpg", b"1", "image/jpeg")}).status_code == 401
     r = c.post("/analyze", headers=H, data={"device_id": dev, "process": "SMAW", "position": "1G", "material": "CS",
@@ -43,7 +43,10 @@ def main():
     assert len(c.get("/submissions", headers=H).json()) == 1
     assert c.get(f"/submissions/{js['id']}", headers=H).status_code == 200
     H2 = {"Authorization": f"Bearer {other['token']}"}
-    assert c.get(f"/submissions/{js['id']}", headers=H2).status_code == 404
+    r = c.get(f"/submissions/{js['id']}", headers=H2).json()
+    assert r["owner_name"] == "갑" and r["can_report"] is False
+    assert db.TABLES["submissions"][0]["thumb_path"].endswith("_thumb.jpg")
+    assert f"photos/{db.TABLES['submissions'][0]['thumb_path']}" in db.FILES
     assert c.get("/submissions", headers=H2).json() == []
     assert c.post("/analyze", headers=H, files={"photo": ("a.jpg", b"1", "image/jpeg")}).status_code == 400
     # 마커 없는 사진
@@ -51,6 +54,7 @@ def main():
     r2 = c.post("/analyze", headers=H, data={"device_id": dev}, files={"photo": ("b.jpg", blank, "image/jpeg")}).json()
     print("빈 사진 status", r2["status"])
     assert r2["status"] == "marker_not_found"
+    assert c.get(f"/submissions/{r2['id']}", headers=H2).status_code == 404  # 실패한 건 남이 못 봄
     print("서버 흐름 시험 통과")
 
 

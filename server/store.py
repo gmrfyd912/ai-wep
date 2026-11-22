@@ -43,6 +43,23 @@ def signed_url(bucket, path, expires=3600):
     return f"{url}/storage/v1{rel}" if rel else None
 
 
+def signed_urls(bucket, paths, expires=3600):
+    """여러 파일의 서명 주소를 한 번에 {경로: 주소}."""
+    paths = [p for p in dict.fromkeys(paths) if p]
+    if not paths:
+        return {}
+    url, h = _base()
+    out = {}
+    for i in range(0, len(paths), 100):
+        r = _check(requests.post(f"{url}/storage/v1/object/sign/{bucket}", json={"expiresIn": expires, "paths": paths[i:i + 100]},
+                                 headers=h, timeout=TIMEOUT))
+        for item in r.json():
+            rel = item.get("signedURL") or item.get("signedUrl")
+            if rel and item.get("path"):
+                out[item["path"]] = f"{url}/storage/v1{rel}"
+    return out
+
+
 def insert(row):
     url, h = _base()
     _check(requests.post(f"{url}/rest/v1/submissions", json=row, timeout=TIMEOUT,
@@ -70,7 +87,7 @@ def list_by_device(device_id, limit):
 
 
 # 목록·누적 분석에 쓰는 열 (결과 JSON에서 필요한 값만 꺼낸다, 그래프 배열은 빼서 가볍다)
-LIST_SELECT = ("id,user_id,device_id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,"
+LIST_SELECT = ("id,user_id,device_id,status,hidden,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,"
                "defect_count,width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
                "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")
 
@@ -97,6 +114,15 @@ def get_report(sid, lang):
     url, h = _base()
     r = _check(requests.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
         "submission_id": f"eq.{sid}", "lang": f"eq.{lang}", "select": "*", "limit": "1"}))
+    rows = r.json()
+    return rows[0] if rows else None
+
+
+def get_any_report(sid):
+    """언어와 상관없이 가장 먼저 만든 리포트 (다른 사람이 볼 때)."""
+    url, h = _base()
+    r = _check(requests.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
+        "submission_id": f"eq.{sid}", "select": "*", "order": "created_at.asc", "limit": "1"}))
     rows = r.json()
     return rows[0] if rows else None
 

@@ -13,10 +13,10 @@ type Tab = "metrics" | "report";
 
 export default function ResultScreen() {
   const { t } = useTranslation();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const [tab, setTab] = useState<Tab>("metrics");
   // 실제 분석 기록(서버 번호)이면 실제 결과 화면, 아니면 1단계 가짜 데이터(갤러리·랭킹용)
-  if (id && UUID_RE.test(id)) return <RealResult id={id} />;
+  if (id && UUID_RE.test(id)) return <RealResult id={id} focus={focus} />;
   const r = resultById(id);
   const s = r ? studentById(r.studentId) : undefined;
   if (!r || !s) return <Screen><Body muted>—</Body></Screen>;

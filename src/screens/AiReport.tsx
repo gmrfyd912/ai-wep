@@ -58,7 +58,7 @@ export function AiReport({ sid, score }: { sid: string; score: ScoreInfo | null 
       ) : error ? (
         <Card>
           <Text style={styles.error}>{errorText(error, t)}</Text>
-          {error.detail?.code !== "daily_limit" && error.detail?.code !== "ai_not_configured" ? (
+          {!["daily_limit", "ai_not_configured", "no_report"].includes(error.detail?.code ?? "") ? (
             <>
               <Text style={styles.code}>{error.detail?.code ?? error.code}</Text>
               <AppButton label={t("report_retry")} icon="refresh" variant="secondary" onPress={load} />
@@ -92,6 +92,7 @@ function errorText(e: NetworkError, t: TFunction) {
   if (code === "daily_limit") return t("report_limit", { limit: e.detail?.limit ?? 2 });
   if (code === "ai_not_configured") return t("report_notConfigured");
   if (code === "not_analyzed") return t("report_notAnalyzed");
+  if (code === "no_report") return t("report_none");
   if (code === "ai_busy") return t("report_busy");
   if (e.status === 0) return t("error_network");
   return t("report_failed");

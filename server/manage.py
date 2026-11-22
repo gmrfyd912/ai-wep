@@ -503,8 +503,13 @@ def board_course(cid: str, user=Depends(accounts.current_user)):
 def student_info(uid: str, user=Depends(accounts.current_user)):
     """교육생 기록 화면 머리글: 이름·과정·내가 할 수 있는 일."""
     target = _get_user(uid)
-    if target["role"] != "student" or not can_view_student(user, target["id"]):
+    if target["role"] == "admin":
         _err(404, "not_found")
+    if target["role"] != "student" or not can_view_student(user, target["id"]):
+        # 6-3: 누구나 랭킹·갤러리에서 기록을 볼 수 있다 → 이름·역할·과정만
+        courses = _courses_by_user([target["id"]]).get(target["id"], [])
+        return {"id": target["id"], "name": target["name"], "role": target["role"], "courses": courses,
+                "can_care": False, "can_edit": False}
     m = _member(target, _courses_by_user([target["id"]]))
     m["can_care"] = _can_care(user, target)
     m["can_edit"] = can_manage_members(user)

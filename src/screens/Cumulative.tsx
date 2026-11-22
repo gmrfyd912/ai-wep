@@ -225,6 +225,23 @@ export function RecordLegend() {
   );
 }
 
+/** 날짜별로 묶은 기록 목록 (내 기록·사람 기록 공통). 최근 → 예전 */
+export function DatedRecords({ rows }: { rows: Row[] }) {
+  const { i18n } = useTranslation();
+  const sorted = [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const out: React.ReactNode[] = [];
+  let lastDay = "";
+  for (const r of sorted) {
+    const d = new Date(r.created_at).toLocaleDateString(i18n.language, { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+    if (d !== lastDay) {
+      out.push(<Text key={`d-${d}`} style={styles.day}>{d}</Text>);
+      lastDay = d;
+    }
+    out.push(<RecordRow key={r.id} r={r} />);
+  }
+  return <>{out}</>;
+}
+
 /** 분석 기록 한 줄 (누르면 그 결과 화면). current = 지금 보고 있는 것 */
 export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: boolean; showInfo?: boolean }) {
   const { t, i18n } = useTranslation();
@@ -275,6 +292,7 @@ const styles = StyleSheet.create({
   meta: { color: colors.muted, fontSize: 12, marginTop: 2 },
   value: { color: colors.text, fontWeight: "700", fontSize: 16 },
   dots: { flexDirection: "row", gap: 6 },
+  day: { color: colors.muted, fontSize: 13, fontWeight: "700", marginTop: 8 },
   dotCol: { alignItems: "center", gap: 2, minWidth: 28 },
   dotLabel: { color: colors.muted, fontSize: 10 },
   recLegend: { gap: 4, paddingHorizontal: 2 },

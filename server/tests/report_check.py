@@ -74,6 +74,7 @@ def main():
     store.get_setting = lambda k: SETTINGS
     store.get_report = lambda sid, lang: next((r for r in REPORTS if r["submission_id"] == sid and r["lang"] == lang), None)
     store.insert_report = lambda r: REPORTS.append(r)
+    store.get_any_report = lambda sid: next((r for r in REPORTS if r["submission_id"] == sid), None)
     store.count_reports_since_user = lambda u, since: sum(1 for r in REPORTS if r["user_id"] == u)
     scoring._CACHE.update(at=0, value=None)
 
@@ -138,8 +139,10 @@ def main():
     scoring._CACHE.update(at=0, value=None)
     # 분석 실패 사진, 남의 기기
     assert c.post(f"/submissions/{DB['f']['id']}/report", json={"device_id": DEV}).status_code == 409
-    who["user"] = {"id": "user-2", "role": "student"}
-    assert c.post(f"/submissions/{sid}/report", json={"device_id": DEV}).status_code == 404
+    who["user"] = {"id": "user-2", "role": "student"}  # 6-3: 남은 만들어진 리포트만 봄 (새로 만들지 않음)
+    n_before = len(REPORTS)
+    r = c.post(f"/submissions/{sid}/report", json={"device_id": DEV, "lang": "uz"})
+    assert r.status_code == 200 and r.json()["cached"] is True and len(REPORTS) == n_before, r.text
     who["user"] = {"id": "user-2", "role": "admin"}  # 시스템관리자는 남의 기록도 열람, 한도 없음
     r = c.post(f"/submissions/{sid}/report", json={"lang": "es"})
     assert r.status_code == 200 and "remaining" not in r.json(), r.text

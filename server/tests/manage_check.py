@@ -161,11 +161,11 @@ def main():
     assert [x["name"] for x in c.get("/boards/courses", headers=T1).json()] == ["뉴딜2기"]
     assert c.get("/boards/courses", headers=S1).status_code == 403
 
-    # 교육생 기록 보기: 같은 반 교사·행정 관리자 OK, 다른 반 교사 X
+    # 교육생 기록 보기: 같은 반 교사·행정 관리자 OK, 그 밖의 사람도 갤러리에 있는 것(성공)은 봄 (6-3)
     assert len(c.get(f"/students/{s1}/submissions", headers=T1).json()) == 3
-    assert c.get(f"/students/{s2}/submissions", headers=T1).status_code == 404
+    assert len(c.get(f"/students/{s2}/submissions", headers=T1).json()) == 1
     assert len(c.get(f"/students/{s2}/submissions", headers=ST2).json()) == 1
-    assert c.get(f"/students/{s1}/submissions", headers=S2).status_code == 404
+    assert len(c.get(f"/students/{s1}/submissions", headers=S2).json()) == 3
     info = c.get(f"/students/{s1}", headers=T1).json()
     assert info["can_care"] is True and info["can_edit"] is False
     info = c.get(f"/students/{s1}", headers=ST2).json()
@@ -173,7 +173,7 @@ def main():
     sid = next(r["id"] for r in db.TABLES["submissions"] if r["user_id"] == s1)
     d = c.get(f"/submissions/{sid}", headers=T1).json()
     assert d["user_id"] == s1 and d["owner_name"] == "s1"
-    assert c.get(f"/submissions/{sid}", headers=S2).status_code == 404
+    assert c.get(f"/submissions/{sid}", headers=S2).json()["can_report"] is False  # 6-3: 누구나 보기, 리포트는 못 만듦
     assert "owner_name" not in c.get(f"/submissions/{sid}", headers=S1).json()
     print("과정·회원 관리·보드 시험 통과")
 

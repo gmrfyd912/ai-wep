@@ -157,6 +157,8 @@ export type Submission = SubmissionSummary & {
   /** 기록 주인. 교사 등이 학생 결과를 볼 때는 owner_name 도 온다 */
   user_id?: string;
   owner_name?: string | null;
+  /** 이 사람이 AI 리포트를 새로 만들 수 있는지 (본인·담당 교사·관리자) */
+  can_report?: boolean;
   score?: ScoreInfo | null;
   result: EngineResult | null;
   photo_url: string | null;
@@ -438,7 +440,9 @@ export type Member = {
   created_at: string;
   last_login_at: string | null;
 };
-export type StudentInfo = Member & { can_care: boolean; can_edit: boolean };
+/** 사람 기록 화면 머리글. 담당 교사·관리자가 아니면 이름·역할·과정만 온다 */
+export type StudentInfo = Pick<Member, "id" | "name" | "role" | "courses"> &
+  Partial<Omit<Member, "id" | "name" | "role" | "courses">> & { can_care: boolean; can_edit: boolean };
 export type Trend = "up" | "down" | "flat";
 export type CourseCard = {
   id: string;
@@ -509,4 +513,93 @@ export const listStudentSubmissions = (id: string) =>
 export function canManage(user: Me | null, what: "manage_courses" | "manage_members"): boolean {
   if (!user) return false;
   return user.role === "admin" || (user.role === "staff" && !!user.permissions?.[what]);
+}
+
+// ---- 6-3: 갤러리·반응·댓글·알림·랭킹 ----
+
+export const EMOJIS = ["heart", "thumbs", "check", "smile", "wow", "sad"] as const;
+export type Emoji = (typeof EMOJIS)[number];
+export const EMOJI_CHAR: Record<Emoji, string> = { heart: "❤️", thumbs: "👍", check: "✅", smile: "😄", wow: "😮", sad: "😢" };
+
+export type GalleryItem = {
+  id: string;
+  user_id: string;
+  name: string | null;
+  role: Role | null;
+  courses: string[];
+  process: string | null;
+  position: string | null;
+  material: string | null;
+  created_at: string;
+  score: number | null;
+  verdict: string | null;
+  photo_url: string | null;
+  reactions: Partial<Record<Emoji, number>>;
+  my_reaction: Emoji | null;
+  comment_count: number;
+};
+
+export function getGallery(q: { course?: string; process?: string; position?: string; before?: string }) {
+  const p = new URLSearchParams();
+  Object.entries(q).forEach(([k, v]) => v && p.set(k, v));
+  return request<{ items: GalleryItem[]; more: boolean }>(`/gallery?${p.toString()}`, {}, BOARD_TIMEOUT);
+}
+
+export type CommentItem = {
+  id: string;
+  parent_id: string | null;
+  user_id: string;
+  name: string | null;
+  role: Role | null;
+  body: string;
+  created_at: string;
+  can_delete: boolean;
+};
+export type Social = {
+  reactions: Partial<Record<Emoji, number>>;
+  my_reaction: Emoji | null;
+  comments: CommentItem[];
+  hidden: boolean;
+  can_moderate: boolean;
+};
+
+export const getSocial = (sid: string) => request<Social>(`/submissions/${sid}/social`, {}, BOARD_TIMEOUT);
+export const setReaction = (sid: string, emoji: Emoji | null) =>
+  request<Pick<Social, "reactions" | "my_reaction">>(`/submissions/${sid}/reaction`, json("PUT", { emoji }), BOARD_TIMEOUT);
+export const addComment = (sid: string, body: string, parent_id?: string | null) =>
+  request<CommentItem>(`/submissions/${sid}/comments`, json("POST", { body, parent_id: parent_id ?? null }), BOARD_TIMEOUT);
+export const deleteComment = (cid: string) => request<{ ok: boolean }>(`/comments/${cid}`, { method: "DELETE" }, BOARD_TIMEOUT);
+export const setHidden = (sid: string, hidden: boolean) =>
+  request<{ ok: boolean; hidden: boolean }>(`/submissions/${sid}/hide`, json("POST", { hidden }), BOARD_TIMEOUT);
+
+export type NotificationItem = {
+  id: string;
+  kind: "comment" | "reply";
+  submission_id: string | null;
+  actor_name: string | null;
+  body: string;
+  process: string | null;
+  position: string | null;
+  created_at: string;
+  read: boolean;
+};
+export const listNotifications = () => request<NotificationItem[]>("/notifications", {}, BOARD_TIMEOUT);
+export const unreadCount = () => request<{ count: number }>("/notifications/unread", {}, 20000);
+export const markNotificationsRead = (ids?: string[]) =>
+  request<{ ok: boolean }>("/notifications/read", json("POST", { ids: ids ?? null }), BOARD_TIMEOUT);
+
+export type RankPeriod = "day" | "week" | "month" | "all";
+export type RankRow = {
+  rank: number;
+  user_id: string;
+  name: string;
+  courses: string[];
+  score: number;
+  verdict: string;
+  submission_id: string;
+  created_at: string;
+};
+export function getRanking(q: { process: string; position: string; period: RankPeriod; course: string }) {
+  const p = new URLSearchParams(q);
+  return request<{ rows: RankRow[]; me: RankRow | null; total: number }>(`/ranking?${p.toString()}`, {}, BOARD_TIMEOUT);
 }
