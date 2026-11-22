@@ -37,7 +37,8 @@ Rules:
 - Practice methods must be concrete drills the trainee can try in the next session.
 - strengths: 2-3 items. improvements: 2-3 items, each with the number and the likely cause. practice: 2-3 items. Each item 1-2 sentences.
 - comparison: compare with the trainee's earlier records of the same process and position (oldest to newest). Say what improved or got worse with numbers. If there is no earlier record, say this is the first record and it will be the baseline.
-- summary: one sentence overall comment."""
+- summary: one sentence overall comment.
+- class_rule_judgment (only when present): a separate preliminary check against the institute's classification society rule set. If an item failed, mention it in improvements with the measured value and the limit (and the rule name). Do not change that verdict either, and do not mix it with the 100-point score. Items in its "teacher_check" list could not be judged from the photo: do not judge them; you may remind the trainee that the teacher checks them."""
 
 SCHEMA = {
     "type": "object",
@@ -71,7 +72,7 @@ def _num(v, nd=2):
     return None if v is None else round(float(v), nd)
 
 
-def build_input(row, score, history):
+def build_input(row, score, history, class_judgment=None):
     """AI에 보낼 숫자 묶음. history = 같은 용접법·자세의 이전 기록(오래된 → 최근, 최대 10개, 이번 제외)."""
     res = row.get("result") or {}
     bead = res.get("bead") or {}
@@ -90,7 +91,7 @@ def build_input(row, score, history):
             "straightness_max_dev_mm": _num(h.get("straight_max_dev_mm")),
             "defects": [x.get("type") if isinstance(x, dict) else x for x in (h.get("defect_types") or [])],
         })
-    return {
+    out = {
         "process": row.get("process"),
         "position": row.get("position"),
         "material": row.get("material"),
@@ -118,6 +119,16 @@ def build_input(row, score, history):
         "score_and_verdict_fixed_by_rules": score,
         "earlier_records_same_process_position": hist,
     }
+    if class_judgment:
+        cj = class_judgment
+        out["class_rule_judgment"] = {
+            "rule_set": " ".join(x for x in (cj.get("society"), cj.get("name")) if x),
+            "verdict_fixed_by_rules": cj.get("verdict"),
+            "items": [{"item": i["key"], "check": i["check"], "ok": i["ok"], "measured": i["measured"],
+                       "limit": i["limit"], "unit": i["unit"]} for i in cj.get("items") or []],
+            "teacher_check": [m.get("name") or m.get("rule") for m in cj.get("manual") or []],
+        }
+    return out
 
 
 def generate(data, lang):
