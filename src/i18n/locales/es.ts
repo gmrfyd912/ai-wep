@@ -286,6 +286,8 @@ const es: Translation = {
   // 6-1단계: 계정
   login_forgot: "¿Olvidaste tu ID o contraseña?",
   login_errorRequired: "Introduce tu ID y contraseña.",
+  login_reloginChanged: "Los datos de tu cuenta (rol, curso, permisos, etc.) han cambiado. Inicia sesión de nuevo.",
+  login_reloginUpdated: "La app se ha actualizado. Inicia sesión de nuevo.",
   auth_working: "Procesando…",
   auth_waking: "Conectando con el servidor. La primera vez puede tardar alrededor de 1 minuto.",
   signup_email: "Correo (opcional)",

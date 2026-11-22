@@ -32,6 +32,11 @@ def main():
         assert r.status_code == 200, r.text
         return r.json()["user"]["id"], H(r.json()["token"])
 
+    def relogin(lid):
+        r = c.post("/auth/login", json={"login_id": lid, "password": "p"})
+        assert r.status_code == 200, r.text
+        return H(r.json()["token"])
+
     s1, S1 = signup("s1", "student", [c1])
     s2, S2 = signup("s2", "student", [c2])
     t1, T1 = signup("t1", "teacher", [c1])
@@ -46,6 +51,10 @@ def main():
         {"user_id": s1, "course_role": "assistant"}]}).json()["detail"]["code"] == "not_teacher"
     assert c.put(f"/manage/courses/{c1}/teachers", headers=A, json={"teachers": [
         {"user_id": t1, "course_role": "homeroom"}, {"user_id": t2, "course_role": "assistant"}]}).status_code == 200
+    # 담당이 바뀐 교사는 로그아웃 (t1 부담임→담임, t2 그대로 부담임), 교육생은 그대로
+    assert c.get("/me", headers=T1).status_code == 401 and c.get("/me", headers=T2).status_code == 200
+    assert c.get("/me", headers=S1).status_code == 200
+    T1 = relogin("t1")
     cs = {x["name"]: x for x in c.get("/manage/courses", headers=A).json()}
     assert [(t["name"], t["course_role"]) for t in cs["뉴딜2기"]["teachers"]] == [("t1", "homeroom"), ("t2", "assistant")]
     assert cs["뉴딜2기"]["student_count"] == 1
@@ -55,6 +64,11 @@ def main():
     assert [t["name"] for t in cs["뉴딜2기"]["teachers"]] == ["t2"] and cs["뉴딜2기"]["student_count"] == 1
     c.put(f"/manage/courses/{c1}/teachers", headers=A, json={"teachers": [
         {"user_id": t1, "course_role": "homeroom"}, {"user_id": t2, "course_role": "assistant"}]})
+    T1, T2 = relogin("t1"), relogin("t2")
+    # 똑같이 다시 저장하면 아무도 로그아웃되지 않음
+    c.put(f"/manage/courses/{c1}/teachers", headers=A, json={"teachers": [
+        {"user_id": t1, "course_role": "homeroom"}, {"user_id": t2, "course_role": "assistant"}]})
+    assert c.get("/me", headers=T1).status_code == 200 and c.get("/me", headers=T2).status_code == 200
 
     # 권한: 교사·교육생·권한 없는 행정 관리자는 과정 관리 불가
     for h in (T1, S1, ST):
@@ -63,6 +77,9 @@ def main():
     # 행정 관리자에게 권한 부여 (시스템관리자만)
     r = c.patch(f"/manage/members/{st}", headers=A, json={"permissions": {"manage_courses": True, "manage_members": True}})
     assert r.json()["permissions"] == {"manage_courses": True, "manage_members": True}
+    assert c.get("/me", headers=ST).status_code == 401  # 권한이 바뀌면 다시 로그인
+    ST = relogin("st")
+    assert c.get("/me", headers=ST).json()["permissions"]["manage_members"] is True
     assert c.post("/manage/courses", headers=ST, json={"name": "특기병"}).status_code == 200
     assert c.patch(f"/manage/members/{s1}", headers=ST, json={"permissions": {"manage_courses": True}}).status_code == 403
     assert c.patch(f"/manage/members/{st}", headers=ST, json={"status": "disabled"}).json()["detail"]["code"] == "not_self"
@@ -91,6 +108,10 @@ def main():
     assert c.patch(f"/manage/members/{s1}", headers=A, json={"course_ids": [c1, c2]}).json()["detail"]["code"] == "course_required"
     r = c.patch(f"/manage/members/{s2}", headers=A, json={"course_ids": [c1]})
     assert [x["id"] for x in r.json()["courses"]] == [c1]
+    assert c.get("/me", headers=S2).status_code == 401  # 반 이동 → 다시 로그인
+    S2 = relogin("s2")
+    c.patch(f"/manage/members/{s2}", headers=A, json={"course_ids": [c1]})  # 같은 반 그대로 → 유지
+    assert c.get("/me", headers=S2).status_code == 200
     r = c.patch(f"/manage/members/{s2}", headers=A, json={"course_ids": [c2]})
     # 사용 중지 → 로그인 불가, 다시 사용
     c.patch(f"/manage/members/{s2}", headers=A, json={"status": "disabled"})

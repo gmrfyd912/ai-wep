@@ -302,6 +302,8 @@ const ko = {
   // 6-1단계: 계정
   login_forgot: "아이디·비밀번호 찾기",
   login_errorRequired: "아이디와 비밀번호를 입력하세요.",
+  login_reloginChanged: "회원 정보(역할·반·권한 등)가 바뀌었어요. 다시 로그인해 주세요.",
+  login_reloginUpdated: "앱이 업데이트되었어요. 다시 로그인해 주세요.",
   auth_working: "처리 중…",
   auth_waking: "서버에 연결하는 중입니다. 처음에는 1분쯤 걸릴 수 있어요.",
   signup_email: "이메일 (선택)",

@@ -69,6 +69,13 @@ def can_view_student(viewer, student_id):
     return False
 
 
+def kick(user_ids):
+    """회원 정보(역할·반·권한·상태)가 바뀐 회원의 로그인을 끊는다. 앱이 알아채고 다시 로그인하게 한다."""
+    ids = [u for u in dict.fromkeys(user_ids) if u]
+    if ids:
+        store.delete("sessions", {"user_id": f"in.({','.join(ids)})"})
+
+
 def _get_user(uid):
     rows = store.select("users", {"id": f"eq.{_uuid(uid)}", "select": "*"})
     if not rows:
@@ -214,13 +221,17 @@ def manage_set_teachers(cid: str, body: TeachersBody, user=Depends(need_courses)
         if len(ok) != len(items):
             _err(400, "not_teacher")
     # 이 과정의 기존 교사 연결을 지우고 새로 넣는다 (교육생 연결은 그대로)
-    current = store.select("user_courses", {"course_id": f"eq.{cid}", "select": "user_id,users(role)"})
+    current = store.select("user_courses", {"course_id": f"eq.{cid}", "select": "user_id,course_role,users(role)"})
+    before = {}
     for r in current:
         if (r.get("users") or {}).get("role") == "teacher":
+            before[r["user_id"]] = r.get("course_role")
             store.delete("user_courses", {"course_id": f"eq.{cid}", "user_id": f"eq.{r['user_id']}"})
     if items:
         store.insert_rows("user_courses", [{"user_id": u, "course_id": cid, "course_role": r} for u, r in items.items()],
                           returning=False)
+    # 담당이 생기거나 빠지거나 담임/부담임이 바뀐 교사는 다시 로그인
+    kick([u for u in set(before) | set(items) if before.get(u) != items.get(u)])
     return {"ok": True}
 
 
@@ -305,10 +316,12 @@ def manage_update_member(uid: str, body: MemberPatch, user=Depends(need_members)
         if user["role"] != "admin":  # 추가 권한은 시스템관리자만 준다
             _err(403, "forbidden")
         fields["permissions"] = {k: bool(body.permissions.get(k)) for k in PERMISSIONS}
+    changed = False
     if fields:
         store.patch("users", {"id": f"eq.{target['id']}"}, fields)
-        if fields.get("status") == "disabled":
-            store.delete("sessions", {"user_id": f"eq.{target['id']}"})
+        changed = (fields.get("role", target["role"]) != target["role"]
+                   or fields.get("status", target.get("status")) != target.get("status")
+                   or ("permissions" in fields and fields["permissions"] != {k: bool((target.get("permissions") or {}).get(k)) for k in PERMISSIONS}))
 
     if body.course_ids is not None or body.role is not None:
         ids = body.course_ids
@@ -322,12 +335,15 @@ def manage_update_member(uid: str, body: MemberPatch, user=Depends(need_members)
         if ids and len(store.select("courses", {"id": f"in.({','.join(ids)})", "select": "id"})) != len(ids):
             _err(400, "bad_course")
         old = {c["id"]: c.get("course_role") for c in _courses_by_user([target["id"]]).get(target["id"], [])}
+        new = {c: (old.get(c) or "assistant") if role == "teacher" else None for c in ids}
         store.delete("user_courses", {"user_id": f"eq.{target['id']}"})
         if ids:
             store.insert_rows("user_courses", [
-                {"user_id": target["id"], "course_id": c,
-                 "course_role": (old.get(c) or "assistant") if role == "teacher" else None} for c in ids],
+                {"user_id": target["id"], "course_id": c, "course_role": r} for c, r in new.items()],
                 returning=False)
+        changed = changed or old != new
+    if changed:
+        kick([target["id"]])
     return manage_get_member(uid, user)
 
 

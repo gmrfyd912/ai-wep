@@ -286,6 +286,8 @@ const vi: Translation = {
   // 6-1단계: 계정
   login_forgot: "Quên ID hoặc mật khẩu",
   login_errorRequired: "Hãy nhập ID và mật khẩu.",
+  login_reloginChanged: "Thông tin tài khoản (vai trò, lớp, quyền...) đã thay đổi. Vui lòng đăng nhập lại.",
+  login_reloginUpdated: "Ứng dụng đã được cập nhật. Vui lòng đăng nhập lại.",
   auth_working: "Đang xử lý…",
   auth_waking: "Đang kết nối máy chủ. Lần đầu có thể mất khoảng 1 phút.",
   signup_email: "Email (không bắt buộc)",

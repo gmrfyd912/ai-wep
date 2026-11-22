@@ -286,6 +286,8 @@ const id: Translation = {
   // 6-1단계: 계정
   login_forgot: "Lupa ID atau kata sandi",
   login_errorRequired: "Masukkan ID dan kata sandi.",
+  login_reloginChanged: "Info akun Anda (peran, kelas, izin, dll.) telah berubah. Silakan masuk lagi.",
+  login_reloginUpdated: "Aplikasi telah diperbarui. Silakan masuk lagi.",
   auth_working: "Memproses…",
   auth_waking: "Menghubungkan ke server. Pertama kali bisa memakan waktu sekitar 1 menit.",
   signup_email: "Email (opsional)",

@@ -286,6 +286,8 @@ const fil: Translation = {
   // 6-1단계: 계정
   login_forgot: "Nakalimutan ang ID o password",
   login_errorRequired: "Ilagay ang ID at password.",
+  login_reloginChanged: "Nagbago ang detalye ng iyong account (tungkulin, klase, pahintulot, atbp.). Mag-log in muli.",
+  login_reloginUpdated: "Na-update ang app. Mag-log in muli.",
   auth_working: "Pinoproseso…",
   auth_waking: "Kumokonekta sa server. Sa unang beses, maaaring umabot ng mga 1 minuto.",
   signup_email: "Email (opsyonal)",

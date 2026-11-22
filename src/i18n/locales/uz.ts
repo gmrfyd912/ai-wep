@@ -286,6 +286,8 @@ const uz: Translation = {
   // 6-1단계: 계정
   login_forgot: "ID yoki parolni unutdingizmi",
   login_errorRequired: "ID va parolni kiriting.",
+  login_reloginChanged: "Hisob ma'lumotlaringiz (rol, guruh, ruxsatlar va h.k.) o'zgardi. Iltimos, qayta kiring.",
+  login_reloginUpdated: "Ilova yangilandi. Iltimos, qayta kiring.",
   auth_working: "Bajarilmoqda…",
   auth_waking: "Serverga ulanmoqda. Birinchi marta taxminan 1 daqiqa olishi mumkin.",
   signup_email: "Email (ixtiyoriy)",
