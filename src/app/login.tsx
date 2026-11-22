@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
@@ -13,8 +13,12 @@ import { colors, space } from "@/theme";
 
 export default function LoginScreen() {
   const { t, i18n } = useTranslation();
-  const { signIn } = useSession();
-  const [id, setId] = useState("");
+  const { signIn, notice, lastLoginId } = useSession();
+  const [id, setId] = useState(lastLoginId);
+  // 저장된 아이디가 늦게 읽히면 비어 있을 때만 채운다
+  useEffect(() => {
+    if (lastLoginId) setId((cur) => cur || lastLoginId);
+  }, [lastLoginId]);
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -49,6 +53,12 @@ export default function LoginScreen() {
         <Text style={styles.sub}>{t("common_appSubtitle")}</Text>
       </View>
 
+      {notice ? (
+        <View style={styles.notice}>
+          <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+          <Text style={styles.noticeText}>{t(notice === "updated" ? "login_reloginUpdated" : "login_reloginChanged")}</Text>
+        </View>
+      ) : null}
       <Field label={t("login_id")} value={id} onChangeText={setId} autoCorrect={false} />
       <Field label={t("login_password")} value={pw} onChangeText={setPw} secureTextEntry onSubmitEditing={submit} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -78,5 +88,7 @@ const styles = StyleSheet.create({
   signupRow: { flexDirection: "row", justifyContent: "center", gap: space.sm },
   muted: { color: colors.muted, textAlign: "center" },
   link: { color: colors.primary, fontWeight: "700" },
+  notice: { flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md, borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.primary },
+  noticeText: { color: colors.text, fontSize: 14, flex: 1 },
   error: { color: colors.danger, fontSize: 14 },
 });
