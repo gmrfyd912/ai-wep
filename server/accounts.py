@@ -403,8 +403,8 @@ def delete_me(body: DeleteBody, user=Depends(current_user)):
         _err(403, "admin_cannot_delete")
     if not check_password(body.password, user["password_hash"]):
         _err(400, "wrong_password")
-    rows = store.select("submissions", {"user_id": f"eq.{user['id']}", "select": "photo_path,check_path"})
-    store.remove_files("photos", [r.get("photo_path") for r in rows])
+    rows = store.select("submissions", {"user_id": f"eq.{user['id']}", "select": "photo_path,thumb_path,check_path"})
+    store.remove_files("photos", [r.get("photo_path") for r in rows] + [r.get("thumb_path") for r in rows])
     store.remove_files("results", [r.get("check_path") for r in rows])
     store.delete("users", {"id": f"eq.{user['id']}"})  # 기록·리포트·로그인은 함께 지워진다 (on delete cascade)
     return {"ok": True}

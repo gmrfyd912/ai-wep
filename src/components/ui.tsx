@@ -18,6 +18,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { NotificationBell } from "@/components/NotificationBell";
 import { colors, radius, space } from "@/theme";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
@@ -320,12 +321,15 @@ export function ListRow({
   );
 }
 
-/** 헤더 오른쪽 설정(톱니바퀴) 버튼 */
+/** 헤더 오른쪽: 알림(종) + 설정(톱니바퀴) 버튼 */
 export function SettingsButton() {
   return (
-    <Pressable onPress={() => router.push("/settings")} hitSlop={12} style={{ paddingHorizontal: space.md }}>
-      <Ionicons name="settings-outline" size={22} color={colors.text} />
-    </Pressable>
+    <View style={{ flexDirection: "row", alignItems: "center", paddingRight: space.sm }}>
+      <NotificationBell />
+      <Pressable onPress={() => router.push("/settings")} hitSlop={12} style={{ paddingHorizontal: space.sm }}>
+        <Ionicons name="settings-outline" size={22} color={colors.text} />
+      </Pressable>
+    </View>
   );
 }
 

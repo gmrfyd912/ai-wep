@@ -8,11 +8,11 @@ import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Label, Screen, SectionTitle } from "@/components/ui";
 import { analyzePhoto, getProgress, NetworkError, newJobId, STAGES, wakeServer, type Stage } from "@/lib/api";
+import { POSITIONS, PROCESSES } from "@/lib/weld";
 import { colors, radius, space } from "@/theme";
 
 // 공정·자세·재질 값은 영어 코드로 저장한다. 화면 표시는 국제 표준 약어(언어와 무관).
-const PROCESSES = ["SMAW", "GTAW", "GMAW", "FCAW"] as const;
-const POSITIONS = ["1G", "2G", "3G", "4G", "1F", "2F", "3F", "4F"] as const;
+
 const MATERIALS = ["CS", "SS", "AL"] as const;
 
 // 긴 변을 이 크기로 줄여 보낸다: 측정에 필요한 선명도는 남기고 전송만 빠르게.

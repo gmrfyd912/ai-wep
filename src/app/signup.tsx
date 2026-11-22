@@ -138,6 +138,7 @@ export default function SignupScreen() {
         </View>
       ) : null}
 
+      <Text style={styles.hint}>{t("signup_publicNote")}</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <AppButton label={busy ? t("auth_working") : t("signup_submit")} onPress={submit} disabled={busy} />
     </Screen>

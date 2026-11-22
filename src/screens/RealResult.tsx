@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ScrollViewInstance } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Screen, SectionTitle } from "@/components/ui";
@@ -11,6 +11,8 @@ import { defectName } from "@/lib/defects";
 import { AiReport } from "@/screens/AiReport";
 import { Cumulative, RecordLegend, RecordRow, groupOf } from "@/screens/Cumulative";
 import { ResultCharts } from "@/screens/ResultCharts";
+import { ResultSocial } from "@/screens/ResultSocial";
+import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
 type Tab = "metrics" | "report";
@@ -29,8 +31,11 @@ const C = {
   excluded: "#2A2A2A",
 };
 
-export function RealResult({ id }: { id: string }) {
+export function RealResult({ id, focus }: { id: string; focus?: string }) {
   const { t, i18n } = useTranslation();
+  const { user } = useSession();
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
+  const scrolled = useRef(false);
   const [tab, setTab] = useState<Tab>("metrics");
   const [reportOpened, setReportOpened] = useState(false);
   const [data, setData] = useState<Submission | null>(null);
@@ -79,9 +84,13 @@ export function RealResult({ id }: { id: string }) {
   const at = (v: number | undefined) => (v == null ? undefined : t("result_atPos", { mm: v.toFixed(0) }));
 
   return (
-    <Screen>
+    <Screen scrollRef={scrollRef}>
       <View>
-        {data.owner_name ? <Text style={styles.owner}>{t("result_ownerOf", { name: data.owner_name })}</Text> : null}
+        {data.owner_name ? (
+          <Pressable onPress={() => data.user_id && router.push({ pathname: "/student-view/[id]", params: { id: data.user_id } })}>
+            <Text style={styles.owner}>{t("result_ownerOf", { name: data.owner_name })} ›</Text>
+          </Pressable>
+        ) : null}
         <Text style={styles.title}>{info || t("result_title")}</Text>
         <Text style={styles.meta}>{date}</Text>
       </View>
@@ -110,7 +119,13 @@ export function RealResult({ id }: { id: string }) {
             <Text style={styles.error}>{t(statusKey(data.status))}</Text>
           </Card>
           {data.photo_url ? <Image source={{ uri: data.photo_url }} style={styles.image} contentFit="contain" /> : null}
-          <AppButton label={t("result_tryAgain")} icon="camera-outline" onPress={() => router.replace("/student/upload")} />
+          {!data.owner_name ? (
+            <AppButton
+              label={t("result_tryAgain")}
+              icon="camera-outline"
+              onPress={() => router.replace(user?.role === "teacher" ? "/teacher/upload" : "/student/upload")}
+            />
+          ) : null}
         </>
       ) : (
         <>
@@ -179,6 +194,20 @@ export function RealResult({ id }: { id: string }) {
           <Text style={styles.note}>{t("result_betaNote")}</Text>
         </>
       )}
+      {data.status === "ok" ? (
+        <View
+          onLayout={(e) => {
+            // 알림에서 왔으면 댓글 쪽으로 바로 내려 준다 (한 번만)
+            if (focus === "comments" && !scrolled.current) {
+              scrolled.current = true;
+              const y = e.nativeEvent.layout.y;
+              setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true }), 300);
+            }
+          }}
+        >
+          <ResultSocial sid={data.id} />
+        </View>
+      ) : null}
       {tab === "metrics" ? <History data={data} history={history} /> : null}
       {/* 맨 아래가 휴대폰 버튼 줄에 붙지 않게 여백 */}
       <View style={{ height: 32 }} />

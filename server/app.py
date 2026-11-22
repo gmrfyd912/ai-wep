@@ -24,6 +24,7 @@ from pydantic import BaseModel
 import accounts
 import mail
 import manage
+import social
 import report
 import scoring
 import store
@@ -38,6 +39,7 @@ CODE_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
 app = FastAPI(title="AI W.E.P analysis server")
 app.include_router(accounts.router)
 app.include_router(manage.router)
+app.include_router(social.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
@@ -145,6 +147,19 @@ async def analyze(
                               lambda name: _set_progress(job_id, name))
     _set_progress(job_id, "save_result")
 
+    # 갤러리용 작은 사진 (긴 변 480px)
+    thumb_path = None
+    try:
+        th, tw = img.shape[:2]
+        s = 480 / max(th, tw)
+        small = cv2.resize(img, (max(1, round(tw * s)), max(1, round(th * s))), interpolation=cv2.INTER_AREA) if s < 1 else img
+        ok, tj = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        thumb_path = f"{user['id']}/{sid}_thumb.jpg"
+        await _step("save_photo", store.upload, "photos", thumb_path, tj.tobytes())
+    except Exception as e:  # noqa: BLE001 - 작은 사진은 없어도 원본으로 보인다
+        print("[analyze] 작은 사진 실패", str(e)[:200], flush=True)
+        thumb_path = None
+
     check_path = None
     if vis is not None:
         ok, cj = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 88])
@@ -158,6 +173,7 @@ async def analyze(
     update = {
         "status": status,
         "check_path": check_path,
+        "thumb_path": thumb_path,
         "result": res,
         "width_mean_mm": (bead.get("width") or {}).get("mean_mm"),
         "straight_max_dev_mm": (bead.get("straightness") or {}).get("max_dev_mm"),
@@ -185,13 +201,13 @@ def list_submissions(limit: int = 200, user=Depends(accounts.current_user)):
 
 
 def _own_row(sid, user):
-    """내 기록, 또는 볼 수 있는 교육생의 기록 (시스템관리자·행정 관리자·같은 과정 교사)."""
+    """볼 수 있는 기록: 본인·담당 교사·관리자는 언제나, 그 밖의 사람은 갤러리에 있는 것 (6-3: 누구나 결과 보기)."""
     try:
         uuid.UUID(sid)
     except ValueError:
         raise HTTPException(404, "not_found")
     row = store.get(sid)
-    if not row or not row.get("user_id") or not manage.can_view_student(user, row["user_id"]):
+    if not social.can_view_submission(user, row):
         raise HTTPException(404, "not_found")
     return row
 
@@ -201,6 +217,7 @@ def get_submission(sid: str, user=Depends(accounts.current_user)):
     row = _own_row(sid, user)
     out = _detail(row)
     out["user_id"] = row["user_id"]
+    out["can_report"] = social.can_make_report(user, row)
     if row["user_id"] != user["id"]:  # 교사 등이 학생 결과를 볼 때 화면 위에 이름 표시
         owner = store.select("users", {"id": f"eq.{row['user_id']}", "select": "name"})
         out["owner_name"] = owner[0]["name"] if owner else None
@@ -209,10 +226,12 @@ def get_submission(sid: str, user=Depends(accounts.current_user)):
 
 @app.get("/students/{uid}/submissions")
 def list_student_submissions(uid: str, limit: int = 200, user=Depends(accounts.current_user)):
-    """교사·행정 관리자·시스템관리자가 보는 교육생 기록 목록."""
-    if not accounts.UUID_RE.match(uid or "") or not manage.can_view_student(user, uid):
+    """그 사람의 기록 목록 (랭킹·교사 보드에서). 본인·담당 교사·관리자는 전부, 그 밖의 사람은 갤러리에 있는 것만."""
+    if not accounts.UUID_RE.match(uid or ""):
         raise HTTPException(404, "not_found")
     rows = store.list_by_user(uid, max(1, min(limit, 500)))
+    if not manage.can_view_student(user, uid):
+        rows = [r for r in rows if r.get("status") == "ok" and not r.get("hidden")]
     return [_list_item(r) for r in rows]
 
 
@@ -253,6 +272,12 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
     sc = scoring.score_of_row(row)
     if sc is None:
         raise HTTPException(409, {"code": "not_analyzed"})
+    if not social.can_make_report(user, row):
+        # 다른 사람은 만들어진 리포트만 본다 (선택한 언어 → 아무 언어나)
+        saved = store.get_report(sid, lang) or store.get_any_report(sid)
+        if not saved:
+            raise HTTPException(404, {"code": "no_report"})
+        return {"report": saved.get("report"), "score": sc, "cached": True, "lang": saved.get("lang")}
     crit = scoring.criteria()
     limit = int(crit.get("report_daily_limit", 5))
     # 시스템관리자·교사·행정 관리자와 박사님 시험용 휴대폰은 한도 없음

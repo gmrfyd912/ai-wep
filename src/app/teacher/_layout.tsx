@@ -13,7 +13,9 @@ export default function TeacherLayout() {
     <Tabs screenOptions={tabScreenOptions}>
       <Tabs.Screen name="index" options={{ title: t("tab_teacherBoard"), tabBarIcon: tabIcon("grid-outline") }} />
       <Tabs.Screen name="gallery" options={{ title: t("tab_gallery"), tabBarIcon: tabIcon("images-outline") }} />
+      <Tabs.Screen name="upload" options={{ title: t("tab_upload"), tabBarIcon: tabIcon("camera-outline") }} />
       <Tabs.Screen name="ranking" options={{ title: t("tab_ranking"), tabBarIcon: tabIcon("trophy-outline") }} />
+      <Tabs.Screen name="records" options={{ title: t("tab_records"), tabBarIcon: tabIcon("document-text-outline") }} />
     </Tabs>
   );
 }
