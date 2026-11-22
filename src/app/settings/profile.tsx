@@ -1,13 +1,15 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { router } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Field, Screen } from "@/components/ui";
 import { authErrorKey, updateEmail } from "@/lib/api";
 import { useSession } from "@/state/session";
-import { colors } from "@/theme";
+import { colors, space } from "@/theme";
 
-/** 내 정보: 이름·아이디·역할·과정은 보기만, 이메일은 바꿀 수 있다. */
+/** 내 정보: 이름·아이디·역할·과정은 보기만, 이메일은 바꿀 수 있다. 맨 아래에 계정 삭제 (설정의 로그아웃과 떨어뜨려 잘못 누르지 않게) */
 export default function ProfileScreen() {
   const { t } = useTranslation();
   const { user, setUser } = useSession();
@@ -45,10 +47,21 @@ export default function ProfileScreen() {
       <Text style={styles.hint}>{t("signup_emailHint")}</Text>
       {msg ? <Text style={{ color: msg.ok ? colors.success : colors.danger }}>{msg.text}</Text> : null}
       <AppButton label={busy ? t("auth_working") : t("common_save")} onPress={save} disabled={busy} />
+      {user.role !== "admin" ? (
+        <View style={styles.deleteBox}>
+          <Pressable style={styles.deleteBtn} onPress={() => router.push("/settings/delete-account")}>
+            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+            <Text style={styles.deleteText}>{t("settings_deleteAccount")}</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 13 },
+  deleteBox: { marginTop: space.xl * 2, paddingTop: space.lg, borderTopWidth: 1, borderTopColor: colors.border, alignItems: "center" },
+  deleteBtn: { flexDirection: "row", alignItems: "center", gap: 6, padding: space.sm },
+  deleteText: { color: colors.danger, fontSize: 14 },
 });

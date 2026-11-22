@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Screen } from "@/components/ui";
 import { listSubmissions, type SubmissionListItem } from "@/lib/api";
-import { RecordRow } from "@/screens/Cumulative";
+import { RecordLegend, RecordRow } from "@/screens/Cumulative";
 import { colors } from "@/theme";
 
 /** 내 기록: 모든 분석을 날짜별로 모은 목록. 누르면 그 결과 화면(누적 분석 포함)이 열린다 */
@@ -53,6 +53,7 @@ export default function RecordsScreen() {
         <AppButton label={t("records_openLatest")} icon="analytics-outline" onPress={() => router.push(`/result/${latestOk.id}`)} />
       ) : null}
       <Text style={styles.hint}>{t("records_listHint")}</Text>
+      <RecordLegend />
       {out}
     </Screen>
   );

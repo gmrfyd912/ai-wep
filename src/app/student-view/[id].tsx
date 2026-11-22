@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Screen, SectionTitle } from "@/components/ui";
 import { getStudentInfo, listStudentSubmissions, type StudentInfo, type SubmissionListItem } from "@/lib/api";
-import { RecordRow } from "@/screens/Cumulative";
+import { RecordLegend, RecordRow } from "@/screens/Cumulative";
 import { MemberActions } from "@/screens/MemberActions";
 import { colors } from "@/theme";
 
@@ -65,7 +65,7 @@ export default function StudentView() {
         />
       ) : null}
       <SectionTitle>{t("student_records")}</SectionTitle>
-      {sorted.length === 0 ? <Body muted>{t("student_noRecords")}</Body> : null}
+      {sorted.length === 0 ? <Body muted>{t("student_noRecords")}</Body> : <RecordLegend />}
       {sorted.map((r) => (
         <RecordRow key={r.id} r={r} />
       ))}
