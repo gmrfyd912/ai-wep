@@ -412,7 +412,7 @@ const vi: Translation = {
   ranking_week: "Tuần (T2–CN)",
   ranking_month: "Tháng (tháng này)",
   ranking_all: "Tổng hợp",
-  ranking_rule: "Xếp hạng học viên · tấm và ống riêng · điểm cao nhất trong kỳ · bằng điểm thì ai nộp trước đứng trên · nhấn để xem",
+  ranking_rule: "Xếp hạng học viên · điểm cao nhất trong kỳ · bằng điểm thì ai nộp trước đứng trên · nhấn để xem",
   ranking_empty: "Chưa có học viên nào phân tích với điều kiện này.",
   ranking_top: "Hiển thị {{n}} người đầu (trên {{total}})",
   ranking_me: "Tôi",
@@ -457,7 +457,7 @@ const vi: Translation = {
   emoji_sad: "Buồn",
   gallery_react: "Bày tỏ cảm xúc",
   gallery_comment: "Xem/viết bình luận",
-  ranking_ruleAll: "Xếp hạng · tấm và ống riêng · điểm cao nhất mọi phương pháp và tư thế · bằng điểm thì ai nộp trước đứng trên · nhấn để xem",
+  ranking_ruleAll: "Xếp hạng · mục chọn 'Tất cả' được gộp, điểm cao nhất trong kỳ · bằng điểm thì ai nộp trước đứng trên · nhấn để xem",
   auth_err_avatar_required: "Vui lòng thêm ảnh hồ sơ.",
   auth_err_bad_avatar: "Không đọc được ảnh. Hãy chọn ảnh khác.",
   auth_err_photo_too_large: "Ảnh quá lớn. Hãy chọn ảnh khác.",
@@ -656,6 +656,9 @@ const vi: Translation = {
   pipe_zoneText: "ĐK {{od}} mm · chỉ kiểm 45° mỗi bên từ giữa ảnh (đỉnh ống), khoảng {{arc}} mm chu vi. Ống tròn trông cong nên độ thẳng dùng đường chuẩn cong.",
   legend_excludedPipe: "Ngoài vùng kiểm (quá 45° trên ống)",
   legend_baselineCurve: "Đường chuẩn độ thẳng (cong)",
+  ranking_fWork: "Hình dạng vật liệu",
+  ranking_fCourse: "Khóa học",
+  ranking_fPeriod: "Thời gian",
 };
 
 export default vi;

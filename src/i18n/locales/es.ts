@@ -412,7 +412,7 @@ const es: Translation = {
   ranking_week: "Semanal (lun–dom)",
   ranking_month: "Mensual (este mes)",
   ranking_all: "General",
-  ranking_rule: "Ranking · placa y tubo por separado · mejor nota del periodo · empate: primero quien envió antes · toca para ver registros",
+  ranking_rule: "Ranking · mejor nota del periodo · empate: primero quien envió antes · toca para ver registros",
   ranking_empty: "Ningún alumno ha analizado con estos ajustes todavía.",
   ranking_top: "Se muestran los {{n}} primeros (de {{total}})",
   ranking_me: "Yo",
@@ -457,7 +457,7 @@ const es: Translation = {
   emoji_sad: "Tristeza",
   gallery_react: "Reaccionar",
   gallery_comment: "Ver o escribir comentarios",
-  ranking_ruleAll: "Ranking · placa y tubo por separado · mejor nota en todos los procesos y posiciones · empate: primero quien envió antes · toca para ver registros",
+  ranking_ruleAll: "Ranking · lo marcado como 'Todos' se combina, mejor nota del periodo · empate: primero quien envió antes · toca para ver registros",
   auth_err_avatar_required: "Añade una foto de perfil.",
   auth_err_bad_avatar: "No se pudo leer la foto. Elige otra.",
   auth_err_photo_too_large: "La foto es demasiado grande. Elige otra.",
@@ -656,6 +656,9 @@ const es: Translation = {
   pipe_zoneText: "DE {{od}} mm · solo se inspeccionaron 45° a cada lado del centro (parte superior del tubo), unos {{arc}} mm de perímetro. El tubo se ve curvo, así que la rectitud usa una línea base curva.",
   legend_excludedPipe: "No inspeccionado (más allá de 45° en el tubo)",
   legend_baselineCurve: "Línea base de rectitud (curva)",
+  ranking_fWork: "Forma del material",
+  ranking_fCourse: "Curso",
+  ranking_fPeriod: "Periodo",
 };
 
 export default es;

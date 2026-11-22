@@ -412,7 +412,7 @@ const id: Translation = {
   ranking_week: "Mingguan (Sen–Min)",
   ranking_month: "Bulanan (bulan ini)",
   ranking_all: "Keseluruhan",
-  ranking_rule: "Peringkat · pelat dan pipa terpisah · nilai terbaik di periode · seri: yang lebih dulu di atas · ketuk untuk rekaman",
+  ranking_rule: "Peringkat · nilai terbaik di periode · seri: yang lebih dulu di atas · ketuk untuk rekaman",
   ranking_empty: "Belum ada peserta yang menganalisis dengan pengaturan ini.",
   ranking_top: "Menampilkan {{n}} teratas (dari {{total}})",
   ranking_me: "Saya",
@@ -457,7 +457,7 @@ const id: Translation = {
   emoji_sad: "Sedih",
   gallery_react: "Beri reaksi",
   gallery_comment: "Lihat/tulis komentar",
-  ranking_ruleAll: "Peringkat · pelat dan pipa terpisah · nilai terbaik semua proses dan posisi · seri: yang lebih dulu di atas · ketuk untuk rekaman",
+  ranking_ruleAll: "Peringkat · item 'Semua' digabung, nilai terbaik di periode · seri: yang lebih dulu di atas · ketuk untuk rekaman",
   auth_err_avatar_required: "Silakan tambahkan foto profil.",
   auth_err_bad_avatar: "Foto tidak bisa dibaca. Pilih foto lain.",
   auth_err_photo_too_large: "Foto terlalu besar. Pilih foto lain.",
@@ -656,6 +656,9 @@ const id: Translation = {
   pipe_zoneText: "OD {{od}} mm · hanya 45° tiap sisi dari tengah foto (puncak pipa), sekitar {{arc}} mm keliling yang diperiksa. Pipa bulat tampak melengkung, jadi kelurusan memakai garis acuan lengkung.",
   legend_excludedPipe: "Tidak diperiksa (di luar 45° pada pipa)",
   legend_baselineCurve: "Garis acuan kelurusan (lengkung)",
+  ranking_fWork: "Bentuk material",
+  ranking_fCourse: "Kursus",
+  ranking_fPeriod: "Periode",
 };
 
 export default id;

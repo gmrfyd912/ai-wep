@@ -412,7 +412,7 @@ const en: Translation = {
   ranking_week: "Weekly (Mon–Sun)",
   ranking_month: "Monthly (this month)",
   ranking_all: "Overall",
-  ranking_rule: "Trainee ranking · plate and pipe separate · best score in the period · ties: earlier first · tap for records",
+  ranking_rule: "Trainee ranking · best score in the period · ties: earlier first · tap for records",
   ranking_empty: "No trainee has analyzed with these settings yet.",
   ranking_top: "Showing the top {{n}} (of {{total}})",
   ranking_me: "Me",
@@ -457,7 +457,7 @@ const en: Translation = {
   emoji_sad: "Sad",
   gallery_react: "React",
   gallery_comment: "View or write comments",
-  ranking_ruleAll: "Trainee ranking · plate and pipe separate · best score across all processes and positions · ties: earlier first · tap for records",
+  ranking_ruleAll: "Trainee ranking · items set to 'All' are combined, best score in the period · ties: earlier first · tap for records",
   auth_err_avatar_required: "Please add a profile photo.",
   auth_err_bad_avatar: "Couldn't read that photo. Please choose another.",
   auth_err_photo_too_large: "The photo is too large. Please choose another.",
@@ -656,6 +656,9 @@ const en: Translation = {
   pipe_zoneText: "OD {{od}} mm · only 45° to each side of the photo centre (pipe top), about {{arc}} mm of circumference, was inspected. A round pipe looks curved, so straightness uses a curved baseline.",
   legend_excludedPipe: "Not inspected (beyond 45° on the pipe)",
   legend_baselineCurve: "Straightness baseline (curve)",
+  ranking_fWork: "Material shape",
+  ranking_fCourse: "Course",
+  ranking_fPeriod: "Period",
 };
 
 export default en;

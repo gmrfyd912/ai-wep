@@ -412,7 +412,7 @@ const uz: Translation = {
   ranking_week: "Haftalik (Du–Ya)",
   ranking_month: "Oylik (shu oy)",
   ranking_all: "Umumiy",
-  ranking_rule: "O'quvchilar reytingi · plastina va quvur alohida · davrdagi eng yuqori ball · teng bo'lsa avval topshirgan yuqorida · bosib yozuvlarni ko'ring",
+  ranking_rule: "O'quvchilar reytingi · davrdagi eng yuqori ball · teng bo'lsa avval topshirgan yuqorida · bosib ko'ring",
   ranking_empty: "Bu shartlar bilan hali hech kim tahlil qilmagan.",
   ranking_top: "Eng yaxshi {{n}} kishi ko'rsatilgan ({{total}} dan)",
   ranking_me: "Men",
@@ -457,7 +457,7 @@ const uz: Translation = {
   emoji_sad: "Qayg'u",
   gallery_react: "Munosabat bildirish",
   gallery_comment: "Izohlarni ko'rish/yozish",
-  ranking_ruleAll: "Reyting · plastina va quvur alohida · barcha usul va holatlar bo'yicha eng yuqori ball · teng bo'lsa avval topshirgan yuqorida · bosib ko'ring",
+  ranking_ruleAll: "Reyting · 'Hammasi' tanlanganlar birlashtiriladi, davrdagi eng yuqori ball · teng bo'lsa avval topshirgan yuqorida · bosib ko'ring",
   auth_err_avatar_required: "Profil rasmini qo'shing.",
   auth_err_bad_avatar: "Rasmni o'qib bo'lmadi. Boshqasini tanlang.",
   auth_err_photo_too_large: "Rasm juda katta. Boshqasini tanlang.",
@@ -656,6 +656,9 @@ const uz: Translation = {
   pipe_zoneText: "Tashqi D {{od}} mm · faqat rasm o'rtasidan (quvur cho'qqisi) har tomonga 45°, taxminan {{arc}} mm aylana tekshirildi. Quvur egri ko'rinadi, shuning uchun to'g'rilik egri asos chiziqqa nisbatan.",
   legend_excludedPipe: "Tekshirilmagan (quvurda 45° dan tashqari)",
   legend_baselineCurve: "To'g'rilik asos chizig'i (egri)",
+  ranking_fWork: "Material shakli",
+  ranking_fCourse: "Kurs",
+  ranking_fPeriod: "Davr",
 };
 
 export default uz;

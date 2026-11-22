@@ -335,14 +335,16 @@ def period_start(period, now=None):
 
 @router.get("/ranking")
 def ranking(bg: BackgroundTasks, process: str = "", position: str = "", period: str = "week", course: str = "all",
-            work_type: str = "plate", user=Depends(accounts.current_user)):
+            work_type: str = "", user=Depends(accounts.current_user)):
     """교육생 순위 (기간 안 최고 점수, 같으면 먼저 낸 사람이 위). 공정·자세가 비면 전체를 합쳐서."""
     if period not in PERIODS:
         _err(400, "bad_period")
-    if work_type not in ("plate", "pipe"):  # 평판·배관은 섞어서 비교하지 않는다
+    if work_type not in ("", "plate", "pipe"):  # "" = 평판·배관 합쳐서 각자 최고 점수 (박사 2026-11-22)
         _err(400, "bad_work_type")
     params = {"status": "eq.ok", "user_id": "not.is.null", "select": store.LIST_SELECT,
-              "order": "created_at.asc", "limit": "20000", "work_type": f"eq.{work_type}"}
+              "order": "created_at.asc", "limit": "20000"}
+    if work_type:
+        params["work_type"] = f"eq.{work_type}"
     if process:
         params["process"] = f"eq.{process}"
     if position:
@@ -372,7 +374,8 @@ def ranking(bg: BackgroundTasks, process: str = "", position: str = "", period: 
         if cur is None or sc["score"] > cur["score"]:
             best[r["user_id"]] = {"user_id": r["user_id"], "name": u["name"], "score": sc["score"],
                                   "verdict": sc["verdict"], "submission_id": r["id"], "created_at": r["created_at"],
-                                  "process": r.get("process"), "position": r.get("position"), "_row": r}
+                                  "process": r.get("process"), "position": r.get("position"),
+                                  "work_type": r.get("work_type") or "plate", "_row": r}
     ordered = sorted(best.values(), key=lambda x: (-x["score"], x["created_at"]))
     top = ordered[:100]
     mine = next((x for x in ordered if x["user_id"] == user["id"]), None)
