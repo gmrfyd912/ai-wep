@@ -10,7 +10,8 @@ TABLES: dict[str, list[dict]] = {}
 SETTINGS: dict[str, dict] = {}
 FILES: dict[str, bytes] = {}
 # 이어붙이기: (표, 이어붙일 이름) → (이 표의 열, 대상 표)
-FKEYS = {("sessions", "users"): ("user_id", "users"), ("user_courses", "courses"): ("course_id", "courses")}
+FKEYS = {("sessions", "users"): ("user_id", "users"), ("user_courses", "courses"): ("course_id", "courses"),
+         ("user_courses", "users"): ("user_id", "users")}
 UNIQUE = {"users": "login_key", "sessions": "token_hash"}
 CASCADE = {"users": [("sessions", "user_id"), ("user_courses", "user_id"), ("email_codes", "user_id"),
                      ("submissions", "user_id"), ("reports", "user_id")]}
@@ -41,7 +42,7 @@ def _match(row, col, cond):
 
 def _filter(table, params):
     rows = TABLES.setdefault(table, [])
-    special = {"select", "order", "limit", "on_conflict"}
+    special = {"select", "order", "limit", "on_conflict", "or"}
     out = [r for r in rows if all(_match(r, k, v) for k, v in params.items() if k not in special)]
     return out
 
@@ -57,6 +58,9 @@ def _project(table, row, select):
             col, target = FKEYS[(table, name)]
             ref = next((r for r in TABLES.get(target, []) if r["id"] == row.get(col)), None)
             out[name] = _project(target, ref, inner) if ref else None
+        elif ":" in part:  # 별명:JSON경로 → 시험 행에는 별명 이름으로 값을 넣어 둔다
+            name = part.split(":", 1)[0]
+            out[name] = row.get(name)
         else:
             out[part] = row.get(part)
     return out
@@ -86,6 +90,10 @@ def insert_rows(table, rows, returning=True):
         if table == "users":
             r.setdefault("status", "active")
             r.setdefault("must_change_password", False)
+        if table == "courses":
+            r.setdefault("active", True)
+        if table == "users":
+            r.setdefault("permissions", {})
         if table == "email_codes":
             r.setdefault("used", False)
             r.setdefault("attempts", 0)
@@ -141,4 +149,5 @@ def install():
     store.insert_report = lambda r: insert_rows("reports", r, returning=False)
     store.update_report = lambda rid, f: patch("reports", {"id": f"eq.{rid}"}, f)
     store.count_reports_since_user = lambda uid, since: sum(
-        1 for r in TABLES.get("reports", []) if r.get("user_id") == uid)
+        1 for r in TABLES.get("reports", [])
+        if r.get("created_by") == uid or (r.get("created_by") is None and r.get("user_id") == uid))

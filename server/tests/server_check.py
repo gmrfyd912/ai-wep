@@ -23,8 +23,11 @@ def main():
     c = TestClient(server.app)
     assert c.get("/health").json()["ok"]
     dev = "test-device-1234"
-    me = c.post("/auth/signup", json={"login_id": "u1", "password": "p", "name": "갑", "role": "staff"}).json()
-    other = c.post("/auth/signup", json={"login_id": "u2", "password": "p", "name": "을", "role": "staff"}).json()
+    cid = db.insert_rows("courses", {"name": "뉴딜2기"})[0]["id"]
+    me = c.post("/auth/signup", json={"login_id": "u1", "password": "p", "name": "갑", "role": "student",
+                                      "course_ids": [cid]}).json()
+    other = c.post("/auth/signup", json={"login_id": "u2", "password": "p", "name": "을", "role": "student",
+                                         "course_ids": [cid]}).json()  # 같은 반 교육생끼리도 남의 기록은 못 봄
     H = {"Authorization": f"Bearer {me['token']}"}
     assert c.post("/analyze", data={"device_id": dev}, files={"photo": ("a.jpg", b"1", "image/jpeg")}).status_code == 401
     r = c.post("/analyze", headers=H, data={"device_id": dev, "process": "SMAW", "position": "1G", "material": "CS",

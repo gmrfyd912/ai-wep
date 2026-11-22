@@ -95,6 +95,7 @@ def public_user(u):
         "id": u["id"], "login_id": u["login_id"], "name": u["name"], "role": u["role"],
         "email": u.get("email"), "status": u.get("status"),
         "must_change_password": bool(u.get("must_change_password")),
+        "permissions": {k: bool((u.get("permissions") or {}).get(k)) for k in ("manage_courses", "manage_members")},
         "courses": _courses_of(u["id"]),
     }
 
@@ -205,8 +206,10 @@ def signup(body: SignupBody):
             _err(409, "id_taken")
         raise
     if course_ids:
-        store.insert_rows("user_courses", [{"user_id": user["id"], "course_id": c} for c in course_ids],
-                          returning=False)
+        # 교사는 일단 부담임으로 (담임은 시스템관리자가 과정 관리에서 정함)
+        store.insert_rows("user_courses", [
+            {"user_id": user["id"], "course_id": c, "course_role": "assistant" if body.role == "teacher" else None}
+            for c in course_ids], returning=False)
     if need:
         return {"pending": True}
     return _new_session(user, body.device_id)
