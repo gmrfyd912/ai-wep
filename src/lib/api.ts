@@ -56,6 +56,8 @@ export type Me = {
   email: string | null;
   status: string;
   must_change_password: boolean;
+  /** 행정 관리자 추가 권한 (시스템관리자가 부여) */
+  permissions?: { manage_courses: boolean; manage_members: boolean };
   courses: Course[];
 };
 
@@ -152,6 +154,9 @@ export type EngineResult = {
 };
 
 export type Submission = SubmissionSummary & {
+  /** 기록 주인. 교사 등이 학생 결과를 볼 때는 owner_name 도 온다 */
+  user_id?: string;
+  owner_name?: string | null;
   score?: ScoreInfo | null;
   result: EngineResult | null;
   photo_url: string | null;
@@ -408,4 +413,100 @@ export function authErrorKey(e: unknown): { key: string; values: { min?: number 
     return { key: `auth_err_${e.detail.code}`, values: { min: e.detail.min } };
   }
   return { key: "error_network", values: {} };
+}
+
+// ---- 6-2단계: 과정·회원 관리, 보드 ----
+
+export type CourseRole = "homeroom" | "assistant";
+export type CourseTeacher = { id: string; name: string; course_role: CourseRole | null };
+export type ManagedCourse = {
+  id: string;
+  name: string;
+  active: boolean;
+  teachers: CourseTeacher[];
+  student_count: number;
+};
+export type Member = {
+  id: string;
+  login_id: string;
+  name: string;
+  role: Exclude<Role, "admin">;
+  status: "active" | "pending" | "disabled";
+  email: string | null;
+  permissions: { manage_courses: boolean; manage_members: boolean };
+  courses: (Course & { course_role: CourseRole | null })[];
+  created_at: string;
+  last_login_at: string | null;
+};
+export type StudentInfo = Member & { can_care: boolean; can_edit: boolean };
+export type Trend = "up" | "down" | "flat";
+export type CourseCard = {
+  id: string;
+  name: string;
+  teachers: CourseTeacher[];
+  student_count: number;
+  pending_count: number;
+  weekly_submissions: number;
+  avg_score: number | null;
+};
+export type StudentCard = {
+  id: string;
+  name: string;
+  login_id: string;
+  status: "active" | "pending" | "disabled";
+  total: number;
+  week_count: number;
+  last_score: number | null;
+  avg_score: number | null;
+  trend: Trend;
+  frequent_defect: string | null;
+  last_at: string | null;
+};
+export type CourseBoard = {
+  course: { id: string; name: string; active: boolean };
+  teachers: CourseTeacher[];
+  students: StudentCard[];
+  summary: { student_count: number; weekly_submissions: number; avg_score: number | null };
+  can_care: boolean;
+};
+
+const BOARD_TIMEOUT = 90000;
+
+export const listManagedCourses = () => request<ManagedCourse[]>("/manage/courses", {}, BOARD_TIMEOUT);
+export const addCourse = (name: string) => request<ManagedCourse>("/manage/courses", json("POST", { name }), BOARD_TIMEOUT);
+export const updateCourse = (id: string, fields: { name?: string; active?: boolean }) =>
+  request<ManagedCourse>(`/manage/courses/${id}`, json("PATCH", fields), BOARD_TIMEOUT);
+export const setCourseTeachers = (id: string, teachers: { user_id: string; course_role: CourseRole }[]) =>
+  request<{ ok: boolean }>(`/manage/courses/${id}/teachers`, json("PUT", { teachers }), BOARD_TIMEOUT);
+
+export const listMembers = () => request<Member[]>("/manage/members", {}, BOARD_TIMEOUT);
+export const getMember = (id: string) => request<Member>(`/manage/members/${id}`, {}, BOARD_TIMEOUT);
+export const approveMember = (id: string) => request<Member>(`/manage/members/${id}/approve`, { method: "POST" }, BOARD_TIMEOUT);
+export const resetMemberPassword = (id: string) =>
+  request<{ ok: boolean; password: string }>(`/manage/members/${id}/reset-password`, { method: "POST" }, BOARD_TIMEOUT);
+export const updateMember = (
+  id: string,
+  fields: {
+    role?: Member["role"];
+    course_ids?: string[];
+    status?: "active" | "disabled";
+    permissions?: Member["permissions"];
+  },
+) => request<Member>(`/manage/members/${id}`, json("PATCH", fields), BOARD_TIMEOUT);
+
+export type SignupRules = { student_approval: boolean; staff_approval: boolean };
+export const getSignupRules = () => request<SignupRules>("/manage/settings/signup", {}, BOARD_TIMEOUT);
+export const saveSignupRules = (v: SignupRules) =>
+  request<SignupRules>("/manage/settings/signup", json("PUT", v), BOARD_TIMEOUT);
+
+export const listCourseCards = () => request<CourseCard[]>("/boards/courses", {}, BOARD_TIMEOUT);
+export const getCourseBoard = (id: string) => request<CourseBoard>(`/boards/courses/${id}`, {}, BOARD_TIMEOUT);
+export const getStudentInfo = (id: string) => request<StudentInfo>(`/students/${id}`, {}, BOARD_TIMEOUT);
+export const listStudentSubmissions = (id: string) =>
+  request<SubmissionListItem[]>(`/students/${id}/submissions`, {}, BOARD_TIMEOUT);
+
+/** 행정 관리자 추가 권한 확인 (시스템관리자는 모두 가능) */
+export function canManage(user: Me | null, what: "manage_courses" | "manage_members"): boolean {
+  if (!user) return false;
+  return user.role === "admin" || (user.role === "staff" && !!user.permissions?.[what]);
 }

@@ -17,10 +17,6 @@ export default function AdminLayout() {
           headerRight: () => <SettingsButton />,
         }}
       />
-      <Stack.Screen name="courses" options={{ title: t("admin_courses") }} />
-      <Stack.Screen name="members" options={{ title: t("admin_members") }} />
-      <Stack.Screen name="permissions" options={{ title: t("admin_permissions") }} />
-      <Stack.Screen name="signup-settings" options={{ title: t("admin_signupSettings") }} />
     </Stack>
   );
 }

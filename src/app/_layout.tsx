@@ -62,6 +62,9 @@ function RootStack() {
       <Stack.Screen name="admin" options={{ headerShown: false }} />
       <Stack.Screen name="result/[id]" options={{ title: t("result_title") }} />
       <Stack.Screen name="course/[id]" options={{ title: t("teacher_title") }} />
+      <Stack.Screen name="boards" options={{ title: t("admin_boards") }} />
+      <Stack.Screen name="manage" options={{ headerShown: false }} />
+      <Stack.Screen name="student-view/[id]" options={{ title: t("student_records") }} />
       <Stack.Screen name="settings/index" options={{ title: t("settings_title") }} />
       <Stack.Screen name="settings/profile" options={{ title: t("profile_title") }} />
       <Stack.Screen name="settings/privacy" options={{ title: t("privacy_title") }} />

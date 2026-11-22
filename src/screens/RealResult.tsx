@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Screen, SectionTitle } from "@/components/ui";
 import { ZoomImage } from "@/components/ZoomImage";
-import { getSubmission, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
+import { getSubmission, listStudentSubmissions, listSubmissions, statusKey, type Submission, type SubmissionListItem } from "@/lib/api";
 import { defectName } from "@/lib/defects";
 import { AiReport } from "@/screens/AiReport";
 import { Cumulative, RecordRow, groupOf } from "@/screens/Cumulative";
@@ -41,12 +41,17 @@ export function RealResult({ id }: { id: string }) {
   useEffect(() => {
     let alive = true;
     getSubmission(id)
-      .then((d) => alive && setData(d))
+      .then((d) => {
+        if (!alive) return;
+        setData(d);
+        // 누적 분석·지난 분석 목록용: 교사 등이 학생 결과를 볼 때는 그 학생의 기록
+        // (실패해도 이번 결과는 보이게 조용히 넘어감)
+        const owner = d.owner_name ? d.user_id : undefined;
+        (owner ? listStudentSubmissions(owner) : listSubmissions())
+          .then((r) => alive && setHistory(r))
+          .catch(() => alive && setHistory([]));
+      })
       .catch(() => alive && setFailed(true));
-    // 누적 분석·지난 분석 목록용 (실패해도 이번 결과는 보이게 조용히 넘어감)
-    listSubmissions()
-      .then((r) => alive && setHistory(r))
-      .catch(() => alive && setHistory([]));
     return () => {
       alive = false;
     };
@@ -76,6 +81,7 @@ export function RealResult({ id }: { id: string }) {
   return (
     <Screen>
       <View>
+        {data.owner_name ? <Text style={styles.owner}>{t("result_ownerOf", { name: data.owner_name })}</Text> : null}
         <Text style={styles.title}>{info || t("result_title")}</Text>
         <Text style={styles.meta}>{date}</Text>
       </View>
@@ -240,6 +246,7 @@ function Metric({
 }
 
 const styles = StyleSheet.create({
+  owner: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   title: { color: colors.text, fontSize: 20, fontWeight: "800" },
   meta: { color: colors.muted, fontSize: 13 },
   caption: { color: colors.muted, fontSize: 13 },

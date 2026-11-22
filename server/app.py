@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 import accounts
 import mail
+import manage
 import report
 import scoring
 import store
@@ -36,6 +37,7 @@ CODE_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
 
 app = FastAPI(title="AI W.E.P analysis server")
 app.include_router(accounts.router)
+app.include_router(manage.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
@@ -183,20 +185,35 @@ def list_submissions(limit: int = 200, user=Depends(accounts.current_user)):
 
 
 def _own_row(sid, user):
-    """내 기록만 (시스템관리자는 전부). 교사·행정 관리자 열람은 6-2단계에서 넓힌다."""
+    """내 기록, 또는 볼 수 있는 교육생의 기록 (시스템관리자·행정 관리자·같은 과정 교사)."""
     try:
         uuid.UUID(sid)
     except ValueError:
         raise HTTPException(404, "not_found")
     row = store.get(sid)
-    if not row or (row.get("user_id") != user["id"] and user["role"] != "admin"):
+    if not row or not row.get("user_id") or not manage.can_view_student(user, row["user_id"]):
         raise HTTPException(404, "not_found")
     return row
 
 
 @app.get("/submissions/{sid}")
 def get_submission(sid: str, user=Depends(accounts.current_user)):
-    return _detail(_own_row(sid, user))
+    row = _own_row(sid, user)
+    out = _detail(row)
+    out["user_id"] = row["user_id"]
+    if row["user_id"] != user["id"]:  # 교사 등이 학생 결과를 볼 때 화면 위에 이름 표시
+        owner = store.select("users", {"id": f"eq.{row['user_id']}", "select": "name"})
+        out["owner_name"] = owner[0]["name"] if owner else None
+    return out
+
+
+@app.get("/students/{uid}/submissions")
+def list_student_submissions(uid: str, limit: int = 200, user=Depends(accounts.current_user)):
+    """교사·행정 관리자·시스템관리자가 보는 교육생 기록 목록."""
+    if not accounts.UUID_RE.match(uid or "") or not manage.can_view_student(user, uid):
+        raise HTTPException(404, "not_found")
+    rows = store.list_by_user(uid, max(1, min(limit, 500)))
+    return [_list_item(r) for r in rows]
 
 
 # ---- 5단계: AI 종합리포트 ----
@@ -238,8 +255,8 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
         raise HTTPException(409, {"code": "not_analyzed"})
     crit = scoring.criteria()
     limit = int(crit.get("report_daily_limit", 5))
-    # 시스템관리자 계정과 박사님 시험용 휴대폰은 한도 없음
-    unlimited = user["role"] == "admin" or (
+    # 시스템관리자·교사·행정 관리자와 박사님 시험용 휴대폰은 한도 없음
+    unlimited = user["role"] in ("admin", "teacher", "staff") or (
         bool(body.device_id) and body.device_id in (crit.get("report_unlimited_devices") or []))
 
     saved = store.get_report(sid, lang)
@@ -262,7 +279,7 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
     except report.ReportError as e:
         print("[report] 실패", str(e)[:300], flush=True)
         raise HTTPException(503 if e.code == "ai_not_configured" else 502, {"code": e.code})
-    new = {"submission_id": sid, "user_id": user["id"], "device_id": _device_or_none(body.device_id) or "-", "lang": lang, "model": report.model_name(),
+    new = {"submission_id": sid, "user_id": row["user_id"], "created_by": user["id"], "device_id": _device_or_none(body.device_id) or "-", "lang": lang, "model": report.model_name(),
            "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage}
     if stale:
         store.update_report(saved["id"], new)

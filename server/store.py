@@ -69,14 +69,16 @@ def list_by_device(device_id, limit):
     return _list_submissions("device_id", device_id, limit)
 
 
+# 목록·누적 분석에 쓰는 열 (결과 JSON에서 필요한 값만 꺼낸다, 그래프 배열은 빼서 가볍다)
+LIST_SELECT = ("id,user_id,device_id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,"
+               "defect_count,width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
+               "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")
+
+
 def _list_submissions(col, value, limit):
     url, h = _base()
     r = _check(requests.get(f"{url}/rest/v1/submissions", headers=h, timeout=TIMEOUT, params={
-        col: f"eq.{value}", "order": "created_at.desc", "limit": str(limit),
-        "select": ("id,user_id,device_id,status,process,position,material,created_at,width_mean_mm,straight_max_dev_mm,defect_count,"
-                   # 누적 분석(4단계)용: 결과 JSON에서 필요한 값만 꺼낸다
-                   "width_std_mm:result->bead->width->std_mm,width_min_mm:result->bead->width->min_mm,"
-                   "width_max_mm:result->bead->width->max_mm,defect_types:result->defects")}))
+        col: f"eq.{value}", "order": "created_at.desc", "limit": str(limit), "select": LIST_SELECT}))
     return r.json()
 
 
@@ -177,9 +179,11 @@ def list_by_user(user_id, limit):
 
 
 def count_reports_since_user(user_id, since_iso):
+    """이 사람이 만든 리포트 수 (예전 리포트는 만든 사람 기록이 없어서 주인 기준으로 셈)."""
     url, h = _base()
     r = _check(requests.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
-        "user_id": f"eq.{user_id}", "created_at": f"gte.{since_iso}", "select": "id"},
+        "or": f"(created_by.eq.{user_id},and(created_by.is.null,user_id.eq.{user_id}))",
+        "created_at": f"gte.{since_iso}", "select": "id"},
         headers={**h, "Prefer": "count=exact", "Range": "0-0"}))
     rng = r.headers.get("Content-Range", "")
     try:
