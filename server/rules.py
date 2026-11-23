@@ -460,7 +460,8 @@ def extract(files):
         else:
             content.append({"type": "image", "source": {"type": "base64", "media_type": mt, "data": b64}})
     content.append({"type": "text", "text": "Extract the visual inspection acceptance criteria from the uploaded "
-                    "document (pages/images in order). Return the JSON."})
+                    "document (pages/images in order).\nReply with ONLY one JSON object, no markdown and no other text, "
+                    "with exactly these keys (the values below are placeholders):\n" + TEMPLATE})
     client = anthropic.Anthropic(timeout=240, max_retries=1)
     try:
         resp = client.beta.messages.create(
@@ -468,7 +469,9 @@ def extract(files):
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
             max_tokens=16000,
-            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}},
+            # 형식 강제(json_schema)는 쓰지 않는다: 이 표는 커서 API가 "grammar is too large"로 거절했다 (2026-11-23).
+            # 대신 모양을 글로 알려 주고, 받은 JSON 을 parse_reply + clean_* 로 검사한다.
+            output_config={"effort": "medium"},
             system=SYSTEM,
             messages=[{"role": "user", "content": content}],
         )
@@ -484,11 +487,42 @@ def extract(files):
         raise ExtractError("ai_failed", "refusal")
     if resp.stop_reason == "max_tokens":
         raise ExtractError("ai_failed", "max_tokens")
-    text = next((b.text for b in resp.content if b.type == "text"), None)
-    try:
-        return json.loads(text or "")
-    except json.JSONDecodeError:
+    text = "".join(b.text for b in resp.content if b.type == "text")
+    out = parse_reply(text)
+    if out is None:
+        print("[rules] AI 답을 JSON 으로 못 읽음:", text[:300].replace("\n", " "), flush=True)
         raise ExtractError("ai_failed", "bad_json")
+    return out
+
+
+def _example(sc):
+    """형식 표 → AI 에게 보여 줄 빈 예시 (숫자 -1, 쪽 0, 글 "", 참거짓 false)."""
+    t = sc.get("type")
+    if t == "object":
+        return {k: _example(v) for k, v in sc["properties"].items()}
+    if t == "array":
+        return [_example(sc["items"])]
+    if "enum" in sc:
+        return "|".join(sc["enum"]) or ""
+    return {"number": -1, "integer": 0, "string": "", "boolean": False}.get(t)
+
+
+TEMPLATE = json.dumps(_example(SCHEMA), ensure_ascii=False)
+
+
+def parse_reply(text):
+    """AI 답에서 JSON 객체를 꺼낸다 (```json 감싸기·앞뒤 말이 있어도). 못 읽으면 None."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", t)
+    i, j = t.find("{"), t.rfind("}")
+    if i < 0 or j <= i:
+        return None
+    try:
+        out = json.loads(t[i:j + 1])
+    except json.JSONDecodeError:
+        return None
+    return out if isinstance(out, dict) and isinstance(out.get("items"), dict) else None
 
 
 def _unset(v):
