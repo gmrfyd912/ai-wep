@@ -42,8 +42,9 @@ export default function RulesScreen() {
 
   const errText = (e: unknown) => {
     const { key } = authErrorKey(e);
-    const d = (e as { detail?: { max?: number; max_mb?: number } }).detail;
-    return t(key as "error_network", { max: d?.max, max_mb: d?.max_mb });
+    const d = (e as { detail?: { max?: number; max_mb?: number; why?: string } }).detail;
+    const msg = t(key as "error_network", { max: d?.max, max_mb: d?.max_mb });
+    return d?.why ? `${msg}\n(${d.why})` : msg; // 원인을 작게 함께 보여 줘야 고치기 쉽다
   };
 
   const pickDocs = async () => {

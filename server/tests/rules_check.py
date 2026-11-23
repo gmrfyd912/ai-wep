@@ -130,7 +130,42 @@ def check_hd():
     assert rules.clean_manual([{"name": "x", "joint": "weird"}])[0]["joint"] == ""
 
 
+def check_schema():
+    import json
+    # strict 형식 검사는 anyOf(값 또는 null)를 요청 전체에서 16개까지만 받는다 (넘으면 400 "Schema is too complex")
+    assert json.dumps(rules.SCHEMA).count("anyOf") <= 16
+    # AI 는 '없음'을 -1, 쪽 모름을 0 으로 보낸다
+    out = {"name": "n", "society": "", "notes": "", "items": {
+        "crack": {"found": True, "allowed": False, "note": "", "source": {"page": 0, "ref": "T8", "quote": "q"}},
+        "porosity": {"found": True, "allowed": True, "max_diameter_mm": 3, "max_count": -1, "per_length_mm": -1,
+                     "note": "", "source": {"page": 2, "ref": "", "quote": ""}},
+        "undercut": {"found": True, "allowed": True, "max_length_mm": -1, "max_depth_mm": 0.5, "note": "",
+                     "source": {"page": 1, "ref": "", "quote": "x"}}},
+        "manual": [{"name": "덧살", "rule": "r", "joint": "butt", "source": {"page": 1, "ref": "", "quote": ""},
+                    "formula": {"base": 1, "coef": 0.15, "cap": 7}},
+                   {"name": "목 두께", "rule": "r", "joint": "fillet", "source": {"page": 1, "ref": "", "quote": ""},
+                    "formula": {"base": -1, "coef": -1, "cap": -1}}],
+        "options": {"plate_zone_mm": -1, "next_tests": {"plate_butt": "RT", "plate_fillet": "", "pipe_butt": "", "pipe_fillet": ""}}}
+    d = rules.draft_from_ai(out)
+    assert d["items"]["crack"]["source"]["page"] is None and d["items"]["porosity"]["max_count"] is None
+    assert d["items"]["porosity"]["max_diameter_mm"] == 3 and d["items"]["undercut"]["max_length_mm"] is None
+    assert d["items"]["undercut"]["max_depth_mm"] == 0.5
+    assert d["manual"][0]["formula"] == {"base": 1.0, "coef": 0.15, "cap": 7.0} and d["manual"][1]["formula"] is None
+    assert d["options"]["plate_zone_mm"] is None and d["options"]["next_tests"]["plate_butt"] == "RT"
+    # 큰 사진은 줄여서 보낸다
+    import cv2
+    import numpy as np
+    big = cv2.imencode(".png", np.random.randint(0, 255, (3000, 4000, 3), np.uint8))[1].tobytes()
+    mt, small = rules.shrink_image("image/png", big)
+    img = cv2.imdecode(np.frombuffer(small, np.uint8), 1)
+    assert mt == "image/jpeg" and max(img.shape[:2]) == rules.MAX_EDGE and len(small) <= rules.MAX_IMAGE_BYTES
+    tiny = cv2.imencode(".jpg", np.zeros((100, 100, 3), np.uint8))[1].tobytes()
+    assert rules.shrink_image("image/jpeg", tiny) == ("image/jpeg", tiny)
+    assert rules.shrink_image("application/pdf", b"%PDF") == ("application/pdf", b"%PDF")
+
+
 def main():
+    check_schema()
     check_judge()
     check_hd()
     db.install()
