@@ -70,10 +70,10 @@ def check_judge():
 
 
 def hd_set():
-    """교육원 HD 규정 같은 세트: 균열·기공·오버랩 불허, 언더컷 깊이 0.5(12t), 가운데 150mm, 덧살 공식."""
+    """교육원 규정 같은 세트: 균열·기공·오버랩 불허, 언더컷 깊이 0.5(12t), 가운데 150mm, 덧살 공식."""
     def item(found, **kw):
         return {"found": found, "note": "", "source": SRC, **kw}
-    out = {"name": "HD 육안", "society": "HD", "notes": "", "items": {
+    out = {"name": "교육원 육안", "society": "교육원", "notes": "", "items": {
         "crack": item(True, allowed=False), "porosity": item(True, allowed=False),
         "undercut": item(True, allowed=True, max_depth_mm=0.5), "overlap": item(True, allowed=False),
         "spatter": item(False), "width_variation": item(False), "straightness": item(False)},
