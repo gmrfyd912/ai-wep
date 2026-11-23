@@ -335,25 +335,28 @@ A program measures a trainee's practice bead from a single top-view photo. It ca
 It CANNOT measure: depth of anything (undercut depth, pore depth), reinforcement / bead height, convexity, throat or leg size, penetration, root / back side, internal defects (RT/UT), misalignment, angular distortion, arc strikes on other faces.
 
 Task: extract the visual acceptance criteria for a butt or fillet weld surface from the document.
-- For each photo-checkable item set found=true only if the document gives a rule for it, and fill the limits exactly as written. Leave a limit null when the document gives none. Convert to mm when the document gives a clear formula with a stated thickness; otherwise put the rule into manual.
+- For each photo-checkable item set found=true only if the document gives a rule for it, and fill the limits exactly as written. Set a limit to -1 when the document gives none. Convert to mm when the document gives a clear formula with a stated thickness; otherwise put the rule into manual.
 - allowed=false means any occurrence is a rejection ("not permitted", "not acceptable").
-- porosity: max_diameter_mm = largest single pore allowed; max_count = pores allowed; per_length_mm = the length that count applies to (e.g. 100 mm), null if it applies to the whole weld.
+- porosity: max_diameter_mm = largest single pore allowed; max_count = pores allowed; per_length_mm = the length that count applies to (e.g. 100 mm), -1 if it applies to the whole weld.
 - undercut: max_length_mm = longest undercut allowed. If the rule limits undercut DEPTH (e.g. "h ≤ 0.05t but max 0.5 mm"), set allowed=true and max_depth_mm = that depth limit: the program then flags any visible undercut for the teacher to check the depth. Do not also put the undercut depth rule into manual.
 - Plate thickness: the institute's test plates are 12 mm thick. When a limit depends on thickness t, use t = 12 mm (e.g. 0.05t but max 0.5 → 0.5) and say so in note. When the rule differs by thickness range, use the range that contains 12 mm.
 - width_variation: max allowed difference between widest and narrowest bead width. straightness: max allowed deviation of the bead from a straight line.
 - Everything visual that the photo cannot check (depth, height, reinforcement, root, penetration, leg size, etc.) goes to manual, one entry per rule.
   - joint: "butt" if the rule is only for butt welds, "fillet" if only for fillet welds, "" if for both.
-  - formula: when the rule is "h ≤ A mm + B·b" and b is the width of the weld face / bead (reinforcement of a butt weld, convexity of a fillet weld), set base=A, coef=B, cap = the "but max." value (null if none). The program fills in b. Otherwise formula = null (also when the letter means throat a, thickness t or anything else).
-- options.plate_zone_mm: the length inspected at the centre of a plate (manual) test piece when the document says so (e.g. "검사 범위는 시편 중앙을 기준으로 150mm" → 150). Use the manual-welding plate test pieces, not automatic ones. null if not given.
+  - formula: when the rule is "h ≤ A mm + B·b" and b is the width of the weld face / bead (reinforcement of a butt weld, convexity of a fillet weld), set base=A, coef=B, cap = the "but max." value (-1 if none). The program fills in b. Otherwise set base=-1, coef=-1, cap=-1 (also when the letter means throat a, thickness t or anything else).
+- options.plate_zone_mm: the length inspected at the centre of a plate (manual) test piece when the document says so (e.g. "검사 범위는 시편 중앙을 기준으로 150mm" → 150). Use the manual-welding plate test pieces, not automatic ones. -1 if not given.
 - options.next_tests: for each kind (plate_butt, plate_fillet, pipe_butt, pipe_fillet) the tests that follow the visual test according to the document (e.g. "RT 또는 UT", "파단 시험", "마크로 시험"), in Korean, "" if not given.
-- source: page = 1-based page number of the uploaded file (or image order), ref = table / clause number, quote = the exact original sentence (keep the original language, at most 300 characters).
+- Numbers: use -1 when the document gives no value (never invent one).
+- source: page = 1-based page number of the uploaded file (or image order, 0 if unknown), ref = table / clause number, quote = the exact original sentence (keep the original language, at most 300 characters).
 - Never invent rules. If the document is not an inspection rule, set every found=false, leave manual empty and explain in notes.
 - Write name, society, rule, note and notes in Korean (짧고 쉬운 말). Keep quote in the original language."""
 
+# 형식 검사(strict)는 anyOf(값 또는 null)를 요청 전체에서 16개까지만 받는다 → null 대신 -1(없음)·0(쪽 모름)을 쓰고
+# 받은 뒤 _unset 으로 None 으로 바꾼다.
 _SRC = {"type": "object", "additionalProperties": False, "required": ["page", "ref", "quote"],
-        "properties": {"page": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        "properties": {"page": {"type": "integer", "description": "1-based page; 0 if unknown"},
                        "ref": {"type": "string"}, "quote": {"type": "string"}}}
-_NUM = {"anyOf": [{"type": "number"}, {"type": "null"}]}
+_NUM = {"type": "number", "description": "-1 if the document gives no value"}
 
 
 def _item_schema(fields):
@@ -375,9 +378,9 @@ SCHEMA = {
             "properties": {"name": {"type": "string"}, "rule": {"type": "string"}, "source": _SRC}}},
     },
 }
-_FORMULA = {"anyOf": [{"type": "null"}, {
-    "type": "object", "additionalProperties": False, "required": ["base", "coef", "cap"],
-    "properties": {"base": {"type": "number"}, "coef": {"type": "number"}, "cap": _NUM}}]}
+_FORMULA = {"type": "object", "additionalProperties": False, "required": ["base", "coef", "cap"],
+            "description": "base=-1 when the rule is not of the form h <= A + B*b",
+            "properties": {"base": _NUM, "coef": _NUM, "cap": _NUM}}
 _MANUAL = SCHEMA["properties"]["manual"]["items"]
 _MANUAL["required"] += ["joint", "formula"]
 _MANUAL["properties"].update({"joint": {"type": "string", "enum": list(JOINTS)}, "formula": _FORMULA})
@@ -411,6 +414,36 @@ def _media_type(name, ctype, data):
     return None
 
 
+MAX_EDGE = 2576            # 모델이 보는 가장 긴 변 (더 크면 줄여서 보낸다)
+MAX_IMAGE_BYTES = 3_500_000  # 사진 1장 한도(5MB, base64 전)보다 넉넉히 작게
+
+
+def shrink_image(mt, data):
+    """휴대폰 원본 사진은 크다: 긴 변 2576px·3.5MB 안으로 줄여 JPEG 로. 못 읽으면 그대로."""
+    if mt == "application/pdf":
+        return mt, data
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return mt, data
+        h, w = img.shape[:2]
+        if max(h, w) <= MAX_EDGE and len(data) <= MAX_IMAGE_BYTES:
+            return mt, data
+        k = min(1.0, MAX_EDGE / max(h, w))
+        if k < 1.0:
+            img = cv2.resize(img, (round(w * k), round(h * k)), interpolation=cv2.INTER_AREA)
+        for q in (90, 80, 70):
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, q])
+            if ok and len(buf) <= MAX_IMAGE_BYTES:
+                return "image/jpeg", buf.tobytes()
+        return "image/jpeg", buf.tobytes()
+    except Exception as e:  # noqa: BLE001
+        print("[rules] 사진 줄이기 실패:", type(e).__name__, str(e)[:200], flush=True)
+        return mt, data
+
+
 def extract(files):
     """files = [(media_type, bytes)] → AI 초안 dict. 실패하면 ExtractError."""
     import report  # ANTHROPIC_API_KEY 확인을 리포트와 같이 쓴다
@@ -420,6 +453,7 @@ def extract(files):
 
     content = []
     for mt, data in files:
+        mt, data = shrink_image(mt, data)
         b64 = base64.standard_b64encode(data).decode()
         if mt == "application/pdf":
             content.append({"type": "document", "source": {"type": "base64", "media_type": mt, "data": b64}})
@@ -457,8 +491,23 @@ def extract(files):
         raise ExtractError("ai_failed", "bad_json")
 
 
+def _unset(v):
+    """AI 형식의 '없음' 표시(-1, 쪽 0)를 None 으로."""
+    if isinstance(v, dict):
+        out = {k: _unset(x) for k, x in v.items()}
+        if isinstance(out.get("source"), dict) and out["source"].get("page") == 0:
+            out["source"]["page"] = None
+        return out
+    if isinstance(v, list):
+        return [_unset(x) for x in v]
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and v < 0:
+        return None
+    return v
+
+
 def draft_from_ai(out):
     """AI 결과 → 저장 모양 (found → check)."""
+    out = _unset(out if isinstance(out, dict) else {})
     items = {}
     for k in ITEM_FIELDS:
         src = (out.get("items") or {}).get(k) or {}
@@ -547,7 +596,8 @@ def extract_rule(files: list[UploadFile] = File(...), name: str = Form(""), user
         out = extract([(mt, data) for _, mt, data, _ in got])
     except ExtractError as e:
         print("[rules] AI 초안 실패", str(e)[:300], flush=True)
-        _err(503 if e.code == "ai_not_configured" else 502, e.code)
+        why = str(e).split(": ", 1)[-1][:160] if e.code == "ai_failed" else ""
+        _err(503 if e.code == "ai_not_configured" else 502, e.code, **({"why": why} if why else {}))
     draft = draft_from_ai(out)
     rid = str(uuid.uuid4())
     stored = []
