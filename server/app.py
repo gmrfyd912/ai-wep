@@ -219,7 +219,7 @@ def _detail(row):
     out["photo_url"] = store.signed_url("photos", row.get("photo_path"))
     out["check_url"] = store.signed_url("results", row.get("check_path"))
     out["score"] = scoring.score_of_row(row)
-    cj = rules.judgment_for(row.get("result")) if row.get("status") == "ok" else None
+    cj = rules.judgment_for(row) if row.get("status") == "ok" else None
     if cj:  # 적용 중인 선급규정이 있을 때만 (6-4b)
         out["class_judgment"] = cj
     return out
@@ -343,7 +343,7 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
     if not stale and not unlimited and used >= limit:
         raise HTTPException(429, {"code": "daily_limit", "limit": limit})
 
-    data = report.build_input(row, sc, _history(row), rules.judge(row.get("result"), rs))
+    data = report.build_input(row, sc, _history(row), rules.judge(row.get("result"), rs, row.get("position"), row.get("work_type")))
     try:
         out, usage = report.generate(data, lang)
     except report.ReportError as e:

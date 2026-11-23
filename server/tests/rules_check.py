@@ -69,8 +69,70 @@ def check_judge():
     assert rules.pdf_pages(b"%PDF-1.4 /Type /Pages /Type /Page /Type/Page /Type /Page") == 3
 
 
+def hd_set():
+    """교육원 HD 규정 같은 세트: 균열·기공·오버랩 불허, 언더컷 깊이 0.5(12t), 가운데 150mm, 덧살 공식."""
+    def item(found, **kw):
+        return {"found": found, "note": "", "source": SRC, **kw}
+    out = {"name": "HD 육안", "society": "HD", "notes": "", "items": {
+        "crack": item(True, allowed=False), "porosity": item(True, allowed=False),
+        "undercut": item(True, allowed=True, max_depth_mm=0.5), "overlap": item(True, allowed=False),
+        "spatter": item(False), "width_variation": item(False), "straightness": item(False)},
+        "manual": [
+            {"name": "덧살 높이", "rule": "h ≤ 1mm + 0.15b, 최대 7mm", "source": SRC, "joint": "butt",
+             "formula": {"base": 1, "coef": 0.15, "cap": 7}},
+            {"name": "볼록 높이", "rule": "h ≤ 1mm + 0.15b, 최대 4mm", "source": SRC, "joint": "fillet",
+             "formula": {"base": 1, "coef": 0.15, "cap": 4}},
+            {"name": "융합 불량", "rule": "불허", "source": SRC, "joint": "", "formula": None}],
+        "options": {"plate_zone_mm": 150, "next_tests": {"plate_butt": "RT 또는 UT", "plate_fillet": "파단 시험",
+                                                         "pipe_butt": "RT", "pipe_fillet": "마크로 시험"}}}
+    return {"id": "hd", **rules.draft_from_ai(out)}
+
+
+def check_hd():
+    rs = hd_set()
+    assert rs["options"]["plate_zone_mm"] == 150 and rs["options"]["crack_ends"] is True
+    # 저장 모양(items 안 _options)으로도 같은 설정을 읽는다
+    stored = {"id": "hd", "items": rules.stored_items(rs["items"], rs["options"]), "manual": rs["manual"]}
+    assert rules.options_of(stored)["next_tests"]["plate_fillet"] == "파단 시험"
+    assert "_options" not in rules.clean_items(stored["items"])
+    j = rules.judge(result([]), stored, "2G", "plate")
+    assert j["verdict"] == "pass" and j["joint"] == "butt" and j["next_test"] == "RT 또는 UT", j
+    assert j["zone"] == {"start_mm": 25.0, "end_mm": 175.0, "length_mm": 150}, j["zone"]
+    # 맞대기는 덧살만 (비드 폭 7.8 → 1 + 1.17 = 2.2mm), 필릿 항목은 빠짐
+    names = {m["name"]: m for m in j["manual"]}
+    assert set(names) == {"덧살 높이", "융합 불량"} and names["덧살 높이"]["limit_mm"] == 2.2, names
+    assert names["덧살 높이"]["basis_mm"] == 7.8 and "limit_mm" not in names["융합 불량"]
+    jf = rules.judge(result([]), stored, "3F", "plate")
+    assert jf["joint"] == "fillet" and {m["name"] for m in jf["manual"]} == {"볼록 높이", "융합 불량"}
+    assert jf["next_test"] == "파단 시험"
+    # 넓은 비드는 최대값까지만: 폭 30 → 1 + 4.5 = 5.5 (맞대기 7 이하), 필릿은 4.0
+    wide = result([]); wide["bead"]["width"]["mean_mm"] = 30
+    assert {m["name"]: m.get("limit_mm") for m in rules.judge(wide, stored, "3F")["manual"]}["볼록 높이"] == 4.0
+    # 언더컷 보이면 '확인 필요' (불합격 아님)
+    j = rules.judge(result([("Undercut", 12, 90)]), stored, "2G", "plate")
+    uc = [i for i in j["items"] if i["key"] == "undercut"][0]
+    assert j["verdict"] == "review" and uc["ok"] is None and uc["check"] == "depth" and uc["limit"] == 0.5, j
+    # 언더컷 + 기공 → 불합격이 우선
+    assert rules.judge(result([("Undercut", 12, 90), ("Porosity", 1, 100)]), stored, "2G")["verdict"] == "fail"
+    # 가운데 150mm 밖(25mm 전) 기공은 검사 범위 밖
+    assert rules.judge(result([("Porosity", 1, 15)]), stored, "2G", "plate")["verdict"] == "pass"
+    # 균열은 양 끝 10mm 도 본다 (크레이터 균열)
+    r = result([]); r["bead"]["length_mm"] = 120  # 150 보다 짧으면 범위 제한 없음
+    r["defects_end_zone"] = [{"type": "crack", "length_mm": 2, "pos_along_bead_mm": 115}, {"type": "Porosity", "length_mm": 1, "pos_along_bead_mm": 3}]
+    j = rules.judge(r, stored, "2G", "plate")
+    assert j["zone"] is None and j["verdict"] == "fail" and j["items"][0]["ends"] is True, j
+    assert [i["key"] for i in j["items"] if i["ok"] is False] == ["crack"]  # 끝의 기공은 지금처럼 뺀다
+    # 배관은 가운데 150mm 제한 없이, 나머지 둘레는 교사 확인 표시
+    jp = rules.judge(result([("Porosity", 1, 15)]), stored, "6G", "pipe")
+    assert jp["zone"] is None and jp["pipe_partial"] is True and jp["verdict"] == "fail" and jp["next_test"] == "RT"
+    # 공식이 이상하면 버린다
+    assert rules.clean_manual([{"name": "x", "formula": {"base": "a", "coef": 1}}])[0]["formula"] is None
+    assert rules.clean_manual([{"name": "x", "joint": "weird"}])[0]["joint"] == ""
+
+
 def main():
     check_judge()
+    check_hd()
     db.install()
     scoring.clear_cache()
     rules.clear_cache()
@@ -135,6 +197,16 @@ def main():
     items = {**d["items"], "porosity": {**d["items"]["porosity"], "max_count": 3}}
     r = c.put(f"/admin/rules/{rid}", json={**body, "name": "교육원 외관검사", "items": items}, headers=A)
     assert r.status_code == 200 and r.json()["items"]["porosity"]["max_count"] == 3 and r.json()["updated_by"] == "ad"
+    assert d["options"] == {"plate_zone_mm": None, "crack_ends": True,
+                            "next_tests": {k: "" for k in rules.NEXT_TESTS}}, d["options"]
+    # 설정(가운데 150mm·다음 시험)은 options 로 저장, 안 보내면 그대로 둔다
+    opts = {"plate_zone_mm": 150, "crack_ends": True, "next_tests": {"plate_butt": "RT 또는 UT"}}
+    r = c.put(f"/admin/rules/{rid}", json={**body, "name": "교육원 외관검사", "items": items, "options": opts}, headers=A)
+    assert r.json()["options"]["plate_zone_mm"] == 150 and r.json()["options"]["next_tests"]["plate_butt"] == "RT 또는 UT"
+    r = c.put(f"/admin/rules/{rid}", json={**body, "name": "교육원 외관검사", "items": items}, headers=A)
+    assert r.json()["options"]["plate_zone_mm"] == 150
+    r = c.put(f"/admin/rules/{rid}", json={**body, "name": "교육원 외관검사", "items": items, "options": {}}, headers=A)
+    assert r.json()["options"]["plate_zone_mm"] is None and "_options" not in r.json()["items"]
 
     # 적용 → 결과 화면에 선급 예비판정 (교사·본인 모두)
     assert c.post(f"/admin/rules/{rid}/activate", json={"active": True}, headers=A).json()["active"] is True

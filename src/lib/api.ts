@@ -737,12 +737,36 @@ export type RuleItem = {
   max_count?: number | null;
   per_length_mm?: number | null;
   max_length_mm?: number | null;
+  /** 언더컷 허용 깊이: 사진으로 못 재서, 보이면 '확인 필요' (교사가 깊이 확인) */
+  max_depth_mm?: number | null;
   /** 폭 변화·직진도 한계 */
   max_mm?: number | null;
   source: RuleSource;
   note: string;
 };
-export type ManualRule = { name: string; rule: string; source: RuleSource };
+export type Joint = "" | "butt" | "fillet";
+/** h ≤ base + coef × 비드 폭, 최대 cap (덧살·볼록 높이처럼 폭으로 계산되는 허용치) */
+export type RuleFormula = { base: number; coef: number; cap: number | null };
+export type ManualRule = {
+  name: string;
+  rule: string;
+  source: RuleSource;
+  /** 맞대기만 / 필릿만 / 공통("") */
+  joint?: Joint;
+  formula?: RuleFormula | null;
+  /** 결과 화면: 이 비드 폭으로 계산한 허용치 */
+  limit_mm?: number;
+  basis_mm?: number;
+};
+export const NEXT_TEST_KINDS = ["plate_butt", "plate_fillet", "pipe_butt", "pipe_fillet"] as const;
+export type RuleOptions = {
+  /** 평판 검사 범위: 가운데 몇 mm (비우면 양 끝 10mm만 빼고 전체) */
+  plate_zone_mm: number | null;
+  /** 균열은 양 끝 10mm 도 본다 (크레이터 균열) */
+  crack_ends: boolean;
+  /** 육안검사 다음 시험 안내 (시편 종류별) */
+  next_tests: Record<(typeof NEXT_TEST_KINDS)[number], string>;
+};
 export type RuleFile = { name: string; type: string; pages: number; url?: string | null };
 export type RuleSet = {
   id: string;
@@ -755,6 +779,7 @@ export type RuleSet = {
   updated_by?: string | null;
   items: Record<RuleKey, RuleItem>;
   manual: ManualRule[];
+  options: RuleOptions;
   files: RuleFile[];
 };
 export type RuleSetSummary = Pick<RuleSet, "id" | "name" | "society" | "active" | "updated_at"> & {
@@ -764,8 +789,11 @@ export type RuleSetSummary = Pick<RuleSet, "id" | "name" | "society" | "active" 
 };
 export type ClassJudgmentItem = {
   key: RuleKey;
-  check: "none" | "max_diameter" | "count" | "max_length" | "allowed" | "max";
-  ok: boolean;
+  check: "none" | "max_diameter" | "count" | "max_length" | "allowed" | "max" | "depth";
+  /** null = 확인 필요 (교사가 깊이 확인) */
+  ok: boolean | null;
+  /** 균열: 양 끝까지 봤음 */
+  ends?: boolean;
   measured: number;
   limit: number | null;
   unit: "mm" | "count";
@@ -779,15 +807,21 @@ export type ClassJudgment = {
   set_id: string;
   name: string;
   society: string;
-  verdict: "pass" | "fail" | null;
+  verdict: "pass" | "fail" | "review" | null;
   items: ClassJudgmentItem[];
   manual: ManualRule[];
+  joint?: "butt" | "fillet" | null;
+  /** 평판 가운데 검사 범위 (시작에서 mm) */
+  zone?: { start_mm: number; end_mm: number; length_mm: number } | null;
+  /** 배관: 사진에 보이는 부분만 봄 */
+  pipe_partial?: boolean;
+  next_test?: string;
 };
 
 export const listRules = () => request<{ items: RuleSetSummary[]; model: string }>("/admin/rules", {}, BOARD_TIMEOUT);
 export const getRule = (id: string) => request<RuleSet>(`/admin/rules/${id}`, {}, BOARD_TIMEOUT);
 export const createRule = (name: string) => request<RuleSet>("/admin/rules", json("POST", { name }), BOARD_TIMEOUT);
-export const saveRule = (id: string, v: Pick<RuleSet, "name" | "society" | "notes" | "items" | "manual">) =>
+export const saveRule = (id: string, v: Pick<RuleSet, "name" | "society" | "notes" | "items" | "manual" | "options">) =>
   request<RuleSet>(`/admin/rules/${id}`, json("PUT", v), BOARD_TIMEOUT);
 export const activateRule = (id: string, active: boolean) =>
   request<{ ok: boolean; active: boolean }>(`/admin/rules/${id}/activate`, json("POST", { active }), BOARD_TIMEOUT);

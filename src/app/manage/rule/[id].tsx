@@ -4,16 +4,19 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, Switch, Text, TextIn
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
-import { AppButton, Card, Field, Screen, SectionTitle } from "@/components/ui";
+import { AppButton, Card, Chips, Field, Screen, SectionTitle } from "@/components/ui";
 import {
+  NEXT_TEST_KINDS,
   RULE_KEYS,
   activateRule,
   authErrorKey,
   deleteRule,
   getRule,
   saveRule,
+  type Joint,
   type ManualRule,
   type RuleItem,
+  type RuleOptions,
   type RuleKey,
   type RuleSet,
 } from "@/lib/api";
@@ -30,7 +33,10 @@ const NUM_FIELDS: Record<RuleKey, { key: keyof RuleItem; unit: "mm" | "count" }[
     { key: "max_count", unit: "count" },
     { key: "per_length_mm", unit: "mm" },
   ],
-  undercut: [{ key: "max_length_mm", unit: "mm" }],
+  undercut: [
+    { key: "max_length_mm", unit: "mm" },
+    { key: "max_depth_mm", unit: "mm" },
+  ],
   overlap: [],
   spatter: [],
   width_variation: [{ key: "max_mm", unit: "mm" }],
@@ -40,6 +46,17 @@ const DEFECT_KEYS: RuleKey[] = ["crack", "porosity", "undercut", "overlap", "spa
 
 type Nums = Record<string, string>;
 const n = (v: string) => Number(String(v).replace(",", "."));
+const str = (v: number | null | undefined) => (v === null || v === undefined ? "" : String(v));
+
+/** 교사 확인 항목 편집용: 공식 숫자는 글자로 들고 있다가 저장할 때 바꾼다 */
+type MEdit = ManualRule & { fb: string; fc: string; fx: string };
+const toEdit = (m: ManualRule): MEdit => ({
+  ...m,
+  joint: m.joint ?? "",
+  fb: str(m.formula?.base),
+  fc: str(m.formula?.coef),
+  fx: str(m.formula?.cap),
+});
 
 function toNums(items: RuleSet["items"]): Nums {
   const out: Nums = {};
@@ -63,7 +80,9 @@ export default function RuleEditor() {
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<RuleSet["items"] | null>(null);
   const [nums, setNums] = useState<Nums>({});
-  const [manual, setManual] = useState<ManualRule[]>([]);
+  const [manual, setManual] = useState<MEdit[]>([]);
+  const [options, setOptions] = useState<RuleOptions | null>(null);
+  const [zone, setZone] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -76,7 +95,9 @@ export default function RuleEditor() {
     setNotes(x.notes);
     setItems(x.items);
     setNums(toNums(x.items));
-    setManual(x.manual);
+    setManual(x.manual.map(toEdit));
+    setOptions(x.options);
+    setZone(str(x.options?.plate_zone_mm));
     setDirty(false);
   };
 
@@ -85,7 +106,7 @@ export default function RuleEditor() {
   }, [id, t]);
 
   if (user?.role !== "admin") return <Redirect href="/" />;
-  if (!rs || !items) {
+  if (!rs || !items || !options) {
     return <Screen>{error ? <Text style={styles.error}>{error}</Text> : <ActivityIndicator color={colors.primary} />}</Screen>;
   }
 
@@ -118,9 +139,27 @@ export default function RuleEditor() {
     return out;
   };
 
+  const setM = (i: number, patch: Partial<MEdit>) => (touch(), setManual(manual.map((x, j) => (j === i ? { ...x, ...patch } : x))));
+  const setOpt = (patch: Partial<RuleOptions>) => (touch(), setOptions({ ...options, ...patch }));
+
+  /** 교사 확인 항목·설정 숫자 확인 (이상하면 null) */
+  const buildRest = () => {
+    const ok = (v: string) => v.trim() === "" || (Number.isFinite(n(v)) && n(v) >= 0);
+    const outM: ManualRule[] = [];
+    for (const m of manual) {
+      if (![m.fb, m.fc, m.fx].every(ok)) return null;
+      const { fb, fc, fx, ...rest } = m;
+      const has = fb.trim() !== "" && fc.trim() !== "";
+      outM.push({ ...rest, formula: has ? { base: n(fb), coef: n(fc), cap: fx.trim() ? n(fx) : null } : null });
+    }
+    if (!ok(zone)) return null;
+    return { manual: outM, options: { ...options, plate_zone_mm: zone.trim() ? n(zone) : null } };
+  };
+
   const save = async (): Promise<boolean> => {
     const built = build();
-    if (!built) {
+    const rest = buildRest();
+    if (!built || !rest) {
       setError(t("crit_errNumbers"));
       return false;
     }
@@ -131,7 +170,7 @@ export default function RuleEditor() {
     setBusy(true);
     setError("");
     try {
-      const x = await saveRule(rs.id, { name, society, notes, items: built, manual });
+      const x = await saveRule(rs.id, { name, society, notes, items: built, ...rest });
       apply(x);
       setMsg(t("crit_saved"));
       return true;
@@ -270,13 +309,53 @@ export default function RuleEditor() {
                 })
               : null}
             {it.check && NUM_FIELDS[k].length && (!isDefect || it.allowed) ? (
-              <Text style={styles.hint}>{t(k === "porosity" ? "rules_porosityHint" : "rules_blankHint")}</Text>
+              <Text style={styles.hint}>
+                {t(k === "porosity" ? "rules_porosityHint" : k === "undercut" ? "rules_undercutHint" : "rules_blankHint")}
+              </Text>
             ) : null}
             {it.check ? <SourceLine source={it.source} /> : null}
             {it.check && it.note ? <Text style={styles.hint}>{it.note}</Text> : null}
           </Card>
         );
       })}
+
+      <SectionTitle>{t("rules_optionsTitle")}</SectionTitle>
+      <Card>
+        <View style={styles.numRow}>
+          <Text style={styles.numLabel}>{t("rules_plateZone")}</Text>
+          <TextInput
+            style={styles.numInput}
+            value={zone}
+            onChangeText={(v) => (touch(), setZone(v))}
+            keyboardType="decimal-pad"
+            placeholder="-"
+            placeholderTextColor={colors.faint}
+            accessibilityLabel={t("rules_plateZone")}
+            selectTextOnFocus
+          />
+          <Text style={styles.unit}>mm</Text>
+        </View>
+        <Text style={styles.hint}>{t("rules_plateZoneHint")}</Text>
+        <View style={styles.switchRow}>
+          <Text style={styles.numLabel}>{t("rules_crackEndsLabel")}</Text>
+          <Switch
+            value={options.crack_ends}
+            onValueChange={(v) => setOpt({ crack_ends: v })}
+            accessibilityLabel={t("rules_crackEndsLabel")}
+            trackColor={{ true: colors.primary, false: colors.border }}
+          />
+        </View>
+        <Text style={styles.label}>{t("rules_nextTests")}</Text>
+        {NEXT_TEST_KINDS.map((k) => (
+          <Field
+            key={k}
+            label={t(`rules_kind_${k}` as "rules_kind_plate_butt")}
+            value={options.next_tests[k]}
+            placeholder={t("rules_nextTestPlaceholder")}
+            onChangeText={(v) => setOpt({ next_tests: { ...options.next_tests, [k]: v } })}
+          />
+        ))}
+      </Card>
 
       <SectionTitle>{t("rules_manualTitle")}</SectionTitle>
       <Text style={styles.hint}>{t("rules_manualHint")}</Text>
@@ -297,14 +376,49 @@ export default function RuleEditor() {
           <Field
             label={t("rules_manualName")}
             value={m.name}
-            onChangeText={(v) => (touch(), setManual(manual.map((x, j) => (j === i ? { ...x, name: v } : x))))}
+            onChangeText={(v) => setM(i, { name: v })}
           />
           <Field
             label={t("rules_manualRule")}
             value={m.rule}
             multiline
-            onChangeText={(v) => (touch(), setManual(manual.map((x, j) => (j === i ? { ...x, rule: v } : x))))}
+            onChangeText={(v) => setM(i, { rule: v })}
           />
+          <Text style={styles.label}>{t("rules_manualJoint")}</Text>
+          <Chips<Joint>
+            options={[
+              { value: "", label: t("rules_jointBoth") },
+              { value: "butt", label: t("rules_jointButt") },
+              { value: "fillet", label: t("rules_jointFillet") },
+            ]}
+            value={m.joint ?? ""}
+            onChange={(v) => setM(i, { joint: v })}
+          />
+          <Text style={styles.label}>{t("rules_formula")}</Text>
+          <View style={styles.numRow}>
+            {(
+              [
+                ["fb", "rules_fBase"],
+                ["fc", "rules_fCoef"],
+                ["fx", "rules_fCap"],
+              ] as const
+            ).map(([f, label]) => (
+              <View key={f} style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.hint}>{t(label)}</Text>
+                <TextInput
+                  style={[styles.numInput, { width: "100%" }]}
+                  value={m[f]}
+                  onChangeText={(v) => setM(i, { [f]: v })}
+                  keyboardType="decimal-pad"
+                  placeholder="-"
+                  placeholderTextColor={colors.faint}
+                  accessibilityLabel={t(label)}
+                  selectTextOnFocus
+                />
+              </View>
+            ))}
+          </View>
+          <Text style={styles.hint}>{t("rules_formulaHint")}</Text>
           <SourceLine source={m.source} />
         </Card>
       ))}
@@ -312,7 +426,7 @@ export default function RuleEditor() {
         label={t("rules_addManual")}
         icon="add-outline"
         variant="secondary"
-        onPress={() => (touch(), setManual([...manual, { name: "", rule: "", source: null }]))}
+        onPress={() => (touch(), setManual([...manual, toEdit({ name: "", rule: "", source: null, joint: "", formula: null })]))}
       />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
