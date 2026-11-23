@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from . import marker as mk
-from . import measure, rectify, roboflow_client, visualize
+from . import edges, measure, rectify, roboflow_client, visualize
 from .config import Config
 
 ENGINE_VERSION = "0.3.0"
@@ -84,7 +84,12 @@ def analyze_image(img, cfg=None, predictions=None, progress=None, pipe_od_mm=Non
             res["warnings"].append("multiple_beads")
         bead_mm = to_mm(_pred_points(best))
         try:
-            res["bead"], geom = measure.measure_bead(bead_mm, marker_mm.mean(0), cfg, pipe_od_mm)
+            refine = None
+            if cfg.edge_refine and not pipe_od_mm:  # 평판만 (배관은 아직 실측 검증 전)
+                gray_f = gray.astype(np.float32)
+                refine = lambda st, to_plane: edges.refine_stations(gray_f, H, to_plane, st, cfg)  # noqa: E731
+            res["bead"], geom = measure.measure_bead(bead_mm, marker_mm.mean(0), cfg, pipe_od_mm, refine)
+            res["bead"]["edge_refined"] = refine is not None
             res["bead"]["confidence"] = round(best["confidence"], 3)
         except ValueError as e:
             res["status"] = str(e)

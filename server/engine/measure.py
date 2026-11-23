@@ -40,7 +40,7 @@ def _arc(R, top, x):
     return R * np.arcsin(np.clip((x - top) / R, -1.0, 1.0))
 
 
-def measure_bead(poly_mm, marker_center_mm, cfg, pipe_od_mm=None):
+def measure_bead(poly_mm, marker_center_mm, cfg, pipe_od_mm=None, refine=None):
     """pipe_od_mm 가 있으면 배관: 마커(배관 꼭대기) 위치에서 양쪽 45°까지만 검사하고,
     직진도 기준선은 곡선(2차식)이다. 둥근 배관을 비스듬히 찍으면 원둘레 비드가 휘어 보이기 때문."""
     c, u, n = bead_axis(poly_mm)
@@ -65,6 +65,8 @@ def measure_bead(poly_mm, marker_center_mm, cfg, pipe_od_mm=None):
     if len(stations) < 3:
         raise ValueError("bead_too_short")
     st = np.array(stations)  # pos_mm, width_mm, center_offset_mm
+    if refine is not None:  # 가장자리 다시 찾기 (원본 사진 밝기 단면)
+        st = refine(st, lambda pos, off: c + (pos + xmin) * u + off * n)
     trim = cfg.end_trim_mm
     z0, z1 = trim, length - trim
     pipe = None
