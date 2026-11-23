@@ -686,11 +686,17 @@ const uz: Translation = {
   rules_nextTestPlaceholder: "masalan: RT yoki UT",
   rules_manualJoint: "Qaysi namunaga",
   rules_jointBoth: "Ikkalasi",
-  rules_formula: "Kenglikdan: h ≤ A + B × kenglik, maks C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "maks C (mm)",
-  rules_formulaHint: "Chegara chok kengligi b ga bog'liq bo'lsa to'ldiring (masalan 1 + 0,15b maks 7 → A 1, B 0,15, C 7). Natijada shu chok chegarasi chiqadi. Bo'sh = hisoblanmaydi.",
+  rules_formula: "Ruxsat balandlik = A + B × kenglik, C dan oshmaydi",
+  rules_fBase: "A asosiy balandlik (mm)",
+  rules_fCoef: "B kenglik koeffitsienti",
+  rules_fCap: "C maks balandlik (mm)",
+  rules_formulaHint: "Misol: 1 mm + 0,15b, maks 7 mm → A 1, B 0,15, C 7. Kenglik b ni ilova rasmdan o'lchaydi. Maksimum bo'lmasa C ni bo'sh qoldiring.",
+  rules_jointHint: "Uchma-uch faqat G holat natijalarida (1G, 2G…), burchak faqat F (1F, 2F…). Ikkalasi yoki noaniq: Ikkalasi.",
+  rules_calcToggle: "Chegarani chok kengligidan hisoblash",
+  rules_calcOffHint: "Faqat qoidada kenglik b bilan formula bo'lsa yoqing (kuchaytirish, qavariqlik). Boshqalarida o'chiq qoldiring.",
+  rules_calcPreview: "Ko'rinish: kenglik {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "Hisoblash uchun A va B kiriting.",
+  rules_calcBadge: "Hisob",
 };
 
 export default uz;

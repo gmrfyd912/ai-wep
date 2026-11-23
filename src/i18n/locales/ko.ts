@@ -702,11 +702,17 @@ const ko = {
   rules_nextTestPlaceholder: "예: RT 또는 UT",
   rules_manualJoint: "적용 시편",
   rules_jointBoth: "공통",
-  rules_formula: "비드 폭으로 계산: h ≤ A + B × 폭, 최대 C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "최대 C (mm)",
-  rules_formulaHint: "덧살·볼록 높이처럼 비드 폭(b)으로 정해지는 기준이면 채우세요 (예: 1 + 0.15b, 최대 7 → A 1, B 0.15, C 7). 결과 화면에 그 비드의 허용 높이가 숫자로 나와요. 비우면 계산 안 해요.",
+  rules_formula: "허용 높이 = A + B × 비드 폭, 단 C를 넘지 않음",
+  rules_fBase: "A 기본 높이 (mm)",
+  rules_fCoef: "B 폭에 곱하는 수",
+  rules_fCap: "C 최대 높이 (mm)",
+  rules_formulaHint: "규정 예: 1mm + 0.15b, 최대 7mm → A 1, B 0.15, C 7. 비드 폭(b)은 앱이 사진에서 재서 넣어요. 최대가 없으면 C는 비워요.",
+  rules_jointHint: "맞대기는 G 자세(1G·2G…), 필릿은 F 자세(1F·2F…) 결과에만 보여요. 둘 다 해당하거나 모르면 공통.",
+  rules_calcToggle: "비드 폭으로 허용치 계산",
+  rules_calcOffHint: "규정에 '비드 폭(b)'이 들어간 식이 있을 때만 켜요 (덧살·볼록 높이). 다른 항목은 꺼 둔 채로 두면 돼요.",
+  rules_calcPreview: "미리보기: 비드 폭 {{w1}}mm → ≤ {{h1}}mm, {{w2}}mm → ≤ {{h2}}mm",
+  rules_calcNeedAB: "A와 B를 넣어야 계산돼요.",
+  rules_calcBadge: "계산",
 } as const;
 
 export default ko;

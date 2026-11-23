@@ -686,11 +686,17 @@ const fil: Translation = {
   rules_nextTestPlaceholder: "hal. RT o UT",
   rules_manualJoint: "Para sa",
   rules_jointBoth: "Pareho",
-  rules_formula: "Mula sa lapad: h ≤ A + B × lapad, max C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "max C (mm)",
-  rules_formulaHint: "Punan kung nakadepende sa lapad b, gaya ng taas ng reinforcement (hal. 1 + 0.15b max 7 → A 1, B 0.15, C 7). Ipapakita ng resulta ang limitasyon ng bead. Blangko = walang kalkulasyon.",
+  rules_formula: "Pinapayagang taas = A + B × lapad, hindi lalampas sa C",
+  rules_fBase: "A batayang taas (mm)",
+  rules_fCoef: "B multiplier ng lapad",
+  rules_fCap: "C max na taas (mm)",
+  rules_formulaHint: "Halimbawa: 1 mm + 0.15b, max 7 mm → A 1, B 0.15, C 7. Sinusukat ng app ang lapad b mula sa larawan. Iwanang blangko ang C kung walang max.",
+  rules_jointHint: "Butt: sa resulta ng G (1G, 2G…) lang; fillet: sa F (1F, 2F…) lang. Pareho o hindi sigurado: Pareho.",
+  rules_calcToggle: "Kalkulahin ang limitasyon mula sa lapad",
+  rules_calcOffHint: "I-on lang kapag may pormula na may lapad b (reinforcement, convexity). Iwanang naka-off sa iba.",
+  rules_calcPreview: "Silip: lapad {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "Ilagay ang A at B para makalkula.",
+  rules_calcBadge: "Kalk",
 };
 
 export default fil;
