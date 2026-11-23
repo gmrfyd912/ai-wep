@@ -686,11 +686,17 @@ const th: Translation = {
   rules_nextTestPlaceholder: "เช่น RT หรือ UT",
   rules_manualJoint: "ใช้กับ",
   rules_jointBoth: "ทั้งสอง",
-  rules_formula: "จากความกว้าง: h ≤ A + B × กว้าง สูงสุด C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "สูงสุด C (mm)",
-  rules_formulaHint: "กรอกเมื่อเกณฑ์ขึ้นกับความกว้าง b เช่นความสูงเสริม (เช่น 1 + 0.15b สูงสุด 7 → A 1, B 0.15, C 7) ผลจะแสดงค่าที่ยอมได้ของแนวนั้น เว้นว่าง = ไม่คำนวณ",
+  rules_formula: "ความสูงที่ยอมได้ = A + B × ความกว้าง ไม่เกิน C",
+  rules_fBase: "A ความสูงพื้นฐาน (mm)",
+  rules_fCoef: "B ตัวคูณความกว้าง",
+  rules_fCap: "C สูงสุด (mm)",
+  rules_formulaHint: "ตัวอย่าง: 1 mm + 0.15b สูงสุด 7 mm → A 1, B 0.15, C 7 แอปวัดความกว้าง b จากรูป ถ้าไม่มีค่าสูงสุดให้เว้น C",
+  rules_jointHint: "ต่อชนแสดงเฉพาะผลท่า G (1G, 2G…) ฟิลเล็ตเฉพาะท่า F (1F, 2F…) ใช้ทั้งสองหรือไม่แน่ใจ: ทั้งสอง",
+  rules_calcToggle: "คำนวณค่ายอมได้จากความกว้างแนว",
+  rules_calcOffHint: "เปิดเฉพาะเมื่อเกณฑ์มีสูตรที่มีความกว้าง b (ความสูงเสริม ความนูน) รายการอื่นปิดไว้",
+  rules_calcPreview: "ตัวอย่าง: กว้าง {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "ใส่ A และ B เพื่อคำนวณ",
+  rules_calcBadge: "คำนวณ",
 };
 
 export default th;

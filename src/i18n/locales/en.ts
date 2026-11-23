@@ -686,11 +686,17 @@ const en: Translation = {
   rules_nextTestPlaceholder: "e.g. RT or UT",
   rules_manualJoint: "Applies to",
   rules_jointBoth: "Both",
-  rules_formula: "From bead width: h ≤ A + B × width, max C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "max C (mm)",
-  rules_formulaHint: "Fill in when the limit depends on bead width b, like reinforcement or convexity (e.g. 1 + 0.15b max 7 → A 1, B 0.15, C 7). Results then show this bead's limit. Blank = no calculation.",
+  rules_formula: "Allowed height = A + B × bead width, never above C",
+  rules_fBase: "A base height (mm)",
+  rules_fCoef: "B × width factor",
+  rules_fCap: "C max height (mm)",
+  rules_formulaHint: "Rule example: 1 mm + 0.15b, max 7 mm → A 1, B 0.15, C 7. The app measures bead width b from the photo. Leave C blank if there is no max.",
+  rules_jointHint: "Butt shows only on G-position results (1G, 2G…), fillet only on F (1F, 2F…). Both or unsure: Both.",
+  rules_calcToggle: "Calculate limit from bead width",
+  rules_calcOffHint: "Turn on only when the rule has a formula with bead width b (reinforcement, convexity). Leave it off for other items.",
+  rules_calcPreview: "Preview: bead width {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "Enter A and B to calculate.",
+  rules_calcBadge: "Calc",
 };
 
 export default en;

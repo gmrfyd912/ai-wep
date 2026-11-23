@@ -49,14 +49,18 @@ const n = (v: string) => Number(String(v).replace(",", "."));
 const str = (v: number | null | undefined) => (v === null || v === undefined ? "" : String(v));
 
 /** 교사 확인 항목 편집용: 공식 숫자는 글자로 들고 있다가 저장할 때 바꾼다 */
-type MEdit = ManualRule & { fb: string; fc: string; fx: string };
+type MEdit = ManualRule & { fb: string; fc: string; fx: string; calc: boolean };
 const toEdit = (m: ManualRule): MEdit => ({
   ...m,
   joint: m.joint ?? "",
+  calc: !!m.formula,
   fb: str(m.formula?.base),
   fc: str(m.formula?.coef),
   fx: str(m.formula?.cap),
 });
+
+const isNum = (v: string) => v.trim() !== "" && Number.isFinite(n(v));
+const calcReady = (m: MEdit) => m.calc && isNum(m.fb) && isNum(m.fc);
 
 function toNums(items: RuleSet["items"]): Nums {
   const out: Nums = {};
@@ -147,9 +151,9 @@ export default function RuleEditor() {
     const ok = (v: string) => v.trim() === "" || (Number.isFinite(n(v)) && n(v) >= 0);
     const outM: ManualRule[] = [];
     for (const m of manual) {
-      if (![m.fb, m.fc, m.fx].every(ok)) return null;
-      const { fb, fc, fx, ...rest } = m;
-      const has = fb.trim() !== "" && fc.trim() !== "";
+      if (m.calc && ![m.fb, m.fc, m.fx].every(ok)) return null;
+      const { fb, fc, fx, calc, ...rest } = m;
+      const has = calc && fb.trim() !== "" && fc.trim() !== "";
       outM.push({ ...rest, formula: has ? { base: n(fb), coef: n(fc), cap: fx.trim() ? n(fx) : null } : null });
     }
     if (!ok(zone)) return null;
@@ -365,6 +369,12 @@ export default function RuleEditor() {
             <Text style={styles.label}>
               {t("rules_manualItem")} {i + 1}
             </Text>
+            {calcReady(m) ? (
+              <View style={styles.badge}>
+                <Ionicons name="calculator-outline" size={12} color={colors.primary} />
+                <Text style={styles.badgeText}>{t("rules_calcBadge")}</Text>
+              </View>
+            ) : null}
             <Pressable
               onPress={() => (touch(), setManual(manual.filter((_, j) => j !== i)))}
               hitSlop={10}
@@ -394,31 +404,58 @@ export default function RuleEditor() {
             value={m.joint ?? ""}
             onChange={(v) => setM(i, { joint: v })}
           />
-          <Text style={styles.label}>{t("rules_formula")}</Text>
-          <View style={styles.numRow}>
-            {(
-              [
-                ["fb", "rules_fBase"],
-                ["fc", "rules_fCoef"],
-                ["fx", "rules_fCap"],
-              ] as const
-            ).map(([f, label]) => (
-              <View key={f} style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.hint}>{t(label)}</Text>
-                <TextInput
-                  style={[styles.numInput, { width: "100%" }]}
-                  value={m[f]}
-                  onChangeText={(v) => setM(i, { [f]: v })}
-                  keyboardType="decimal-pad"
-                  placeholder="-"
-                  placeholderTextColor={colors.faint}
-                  accessibilityLabel={t(label)}
-                  selectTextOnFocus
-                />
-              </View>
-            ))}
+          <Text style={styles.hint}>{t("rules_jointHint")}</Text>
+          <View style={styles.switchRow}>
+            <Text style={styles.label}>{t("rules_calcToggle")}</Text>
+            <Switch
+              value={m.calc}
+              onValueChange={(v) => setM(i, { calc: v })}
+              accessibilityLabel={t("rules_calcToggle")}
+            />
           </View>
-          <Text style={styles.hint}>{t("rules_formulaHint")}</Text>
+          {!m.calc ? (
+            <Text style={styles.hint}>{t("rules_calcOffHint")}</Text>
+          ) : (
+            <View style={styles.calcBox}>
+              <Text style={styles.rule}>{t("rules_formula")}</Text>
+              <View style={[styles.numRow, { alignItems: "flex-end" }]}>
+                {(
+                  [
+                    ["fb", "rules_fBase"],
+                    ["fc", "rules_fCoef"],
+                    ["fx", "rules_fCap"],
+                  ] as const
+                ).map(([f, label]) => (
+                  <View key={f} style={{ flex: 1, gap: 2 }}>
+                    <Text style={styles.hint}>{t(label)}</Text>
+                    <TextInput
+                      style={[styles.numInput, { width: "100%" }]}
+                      value={m[f]}
+                      onChangeText={(v) => setM(i, { [f]: v })}
+                      keyboardType="decimal-pad"
+                      placeholder="-"
+                      placeholderTextColor={colors.faint}
+                      accessibilityLabel={t(label)}
+                      selectTextOnFocus
+                    />
+                  </View>
+                ))}
+              </View>
+              {(() => {
+                const lim = (w: number) => {
+                  const h = n(m.fb) + n(m.fc) * w;
+                  return (m.fx.trim() && Number.isFinite(n(m.fx)) ? Math.min(h, n(m.fx)) : h).toFixed(1);
+                };
+                const ready = calcReady(m);
+                return (
+                  <Text style={ready ? styles.preview : styles.warn}>
+                    {ready ? t("rules_calcPreview", { w1: 10, h1: lim(10), w2: 20, h2: lim(20) }) : t("rules_calcNeedAB")}
+                  </Text>
+                );
+              })()}
+              <Text style={styles.hint}>{t("rules_formulaHint")}</Text>
+            </View>
+          )}
           <SourceLine source={m.source} />
         </Card>
       ))}
@@ -449,6 +486,10 @@ export default function RuleEditor() {
 
 const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  preview: { color: colors.primary, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+  calcBox: { gap: space.xs, padding: space.sm, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
+  badge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, borderWidth: 1, borderColor: colors.primary },
+  badgeText: { color: colors.primary, fontSize: 11, fontWeight: "700" },
   warn: { color: colors.warning, fontSize: 13, lineHeight: 19 },
   error: { color: colors.danger, fontSize: 14 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", flex: 1 },

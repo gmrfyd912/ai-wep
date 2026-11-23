@@ -686,11 +686,17 @@ const id: Translation = {
   rules_nextTestPlaceholder: "mis. RT atau UT",
   rules_manualJoint: "Berlaku untuk",
   rules_jointBoth: "Keduanya",
-  rules_formula: "Dari lebar: h ≤ A + B × lebar, maks C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "maks C (mm)",
-  rules_formulaHint: "Isi jika batas bergantung lebar b, seperti tinggi penguat (mis. 1 + 0,15b maks 7 → A 1, B 0,15, C 7). Hasil menampilkan batas bead itu. Kosong = tidak dihitung.",
+  rules_formula: "Tinggi diizinkan = A + B × lebar, tidak lebih dari C",
+  rules_fBase: "A tinggi dasar (mm)",
+  rules_fCoef: "B pengali lebar",
+  rules_fCap: "C tinggi maks (mm)",
+  rules_formulaHint: "Contoh: 1 mm + 0,15b, maks 7 mm → A 1, B 0,15, C 7. Aplikasi mengukur lebar b dari foto. Kosongkan C jika tak ada maks.",
+  rules_jointHint: "Butt hanya tampil di hasil posisi G (1G, 2G…), fillet hanya F (1F, 2F…). Keduanya atau ragu: Keduanya.",
+  rules_calcToggle: "Hitung batas dari lebar bead",
+  rules_calcOffHint: "Nyalakan hanya jika aturan punya rumus dengan lebar b (penguat, cembung). Item lain biarkan mati.",
+  rules_calcPreview: "Pratinjau: lebar {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "Isi A dan B untuk menghitung.",
+  rules_calcBadge: "Hitung",
 };
 
 export default id;

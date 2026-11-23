@@ -686,11 +686,17 @@ const es: Translation = {
   rules_nextTestPlaceholder: "p. ej. RT o UT",
   rules_manualJoint: "Se aplica a",
   rules_jointBoth: "Ambos",
-  rules_formula: "Según el ancho: h ≤ A + B × ancho, máx C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "máx C (mm)",
-  rules_formulaHint: "Rellénalo si el límite depende del ancho b, como el sobreespesor (p. ej. 1 + 0,15b máx 7 → A 1, B 0,15, C 7). El resultado mostrará el límite de ese cordón. Vacío = sin cálculo.",
+  rules_formula: "Altura permitida = A + B × ancho, sin pasar de C",
+  rules_fBase: "A altura base (mm)",
+  rules_fCoef: "B factor del ancho",
+  rules_fCap: "C altura máx (mm)",
+  rules_formulaHint: "Ejemplo: 1 mm + 0,15b, máx 7 mm → A 1, B 0,15, C 7. La app mide el ancho b en la foto. Deja C vacío si no hay máximo.",
+  rules_jointHint: "A tope solo aparece en resultados de posición G (1G, 2G…), en ángulo solo en F (1F, 2F…). Ambos o no seguro: Ambos.",
+  rules_calcToggle: "Calcular el límite según el ancho",
+  rules_calcOffHint: "Actívalo solo si la norma tiene una fórmula con el ancho b (sobreespesor, convexidad). Déjalo apagado en los demás.",
+  rules_calcPreview: "Vista previa: ancho {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "Introduce A y B para calcular.",
+  rules_calcBadge: "Cálculo",
 };
 
 export default es;

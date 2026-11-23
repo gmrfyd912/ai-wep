@@ -686,11 +686,17 @@ const vi: Translation = {
   rules_nextTestPlaceholder: "vd: RT hoặc UT",
   rules_manualJoint: "Áp dụng cho",
   rules_jointBoth: "Cả hai",
-  rules_formula: "Theo bề rộng: h ≤ A + B × rộng, tối đa C",
-  rules_fBase: "A (mm)",
-  rules_fCoef: "B",
-  rules_fCap: "tối đa C (mm)",
-  rules_formulaHint: "Điền khi giới hạn phụ thuộc bề rộng b như chiều cao gia cường (vd 1 + 0,15b tối đa 7 → A 1, B 0,15, C 7). Kết quả sẽ hiện giới hạn của mối đó. Để trống = không tính.",
+  rules_formula: "Chiều cao cho phép = A + B × bề rộng, không quá C",
+  rules_fBase: "A cao cơ bản (mm)",
+  rules_fCoef: "B hệ số nhân bề rộng",
+  rules_fCap: "C cao tối đa (mm)",
+  rules_formulaHint: "Ví dụ: 1 mm + 0,15b, tối đa 7 mm → A 1, B 0,15, C 7. Ứng dụng đo bề rộng b từ ảnh. Không có tối đa thì để trống C.",
+  rules_jointHint: "Giáp mối chỉ hiện ở kết quả tư thế G (1G, 2G…), góc chỉ ở F (1F, 2F…). Cả hai hoặc không rõ: Cả hai.",
+  rules_calcToggle: "Tính giới hạn theo bề rộng mối",
+  rules_calcOffHint: "Chỉ bật khi quy định có công thức với bề rộng b (gia cường, độ lồi). Mục khác để tắt.",
+  rules_calcPreview: "Xem trước: rộng {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
+  rules_calcNeedAB: "Nhập A và B để tính.",
+  rules_calcBadge: "Tính",
 };
 
 export default vi;
