@@ -32,7 +32,7 @@ MEASURES = ("width_variation", "straightness")
 ITEM_FIELDS = {
     "crack": ("allowed",),
     "porosity": ("allowed", "max_diameter_mm", "max_count", "per_length_mm"),
-    "undercut": ("allowed", "max_length_mm"),
+    "undercut": ("allowed", "max_length_mm", "max_depth_mm"),
     "overlap": ("allowed",),
     "spatter": ("allowed",),
     "width_variation": ("max_mm",),
@@ -109,6 +109,23 @@ def clean_items(raw):
     return out
 
 
+JOINTS = ("", "butt", "fillet")
+NEXT_TESTS = ("plate_butt", "plate_fillet", "pipe_butt", "pipe_fillet")
+
+
+def _formula(f):
+    """h ≤ base + coef × b (b = 비드 폭), 최대 cap. 숫자가 이상하면 없는 것으로."""
+    if not isinstance(f, dict):
+        return None
+    try:
+        base, coef, cap = _num(f.get("base")), _num(f.get("coef")), _num(f.get("cap"))
+    except ValueError:
+        return None
+    if base is None or coef is None:
+        return None
+    return {"base": base, "coef": coef, "cap": cap}
+
+
 def clean_manual(raw):
     out = []
     for m in (raw if isinstance(raw, list) else [])[:50]:
@@ -116,9 +133,36 @@ def clean_manual(raw):
             continue
         name = str(m.get("name") or "").strip()[:100]
         rule = str(m.get("rule") or "").strip()[:500]
+        joint = m.get("joint") if m.get("joint") in JOINTS else ""
         if name or rule:
-            out.append({"name": name, "rule": rule, "source": _source(m.get("source"))})
+            out.append({"name": name, "rule": rule, "source": _source(m.get("source")),
+                        "joint": joint, "formula": _formula(m.get("formula"))})
     return out
+
+
+def clean_options(raw):
+    """세트 전체 설정: 평판 검사 범위(가운데 mm), 균열은 양 끝까지, 다음 시험 안내 (시편 종류별)."""
+    raw = raw if isinstance(raw, dict) else {}
+    try:
+        zone = _num(raw.get("plate_zone_mm"))
+    except ValueError:
+        zone = None
+    nt = raw.get("next_tests") if isinstance(raw.get("next_tests"), dict) else {}
+    return {"plate_zone_mm": zone if zone else None,
+            "crack_ends": bool(raw.get("crack_ends", True)),
+            "next_tests": {k: str(nt.get(k) or "").strip()[:200] for k in NEXT_TESTS}}
+
+
+def options_of(row):
+    """설정은 SQL 없이 items 안 "_options" 에 같이 저장한다."""
+    if isinstance(row, dict) and isinstance(row.get("options"), dict):
+        return clean_options(row["options"])
+    items = row.get("items") if isinstance(row, dict) and isinstance(row.get("items"), dict) else {}
+    return clean_options(items.get("_options"))
+
+
+def stored_items(items, options):
+    return {**items, "_options": options}
 
 
 # ---- 적용 중인 세트 (1분 기억) ----
@@ -166,28 +210,55 @@ def _max_in_window(positions, window):
     return best
 
 
-def judge(result, rs):
-    """측정 결과(result JSON) + 규정 세트 → 선급 예비판정. 비드를 못 쟀으면 None."""
+def joint_of(position):
+    """자세 이름 끝이 F면 필릿, 아니면 맞대기 (G·GR)."""
+    p = (position or "").upper()
+    return "" if not p else "fillet" if p.endswith("F") else "butt"
+
+
+def judge(result, rs, position=None, work_type=None):
+    """측정 결과(result JSON) + 규정 세트 → 선급 예비판정. 비드를 못 쟀으면 None.
+    판정: 하나라도 넘으면 fail, 교사가 깊이를 봐야 하는 항목만 걸리면 review, 아니면 pass."""
     if not rs or not isinstance(result, dict) or not result.get("bead"):
         return None
     items = clean_items(rs.get("items"))
+    opts = options_of(rs)
     bead = result.get("bead") or {}
     w = bead.get("width") or {}
     st = bead.get("straightness") or {}
+    pipe = work_type == "pipe" or bool(result.get("pipe"))
+    joint = joint_of(position)
     defects = [d for d in (result.get("defects") or []) if isinstance(d, dict)]  # 양 끝 10mm 는 이미 빠짐
+    ends = [d for d in (result.get("defects_end_zone") or []) if isinstance(d, dict)]
+
+    # 평판 검사 범위: 비드가 정한 길이보다 길면 가운데 그 길이만 본다
+    zone = None
+    length = bead.get("length_mm")
+    if not pipe and opts["plate_zone_mm"] and isinstance(length, (int, float)) and length > opts["plate_zone_mm"]:
+        lo = round((float(length) - opts["plate_zone_mm"]) / 2, 1)
+        zone = {"start_mm": lo, "end_mm": round(lo + opts["plate_zone_mm"], 1), "length_mm": opts["plate_zone_mm"]}
+
+    def in_zone(d):
+        if not zone:
+            return True
+        p = d.get("pos_along_bead_mm")
+        return p is None or zone["start_mm"] <= float(p) <= zone["end_mm"]
+
     rows = []
 
-    def add(key, check, ok, measured, limit, unit, it, per_mm=None):
-        rows.append({"key": key, "check": check, "ok": bool(ok), "measured": measured, "limit": limit,
-                     "unit": unit, "per_mm": per_mm, "source": it.get("source"), "note": it.get("note") or ""})
+    def add(key, check, ok, measured, limit, unit, it, per_mm=None, **extra):
+        rows.append({"key": key, "check": check, "ok": None if ok is None else bool(ok), "measured": measured,
+                     "limit": limit, "unit": unit, "per_mm": per_mm, "source": it.get("source"),
+                     "note": it.get("note") or "", **extra})
 
     for k in DEFECTS:
         it = items[k]
         if not it["check"]:
             continue
-        found = [d for d in defects if _is(k, d.get("type"))]
+        pool = defects + ends if (k == "crack" and opts["crack_ends"]) else defects  # 크레이터 균열은 끝에 생긴다
+        found = [d for d in pool if _is(k, d.get("type")) and in_zone(d)]
         if not it["allowed"]:
-            add(k, "none", not found, len(found), 0, "count", it)
+            add(k, "none", not found, len(found), 0, "count", it, **({"ends": True} if pool is not defects else {}))
             continue
         checked = False
         if k == "porosity":
@@ -206,6 +277,10 @@ def judge(result, rs):
             longest = max([float(d.get("length_mm") or 0) for d in found], default=0.0)
             add(k, "max_length", longest <= it["max_length_mm"], round(longest, 2), it["max_length_mm"], "mm", it)
             checked = True
+        if k == "undercut" and it["max_depth_mm"] is not None:
+            # 깊이는 사진으로 못 잰다: 보이면 '확인 필요'(교사가 깊이 확인), 없으면 통과
+            add(k, "depth", None if found else True, len(found), it["max_depth_mm"], "count", it)
+            checked = True
         if not checked:  # 허용이고 수치 기준이 없으면 개수만 보여 준다
             add(k, "allowed", True, len(found), None, "count", it)
 
@@ -218,17 +293,38 @@ def judge(result, rs):
         dev = round(abs(float(st["max_dev_mm"])), 2)
         add("straightness", "max", dev <= it["max_mm"], dev, it["max_mm"], "mm", it)
 
-    manual = clean_manual(rs.get("manual"))
+    # 교사 확인: 이 시편 종류(맞대기/필릿)에 맞는 것만, 비드 폭으로 계산되는 허용치는 숫자로
+    b = w.get("mean_mm")
+    manual = []
+    for m in clean_manual(rs.get("manual")):
+        if joint and m["joint"] and m["joint"] != joint:
+            continue
+        f = m.pop("formula")
+        if f and isinstance(b, (int, float)):
+            lim = f["base"] + f["coef"] * float(b)
+            if f["cap"] is not None:
+                lim = min(lim, f["cap"])
+            m["limit_mm"] = round(lim, 1)
+            m["basis_mm"] = round(float(b), 1)
+        manual.append(m)
     if not rows and not manual:
         return None
-    verdict = None if not rows else ("fail" if any(not r["ok"] for r in rows) else "pass")
+    if not rows:
+        verdict = None
+    elif any(r["ok"] is False for r in rows):
+        verdict = "fail"
+    elif any(r["ok"] is None for r in rows):
+        verdict = "review"
+    else:
+        verdict = "pass"
+    kind = f"{'pipe' if pipe else 'plate'}_{joint or 'butt'}"
     return {"set_id": rs["id"], "name": rs.get("name") or "", "society": rs.get("society") or "",
-            "verdict": verdict, "items": rows, "manual": manual}
+            "verdict": verdict, "items": rows, "manual": manual, "joint": joint or None, "zone": zone,
+            "pipe_partial": pipe, "next_test": opts["next_tests"].get(kind) or ""}
 
 
-def judgment_for(result):
-    return judge(result, active_set())
-
+def judgment_for(row):
+    return judge(row.get("result"), active_set(), row.get("position"), row.get("work_type"))
 
 # ---- AI 초안 (Claude Sonnet 5.5) ----
 
@@ -242,9 +338,14 @@ Task: extract the visual acceptance criteria for a butt or fillet weld surface f
 - For each photo-checkable item set found=true only if the document gives a rule for it, and fill the limits exactly as written. Leave a limit null when the document gives none. Convert to mm when the document gives a clear formula with a stated thickness; otherwise put the rule into manual.
 - allowed=false means any occurrence is a rejection ("not permitted", "not acceptable").
 - porosity: max_diameter_mm = largest single pore allowed; max_count = pores allowed; per_length_mm = the length that count applies to (e.g. 100 mm), null if it applies to the whole weld.
-- undercut: max_length_mm = longest undercut allowed. Undercut depth limits go to manual.
+- undercut: max_length_mm = longest undercut allowed. If the rule limits undercut DEPTH (e.g. "h ≤ 0.05t but max 0.5 mm"), set allowed=true and max_depth_mm = that depth limit: the program then flags any visible undercut for the teacher to check the depth. Do not also put the undercut depth rule into manual.
+- Plate thickness: the institute's test plates are 12 mm thick. When a limit depends on thickness t, use t = 12 mm (e.g. 0.05t but max 0.5 → 0.5) and say so in note. When the rule differs by thickness range, use the range that contains 12 mm.
 - width_variation: max allowed difference between widest and narrowest bead width. straightness: max allowed deviation of the bead from a straight line.
 - Everything visual that the photo cannot check (depth, height, reinforcement, root, penetration, leg size, etc.) goes to manual, one entry per rule.
+  - joint: "butt" if the rule is only for butt welds, "fillet" if only for fillet welds, "" if for both.
+  - formula: when the rule is "h ≤ A mm + B·b" and b is the width of the weld face / bead (reinforcement of a butt weld, convexity of a fillet weld), set base=A, coef=B, cap = the "but max." value (null if none). The program fills in b. Otherwise formula = null (also when the letter means throat a, thickness t or anything else).
+- options.plate_zone_mm: the length inspected at the centre of a plate (manual) test piece when the document says so (e.g. "검사 범위는 시편 중앙을 기준으로 150mm" → 150). Use the manual-welding plate test pieces, not automatic ones. null if not given.
+- options.next_tests: for each kind (plate_butt, plate_fillet, pipe_butt, pipe_fillet) the tests that follow the visual test according to the document (e.g. "RT 또는 UT", "파단 시험", "마크로 시험"), in Korean, "" if not given.
 - source: page = 1-based page number of the uploaded file (or image order), ref = table / clause number, quote = the exact original sentence (keep the original language, at most 300 characters).
 - Never invent rules. If the document is not an inspection rule, set every found=false, leave manual empty and explain in notes.
 - Write name, society, rule, note and notes in Korean (짧고 쉬운 말). Keep quote in the original language."""
@@ -274,6 +375,18 @@ SCHEMA = {
             "properties": {"name": {"type": "string"}, "rule": {"type": "string"}, "source": _SRC}}},
     },
 }
+_FORMULA = {"anyOf": [{"type": "null"}, {
+    "type": "object", "additionalProperties": False, "required": ["base", "coef", "cap"],
+    "properties": {"base": {"type": "number"}, "coef": {"type": "number"}, "cap": _NUM}}]}
+_MANUAL = SCHEMA["properties"]["manual"]["items"]
+_MANUAL["required"] += ["joint", "formula"]
+_MANUAL["properties"].update({"joint": {"type": "string", "enum": list(JOINTS)}, "formula": _FORMULA})
+SCHEMA["required"].append("options")
+SCHEMA["properties"]["options"] = {
+    "type": "object", "additionalProperties": False, "required": ["plate_zone_mm", "next_tests"],
+    "properties": {"plate_zone_mm": _NUM, "next_tests": {
+        "type": "object", "additionalProperties": False, "required": list(NEXT_TESTS),
+        "properties": {k: {"type": "string"} for k in NEXT_TESTS}}}}
 
 
 class ExtractError(Exception):
@@ -352,7 +465,8 @@ def draft_from_ai(out):
         items[k] = {**src, "check": bool(src.get("found"))}
     return {"name": str(out.get("name") or "")[:100], "society": str(out.get("society") or "")[:100],
             "notes": str(out.get("notes") or "")[:2000],
-            "items": clean_items(items), "manual": clean_manual(out.get("manual"))}
+            "items": clean_items(items), "manual": clean_manual(out.get("manual")),
+            "options": clean_options({**(out.get("options") or {}), "crack_ends": True})}
 
 
 # ---- 화면용 API (시스템관리자만) ----
@@ -372,6 +486,7 @@ def _out(row, with_files=False):
     out = {k: row.get(k) for k in ("id", "name", "society", "notes", "active", "created_at", "updated_at")}
     out["items"] = clean_items(row.get("items"))
     out["manual"] = clean_manual(row.get("manual"))
+    out["options"] = options_of(row)
     files = row.get("files") or []
     out["files"] = [{"name": f.get("name"), "type": f.get("type"), "pages": f.get("pages"),
                      **({"url": store.signed_url("photos", f.get("path"))} if with_files else {})} for f in files]
@@ -402,7 +517,8 @@ class NewRule(BaseModel):
 
 @router.post("/admin/rules")
 def create_rule(body: NewRule, user=Depends(need_admin)):
-    row = store.insert_rows("rule_sets", {"name": body.name.strip()[:100], "items": empty_items(), "manual": [],
+    row = store.insert_rows("rule_sets", {"name": body.name.strip()[:100],
+                                          "items": stored_items(empty_items(), clean_options({})), "manual": [],
                                           "files": [], "created_by": user["id"], "updated_by": user["id"],
                                           "updated_at": _now()})[0]
     return _out(row)
@@ -442,7 +558,7 @@ def extract_rule(files: list[UploadFile] = File(...), name: str = Form(""), user
         stored.append({"name": fname[:200], "type": mt, "pages": n, "path": path})
     row = store.insert_rows("rule_sets", {
         "id": rid, "name": (name.strip() or draft["name"])[:100], "society": draft["society"], "notes": draft["notes"],
-        "items": draft["items"], "manual": draft["manual"], "files": stored, "active": False,
+        "items": stored_items(draft["items"], draft["options"]), "manual": draft["manual"], "files": stored, "active": False,
         "created_by": user["id"], "updated_by": user["id"], "updated_at": _now()})[0]
     return _out(row, with_files=True)
 
@@ -453,6 +569,7 @@ class SaveRule(BaseModel):
     notes: str = ""
     items: dict
     manual: list = []
+    options: dict | None = None
 
 
 @router.put("/admin/rules/{rid}")
@@ -467,8 +584,9 @@ def save_rule(rid: str, body: SaveRule, user=Depends(need_admin)):
     for k, it in items.items():
         if k == "porosity" and it["check"] and it["allowed"] and it["per_length_mm"] is not None and it["per_length_mm"] <= 0:
             _err(400, "bad_value", item=k)
+    opts = clean_options(body.options) if body.options is not None else options_of(row)
     fields = {"name": body.name.strip()[:100], "society": body.society.strip()[:100], "notes": body.notes[:2000],
-              "items": items, "manual": clean_manual(body.manual), "updated_by": user["id"], "updated_at": _now()}
+              "items": stored_items(items, opts), "manual": clean_manual(body.manual), "updated_by": user["id"], "updated_at": _now()}
     row = store.patch("rule_sets", {"id": f"eq.{row['id']}"}, fields)[0]
     clear_cache()
     return _out(row, with_files=True)

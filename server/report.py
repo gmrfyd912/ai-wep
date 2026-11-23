@@ -39,7 +39,7 @@ Rules:
 - work_type tells plate or pipe. For a pipe, mention pipe-specific technique (following the curve, changing torch/electrode angle around the pipe) where it fits the numbers.
 - comparison: compare with the trainee's earlier records of the same work type (plate/pipe), process and position (oldest to newest). Say what improved or got worse with numbers. If there is no earlier record, say this is the first record and it will be the baseline.
 - summary: one sentence overall comment.
-- class_rule_judgment (only when present): a separate preliminary check against the institute's classification society rule set. If an item failed, mention it in improvements with the measured value and the limit (and the rule name). Do not change that verdict either, and do not mix it with the 100-point score. Items in its "teacher_check" list could not be judged from the photo: do not judge them; you may remind the trainee that the teacher checks them."""
+- class_rule_judgment (only when present): a separate preliminary check against the institute's classification society rule set. If an item failed, mention it in improvements with the measured value and the limit (and the rule name). Do not change that verdict either, and do not mix it with the 100-point score. Items in its "teacher_check" list could not be judged from the photo: do not judge them; you may remind the trainee that the teacher checks them (with the limit for this bead when "teacher_check_limits_for_this_bead" gives one). verdict "review" means nothing failed but something seen in the photo (for example an undercut, whose depth limit cannot be measured from a photo) needs the teacher's check: say so plainly, it is not a fail."""
 
 SCHEMA = {
     "type": "object",
@@ -136,6 +136,14 @@ def build_input(row, score, history, class_judgment=None):
                        "limit": i["limit"], "unit": i["unit"]} for i in cj.get("items") or []],
             "teacher_check": [m.get("name") or m.get("rule") for m in cj.get("manual") or []],
         }
+        lims = [{"item": m.get("name") or m.get("rule"), "limit_mm": m["limit_mm"], "from_bead_width_mm": m.get("basis_mm")}
+                for m in cj.get("manual") or [] if m.get("limit_mm") is not None]
+        if lims:
+            out["class_rule_judgment"]["teacher_check_limits_for_this_bead"] = lims
+        if cj.get("zone"):
+            out["class_rule_judgment"]["inspected_zone_mm_from_start"] = [cj["zone"]["start_mm"], cj["zone"]["end_mm"]]
+        if cj.get("next_test"):
+            out["class_rule_judgment"]["next_tests_after_visual"] = cj["next_test"]
     return out
 
 
