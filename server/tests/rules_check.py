@@ -164,7 +164,41 @@ def check_schema():
     assert rules.shrink_image("application/pdf", b"%PDF") == ("application/pdf", b"%PDF")
 
 
+def check_extract_call():
+    """실제 요청 모양: 형식 강제(json_schema) 없이, 답의 JSON 을 꺼내 읽는다."""
+    import json
+    import types
+    import anthropic
+    seen = {}
+
+    class FakeMessages:
+        def create(self, **kw):
+            seen.update(kw)
+            body = json.dumps({"name": "n", "society": "", "notes": "", "items": {"crack": {"found": True}}, "manual": [], "options": {}})
+            return types.SimpleNamespace(stop_reason="end_turn",
+                                         content=[types.SimpleNamespace(type="text", text="```json\n" + body + "\n```")])
+
+    class FakeClient:
+        def __init__(self, **kw):
+            self.beta = types.SimpleNamespace(messages=FakeMessages())
+
+    old_client, old_conf = anthropic.Anthropic, report.configured
+    anthropic.Anthropic, report.configured = FakeClient, (lambda: True)
+    try:
+        out = rules.extract([("image/jpeg", b"\xff\xd8\xff" + b"0" * 10)])
+    finally:
+        anthropic.Anthropic, report.configured = old_client, old_conf
+    assert out["items"]["crack"]["found"] is True
+    assert "format" not in seen["output_config"], seen["output_config"]  # "grammar is too large" 로 거절됐던 방식
+    assert rules.TEMPLATE in seen["messages"][0]["content"][-1]["text"]
+    # 답 꺼내기
+    assert rules.parse_reply('설명입니다 {"items": {}} 끝')["items"] == {}
+    assert rules.parse_reply("JSON 없음") is None and rules.parse_reply('{"name": "x"}') is None
+    assert rules.parse_reply('{"items": {') is None
+
+
 def main():
+    check_extract_call()
     check_schema()
     check_judge()
     check_hd()
