@@ -719,6 +719,20 @@ const uz: Translation = {
   rules_calcPreview: "Ko'rinish: kenglik {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
   rules_calcNeedAB: "Hisoblash uchun A va B kiriting.",
   rules_calcBadge: "Hisob",
+  side_front: "Old tomon",
+  side_back: "Orqa tomon",
+  side_frontScore: "Old tomon balli va AI dastlabki bahosi",
+  side_backScore: "Orqa tomon balli va AI dastlabki bahosi",
+  side_reportNote: "Quyidagi AI hisoboti old va orqa tomonni birga tushuntiradi. Reyting va jamlangan tahlil old tomon balli bilan hisoblanadi.",
+  side_backHint: "Orqa tomon (ildiz) choki, old tomon kabi tahlil qilindi. Reyting va jamlangan tahlilda faqat old tomon balli ishlatiladi.",
+  side_badge: "Old·Orqa",
+  side_legend: "\"Old·Orqa\" = orqa tomon surati ham tahlil qilingan (raqam va nuqtalar old tomonniki)",
+  upload_backAdd: "Orqa tomon suratini qo'shish (ixtiyoriy)",
+  upload_backTitle: "Orqa tomon surati",
+  upload_backHint: "Plastinani ag'daring va orqa tomondagi chokni suratga oling. Markerni orqa chok yoniga qo'ying va old tomondagidek tepadan to'g'ri 1 ta surat oling.",
+  upload_backRemove: "Orqa tomon suratini olib tashlash",
+  stage_back: "Orqa tomonni tahlil qilish",
+  upload_frontChange: "Old tomon suratini almashtirish uchun quyidagi tugmalardan foydalaning. Orqa tomon suratini olib tashlash uchun X ni bosing.",
 };
 
 export default uz;

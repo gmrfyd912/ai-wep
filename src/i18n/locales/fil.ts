@@ -719,6 +719,20 @@ const fil: Translation = {
   rules_calcPreview: "Silip: lapad {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
   rules_calcNeedAB: "Ilagay ang A at B para makalkula.",
   rules_calcBadge: "Kalk",
+  side_front: "Harap",
+  side_back: "Likod",
+  side_frontScore: "Iskor ng harap at paunang hatol ng AI",
+  side_backScore: "Iskor ng likod at paunang hatol ng AI",
+  side_reportNote: "Ipinapaliwanag ng AI report sa ibaba ang harap at likod. Ang ranking at cumulative analysis ay gumagamit ng iskor ng harap.",
+  side_backHint: "Ang bead sa likod (root), sinuri sa parehong paraan ng harap. Iskor lang ng harap ang gamit sa ranking at cumulative analysis.",
+  side_badge: "Harap·Likod",
+  side_legend: "\"Harap·Likod\" = sinuri rin ang larawan ng likod (ang numero at tuldok ay sa harap)",
+  upload_backAdd: "Magdagdag ng larawan ng likod (opsyonal)",
+  upload_backTitle: "Larawan ng likod",
+  upload_backHint: "Baligtarin ang plato at kunan ang bead sa likod. Ilagay ang marker sa tabi mismo ng bead sa likod at kumuha ng 1 larawan mula sa itaas, tulad ng sa harap.",
+  upload_backRemove: "Alisin ang larawan ng likod",
+  stage_back: "Sinusuri ang likod",
+  upload_frontChange: "Gamitin ang mga button sa ibaba para palitan ang larawan ng harap. Pindutin ang X para alisin ang larawan ng likod.",
 };
 
 export default fil;

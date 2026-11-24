@@ -18,6 +18,7 @@ import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
 type Tab = "metrics" | "report";
+type Side = "front" | "back";
 
 const mm = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(1)} mm`);
 
@@ -39,6 +40,7 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
   const scrollRef = useRef<ScrollViewInstance | null>(null);
   const scrolled = useRef(false);
   const [tab, setTab] = useState<Tab>("metrics");
+  const [side, setSide] = useState<Side>("front");
   const [reportOpened, setReportOpened] = useState(false);
   const [data, setData] = useState<Submission | null>(null);
   const [failed, setFailed] = useState(false);
@@ -79,7 +81,13 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
     );
   }
 
-  const res = data.result;
+  // 이면 탭이면 이면 결과로 같은 화면을 그린다 (점수·랭킹·누적 분석·댓글은 정면 기록 기준)
+  const back = data.back;
+  const view =
+    side === "back" && back
+      ? { status: back.status, result: back.result, photo_url: back.photo_url, check_url: back.check_url, class_judgment: back.class_judgment }
+      : { status: data.status, result: data.result, photo_url: data.photo_url, check_url: data.check_url, class_judgment: data.class_judgment };
+  const res = view.result;
   const bead = res?.bead;
   const date = new Date(data.created_at).toLocaleString(i18n.language);
   const pipe = data.work_type === "pipe";
@@ -114,6 +122,26 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
         <Text style={styles.meta}>{date}</Text>
       </View>
 
+      {back ? (
+        <View style={styles.sideRow}>
+          {(["front", "back"] as const).map((v) => {
+            const on = side === v;
+            return (
+              <Pressable
+                key={v}
+                onPress={() => setSide(v)}
+                style={[styles.sideBtn, on && styles.sideBtnOn]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.sideText, on && styles.sideTextOn]}>{t(v === "front" ? "side_front" : "side_back")}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      {back && side === "back" ? <Text style={styles.sideHint}>{t("side_backHint")}</Text> : null}
+
       <Chips<Tab>
         options={[
           { value: "metrics", label: t("result_tabMetrics") },
@@ -129,15 +157,21 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
       {/* AI 리포트: 탭을 처음 열 때 만들고, 다른 탭에 갔다 와도 다시 부르지 않게 숨겨 둔다 */}
       {reportOpened ? (
         <View style={{ gap: space.md, display: tab === "report" ? "flex" : "none" }}>
-          <AiReport sid={data.id} score={data.score} classJudgment={data.class_judgment} />
+          <AiReport
+            sid={data.id}
+            score={data.score}
+            classJudgment={data.class_judgment}
+            side={side}
+            back={back ? { score: back.score, classJudgment: back.class_judgment } : undefined}
+          />
         </View>
       ) : null}
-      {tab === "report" ? null : data.status !== "ok" ? (
+      {tab === "report" ? null : view.status !== "ok" ? (
         <>
           <Card>
-            <Text style={styles.error}>{t(statusKey(data.status))}</Text>
+            <Text style={styles.error}>{t(statusKey(view.status))}</Text>
           </Card>
-          {data.photo_url ? <Image source={{ uri: data.photo_url }} style={styles.image} contentFit="contain" /> : null}
+          {view.photo_url ? <Image source={{ uri: view.photo_url }} style={styles.image} contentFit="contain" /> : null}
           {!data.owner_name ? (
             <AppButton
               label={t("result_tryAgain")}
@@ -167,17 +201,17 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
               <Text style={styles.note}>{t("outline_checkNote")}</Text>
             </Card>
           ) : null}
-          {res ? <ResultCharts result={res} checkUrl={data.check_url} /> : null}
-          {data.check_url && !res?.check_layout ? (
+          {res ? <ResultCharts result={res} checkUrl={view.check_url} /> : null}
+          {view.check_url && !res?.check_layout ? (
             <Text style={styles.caption}>{t("result_checkImage")}</Text>
           ) : null}
-          {data.check_url && !res?.check_layout ? (
+          {view.check_url && !res?.check_layout ? (
             <>
               <Pressable onPress={() => setZoom(true)}>
-                <Image source={{ uri: data.check_url }} style={styles.image} contentFit="contain" />
+                <Image source={{ uri: view.check_url }} style={styles.image} contentFit="contain" />
               </Pressable>
               <Text style={styles.note}>{t("result_tapToZoom")}</Text>
-              <ZoomImage uri={data.check_url} visible={zoom} onClose={() => setZoom(false)} />
+              <ZoomImage uri={view.check_url} visible={zoom} onClose={() => setZoom(false)} />
             </>
           ) : null}
           <Metric label={t("result_widthMean")} value={mm(bead?.width.mean_mm)} big />
@@ -200,7 +234,7 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
                 : t("defect_none")
             }
           />
-          {data.class_judgment ? <ClassJudgmentCard cj={data.class_judgment} /> : null}
+          {view.class_judgment ? <ClassJudgmentCard cj={view.class_judgment} /> : null}
           {res?.warnings?.length ? (
             <Card>
               <Text style={styles.warnTitle}>{t("result_warnings")}</Text>
@@ -315,6 +349,20 @@ function Metric({
 }
 
 const styles = StyleSheet.create({
+  sideRow: { flexDirection: "row", gap: space.sm },
+  sideBtn: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  sideBtnOn: { borderColor: colors.primary, backgroundColor: colors.primaryDim },
+  sideText: { color: colors.muted, fontSize: 16, fontWeight: "800" },
+  sideTextOn: { color: colors.text },
+  sideHint: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   pipeTitle: { color: colors.text, fontSize: 14, fontWeight: "700" },
   pipeText: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   pipeWarn: { color: colors.warning, fontSize: 13, lineHeight: 19 },

@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 
 import { PipeOdTable } from "@/components/PipeOdTable";
 import { AppButton, Body, Card, Chips, Label, Screen, SectionTitle } from "@/components/ui";
-import { analyzePhoto, getProgress, NetworkError, newJobId, STAGES, wakeServer, type Stage } from "@/lib/api";
+import { analyzePhoto, getProgress, NetworkError, newJobId, STAGES, STAGES_WITH_BACK, wakeServer, type Stage } from "@/lib/api";
 import { PROCESSES, WORK_TYPES, getLastWorkType, positionsOf, setLastWorkType, type WorkType } from "@/lib/weld";
 import { colors, radius, space } from "@/theme";
 
@@ -42,6 +42,9 @@ export default function UploadScreen() {
   const [od, setOd] = useState("");
   const [odTable, setOdTable] = useState(false);
   const [photo, setPhoto] = useState<Photo | null>(null);
+  // 이면(뒷면) 사진: 선택. 평판 맞대기(G 자세)만
+  const [backPhoto, setBackPhoto] = useState<Photo | null>(null);
+  const [backPicking, setBackPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>("wake");
@@ -59,10 +62,14 @@ export default function UploadScreen() {
     // 그 종류에 없는 자세면 첫 자세로
     if (!positionsOf(w).includes(pos)) setPos(positionsOf(w)[0]);
   };
+  // 필렛은 이면이 없고, 배관은 안쪽을 찍기 어려워서 평판 맞대기만
+  const canBack = work === "plate" && !pos.endsWith("F");
+  const back = canBack ? backPhoto : null;
+  const stages: readonly Stage[] = back ? STAGES_WITH_BACK : STAGES;
   const odNum = Number(od.replace(",", "."));
   const odOk = work === "plate" || (Number.isFinite(odNum) && odNum >= 10 && odNum <= 2000);
 
-  async function choose(fromCamera: boolean) {
+  async function choose(fromCamera: boolean, side: "front" | "back" = "front") {
     setError(null);
     const perm = fromCamera
       ? await ImagePicker.requestCameraPermissionsAsync()
@@ -75,7 +82,13 @@ export default function UploadScreen() {
     const r = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (r.canceled || !r.assets?.[0]) return;
     const a = r.assets[0];
-    setPhoto({ uri: a.uri, width: a.width, height: a.height });
+    const p = { uri: a.uri, width: a.width, height: a.height };
+    if (side === "back") {
+      setBackPhoto(p);
+      setBackPicking(false);
+    } else {
+      setPhoto(p);
+    }
   }
 
   async function analyze() {
@@ -96,6 +109,14 @@ export default function UploadScreen() {
       } catch (e) {
         console.warn("[upload] 사진 줄이기 실패, 원본으로 보냄:", e);
       }
+      let sendBack = back;
+      if (back) {
+        try {
+          sendBack = await shrink(back);
+        } catch (e) {
+          console.warn("[upload] 이면 사진 줄이기 실패, 원본으로 보냄:", e);
+        }
+      }
       // 2) 서버 깨우기  3) 사진 올리기 → 서버 단계는 1초마다 조회
       setStage("wake");
       setUploadPct(0);
@@ -104,8 +125,8 @@ export default function UploadScreen() {
       const jobId = newJobId();
       poll.current = setInterval(async () => {
         const st = await getProgress(jobId);
-        if (st && (STAGES as readonly string[]).includes(st)) {
-          setStage((cur) => (STAGES.indexOf(st as Stage) > STAGES.indexOf(cur) ? (st as Stage) : cur));
+        if (st && (stages as readonly string[]).includes(st)) {
+          setStage((cur) => (stages.indexOf(st as Stage) > stages.indexOf(cur) ? (st as Stage) : cur));
         }
       }, 1000);
       const res = await analyzePhoto(
@@ -113,6 +134,7 @@ export default function UploadScreen() {
         { process: proc, position: pos, material: mat, work_type: work, pipe_od_mm: od.replace(",", ".") },
         {
           jobId,
+          backUri: sendBack?.uri ?? null,
           onUploadProgress: (r) => {
             setUploadPct(Math.round(r * 100));
             if (r >= 1) setStage((cur) => (cur === "upload" ? "save_photo" : cur));
@@ -120,6 +142,8 @@ export default function UploadScreen() {
         },
       );
       setPhoto(null);
+      setBackPhoto(null);
+      setBackPicking(false);
       setLastWorkType(work);
       router.push(`/result/${res.id}`);
     } catch (e) {
@@ -142,10 +166,33 @@ export default function UploadScreen() {
         <Body>③ {t("upload_guide3")}</Body>
       </Card>
 
-      {photo ? (
+      {photo && back ? (
+        <View style={styles.pairRow}>
+          <View style={styles.pairItem}>
+            <Image source={{ uri: photo.uri }} style={styles.pairImage} contentFit="contain" />
+            <Text style={styles.pairLabel}>{t("side_front")}</Text>
+          </View>
+          <View style={styles.pairItem}>
+            <Image source={{ uri: back.uri }} style={styles.pairImage} contentFit="contain" />
+            <Text style={styles.pairLabel}>{t("side_back")}</Text>
+            {!busy ? (
+              <Pressable
+                onPress={() => setBackPhoto(null)}
+                style={styles.pairRemove}
+                accessibilityRole="button"
+                accessibilityLabel={t("upload_backRemove")}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={18} color="#fff" />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : photo ? (
         <Image source={{ uri: photo.uri }} style={styles.preview} contentFit="contain" />
       ) : null}
 
+      {photo && back ? <Text style={styles.hint}>{t("upload_frontChange")}</Text> : null}
       <View style={{ flexDirection: "row", gap: space.sm }}>
         <View style={{ flex: 1 }}>
           <AppButton label={t("upload_takePhoto")} icon="camera-outline" variant="secondary" disabled={busy} onPress={() => choose(true)} />
@@ -154,6 +201,35 @@ export default function UploadScreen() {
           <AppButton label={t("upload_pickPhoto")} icon="images-outline" variant="secondary" disabled={busy} onPress={() => choose(false)} />
         </View>
       </View>
+
+      {/* 이면 사진 (선택): 정면 사진을 고른 뒤 + 버튼으로 추가 */}
+      {photo && canBack && !back ? (
+        backPicking ? (
+          <Card>
+            <Text style={styles.backTitle}>{t("upload_backTitle")}</Text>
+            <Text style={styles.hint}>{t("upload_backHint")}</Text>
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <View style={{ flex: 1 }}>
+                <AppButton label={t("upload_takePhoto")} icon="camera-outline" variant="secondary" disabled={busy} onPress={() => choose(true, "back")} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppButton label={t("upload_pickPhoto")} icon="images-outline" variant="secondary" disabled={busy} onPress={() => choose(false, "back")} />
+              </View>
+            </View>
+            <AppButton label={t("common_cancel")} variant="secondary" disabled={busy} onPress={() => setBackPicking(false)} />
+          </Card>
+        ) : (
+          <Pressable
+            onPress={() => setBackPicking(true)}
+            disabled={busy}
+            style={styles.addBack}
+            accessibilityRole="button"
+          >
+            <Ionicons name="add-circle-outline" size={22} color={colors.primary} />
+            <Text style={styles.addBackText}>{t("upload_backAdd")}</Text>
+          </Pressable>
+        )
+      ) : null}
 
       <SectionTitle>{t("upload_infoTitle")}</SectionTitle>
       <Label>{t("work_label")}</Label>
@@ -222,8 +298,8 @@ export default function UploadScreen() {
             <Body>{t("upload_analyzing")}</Body>
             <Body muted>{t("upload_wakeHint")}</Body>
             <View style={styles.stages}>
-              {STAGES.map((s, i) => {
-                const cur = STAGES.indexOf(stage);
+              {stages.map((s, i) => {
+                const cur = stages.indexOf(stage);
                 const mark = i < cur ? "✓" : i === cur ? "▶" : "○";
                 const color = i < cur ? colors.success : i === cur ? colors.text : colors.faint;
                 const label = t(`stage_${s}`) + (s === "upload" && i === cur ? ` ${uploadPct}%` : "");
@@ -245,6 +321,34 @@ export default function UploadScreen() {
 
 const styles = StyleSheet.create({
   preview: { width: "100%", height: 260, borderRadius: radius.md, backgroundColor: colors.card },
+  pairRow: { flexDirection: "row", gap: space.sm },
+  pairItem: { flex: 1, gap: 4 },
+  pairImage: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: colors.card },
+  pairLabel: { color: colors.text, fontSize: 14, fontWeight: "700", textAlign: "center" },
+  pairRemove: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  addBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+  },
+  addBackText: { color: colors.primary, fontSize: 15, fontWeight: "700" },
+  backTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
   error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
   busy: { flexDirection: "row", alignItems: "flex-start", gap: space.md },
   stages: { marginTop: space.sm, gap: 4 },

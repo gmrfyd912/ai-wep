@@ -216,9 +216,22 @@ def joint_of(position):
     return "" if not p else "fillet" if p.endswith("F") else "butt"
 
 
-def judge(result, rs, position=None, work_type=None):
+# 이면(뒷면) 쪽 교사 확인 항목을 이름·규정 글로 알아본다 (이면 덧살, 이면 용입 부족, 루트 오목, 수축 홈, 뒷면 기공 ...)
+BACK_WORDS = ("이면", "뒷면", "루트", "수축", "root", "back", "penetration", "shrinkage")
+PORE_WORDS = ("기공", "porosity", "pore")
+
+
+def is_back_item(m):
+    text = f"{m.get('name') or ''} {m.get('rule') or ''}".lower()
+    return any(w in text for w in BACK_WORDS)
+
+
+def judge(result, rs, position=None, work_type=None, side=None):
     """측정 결과(result JSON) + 규정 세트 → 선급 예비판정. 비드를 못 쟀으면 None.
-    판정: 하나라도 넘으면 fail, 교사가 깊이를 봐야 하는 항목만 걸리면 review, 아니면 pass."""
+    판정: 하나라도 넘으면 fail, 교사가 깊이를 봐야 하는 항목만 걸리면 review, 아니면 pass.
+    side: None = 이면 사진 없음(지금까지와 같음), "front" = 이면 사진이 있어 이면 쪽 교사 확인 항목은 이면에서 보여 줌,
+          "back" = 이면 결과로 판정. 교사 확인은 이면 항목만, 허용치는 이면 폭으로 계산
+          (뒷면 기공은 사진으로 자동 판정하므로 교사 확인에서 뺀다)."""
     if not rs or not isinstance(result, dict) or not result.get("bead"):
         return None
     items = clean_items(rs.get("items"))
@@ -299,6 +312,14 @@ def judge(result, rs, position=None, work_type=None):
     for m in clean_manual(rs.get("manual")):
         if joint and m["joint"] and m["joint"] != joint:
             continue
+        if side == "front" and is_back_item(m):
+            continue
+        if side == "back":
+            if not is_back_item(m):
+                continue
+            text = f"{m.get('name') or ''} {m.get('rule') or ''}".lower()
+            if any(w in text for w in PORE_WORDS):
+                continue
         f = m.pop("formula")
         if f and isinstance(b, (int, float)):
             lim = f["base"] + f["coef"] * float(b)
@@ -320,11 +341,24 @@ def judge(result, rs, position=None, work_type=None):
     kind = f"{'pipe' if pipe else 'plate'}_{joint or 'butt'}"
     return {"set_id": rs["id"], "name": rs.get("name") or "", "society": rs.get("society") or "",
             "verdict": verdict, "items": rows, "manual": manual, "joint": joint or None, "zone": zone,
-            "pipe_partial": pipe, "next_test": opts["next_tests"].get(kind) or ""}
+            "pipe_partial": pipe, "next_test": "" if side == "back" else (opts["next_tests"].get(kind) or ""),
+            **({"side": side} if side else {})}
 
 
-def judgment_for(row):
-    return judge(row.get("result"), active_set(), row.get("position"), row.get("work_type"))
+def back_result(row):
+    res = row.get("result") if isinstance(row.get("result"), dict) else {}
+    back = res.get("back") if isinstance(res.get("back"), dict) else None
+    return back.get("result") if back and back.get("status") == "ok" else None
+
+
+def judgment_for(row, which="front", rs=None):
+    """which = "front"(정면) 또는 "back"(이면). 이면 사진이 없는 기록은 지금까지와 같은 판정."""
+    rs = active_set() if rs is None else rs
+    has_back = isinstance(row.get("result"), dict) and isinstance(row["result"].get("back"), dict)
+    if which == "back":
+        br = back_result(row)
+        return judge(br, rs, row.get("position"), row.get("work_type"), "back") if br else None
+    return judge(row.get("result"), rs, row.get("position"), row.get("work_type"), "front" if has_back else None)
 
 # ---- AI 초안 (Claude Sonnet 5.5) ----
 

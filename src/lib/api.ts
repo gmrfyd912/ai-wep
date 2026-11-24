@@ -88,6 +88,8 @@ export type SubmissionSummary = {
   width_mean_mm: number | null;
   straight_max_dev_mm: number | null;
   defect_count: number | null;
+  /** 이면 사진도 올린 기록 (목록에 "정면·이면" 표시) */
+  has_back?: boolean;
 };
 
 /** 내 기록 목록 한 줄: 요약 + 누적 분석(추이·비교·결함 통계)용 값 */
@@ -187,7 +189,22 @@ export type EngineResult = {
   defects?: { type: string; length_mm: number | null; confidence: number; pos_along_bead_mm?: number | null }[];
 };
 
+/** 이면(뒷면) 결과: 정면과 같은 분석. 이면 사진을 올린 기록에만 있다 */
+export type BackSide = {
+  status: Status;
+  result: EngineResult | null;
+  photo_url: string | null;
+  check_url: string | null;
+  width_mean_mm: number | null;
+  straight_max_dev_mm: number | null;
+  defect_count: number | null;
+  score?: ScoreInfo | null;
+  class_judgment?: ClassJudgment;
+};
+
 export type Submission = SubmissionSummary & {
+  /** 이면 사진도 올렸으면 이면 결과 */
+  back?: BackSide;
   /** 기록 주인. 교사 등이 학생 결과를 볼 때는 owner_name 도 온다 */
   user_id?: string;
   owner_name?: string | null;
@@ -266,7 +283,7 @@ export async function wakeServer(): Promise<void> {
 export async function analyzePhoto(
   uri: string,
   info: { process: string; position: string; material: string; work_type: "plate" | "pipe"; pipe_od_mm?: string },
-  opts: { jobId?: string; onUploadProgress?: (ratio: number) => void } = {},
+  opts: { jobId?: string; onUploadProgress?: (ratio: number) => void; backUri?: string | null } = {},
 ): Promise<Submission> {
   const form = new FormData();
   if (opts.jobId) form.append("job_id", opts.jobId);
@@ -276,19 +293,24 @@ export async function analyzePhoto(
   form.append("material", info.material);
   form.append("work_type", info.work_type);
   if (info.work_type === "pipe") form.append("pipe_od_mm", info.pipe_od_mm ?? "");
-  if (Platform.OS === "web") {
-    const blob = await (await fetch(uri)).blob();
-    form.append("photo", blob, "photo.jpg");
-  } else {
-    form.append("photo", { uri, name: "photo.jpg", type: "image/jpeg" } as unknown as Blob);
-  }
+  const addPhoto = async (field: string, u: string) => {
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(u)).blob();
+      form.append(field, blob, `${field}.jpg`);
+    } else {
+      form.append(field, { uri: u, name: `${field}.jpg`, type: "image/jpeg" } as unknown as Blob);
+    }
+  };
+  await addPhoto("photo", uri);
+  // 이면(뒷면) 사진은 선택: 있으면 정면과 함께 보내 한 번에 분석한다
+  if (opts.backUri) await addPhoto("back_photo", opts.backUri);
   const started = Date.now();
   const secs = () => Math.round((Date.now() - started) / 1000);
   return new Promise<Submission>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_URL}/analyze`);
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    xhr.timeout = 180000;
+    xhr.timeout = opts.backUri ? 300000 : 180000;
     if (opts.onUploadProgress && xhr.upload) {
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && e.total > 0) opts.onUploadProgress?.(e.loaded / e.total);
@@ -324,7 +346,9 @@ export async function analyzePhoto(
 
 /** 분석 진행 단계 순서 (앱 표시용). wake·upload 는 앱이, 나머지는 서버가 알려 준다. */
 export const STAGES = ["wake", "upload", "save_photo", "marker", "roboflow", "measure", "save_result"] as const;
-export type Stage = (typeof STAGES)[number];
+/** 이면 사진도 올렸을 때: 정면 측정 다음에 '이면 분석' 단계가 들어간다 */
+export const STAGES_WITH_BACK = ["wake", "upload", "save_photo", "marker", "roboflow", "measure", "back", "save_result"] as const;
+export type Stage = (typeof STAGES_WITH_BACK)[number];
 
 export function newJobId(): string {
   const hex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
