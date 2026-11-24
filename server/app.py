@@ -100,6 +100,8 @@ def _summary(row):
         "id", "status", "process", "position", "material", "created_at", "pipe_od_mm",
         "width_mean_mm", "straight_max_dev_mm", "defect_count")}
     out["work_type"] = row.get("work_type") or "plate"  # 예전 기록은 평판
+    if row.get("back_status") or back_of(row):
+        out["has_back"] = True  # 목록에 "정면·이면" 표시
     return out
 
 
@@ -118,9 +120,53 @@ def _list_item(row, show_outline=False):
     return out
 
 
+async def _read_photo(photo):
+    """올린 사진을 읽어 너무 크면 줄인다."""
+    data = await photo.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise HTTPException(413, "photo_too_large")
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(400, "image_read_failed")
+    h, w = img.shape[:2]
+    if max(h, w) > MAX_SIDE:
+        s = MAX_SIDE / max(h, w)
+        img = cv2.resize(img, (round(w * s), round(h * s)), interpolation=cv2.INTER_AREA)
+    return img
+
+
+def _jpg(img, quality):
+    return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])[1].tobytes()
+
+
+async def _analyze_side(img, od, on_stage):
+    """한 면(정면 또는 이면) 분석 + 윤곽 2차 검토. (결과, 확인 그림) 을 돌려준다."""
+    extras = {}
+    res, vis, _ = await _step("analyze", analyze_image, img, Config(), None, on_stage, od, extras)
+    # 윤곽 2차 검토 (Claude 비전): 측정에 쓴 가장자리가 비드 끝을 따라가는지. 실패해도 결과는 그대로 저장
+    if res.get("status") == "ok" and res.get("bead") and admin_settings.outline_mode() != "off":
+        try:
+            res["outline_review"] = await run_in_threadpool(outline_review.review, extras.get("review_img"))
+        except Exception as e:  # noqa: BLE001
+            print("[analyze] 윤곽 검토 실패", str(e)[:200], flush=True)
+            res["outline_review"] = {"status": "failed", "error": "exception"}
+    return res, vis
+
+
+def _status_of(res):
+    status = res.get("status", "error")
+    return "no_bead" if status == "ok" and not res.get("bead") else status
+
+
+def back_allowed(work_type, position):
+    """이면 사진은 평판 맞대기(G 자세)만. 필렛은 이면이 없고, 배관은 안쪽을 찍기 어렵다."""
+    return work_type == "plate" and not (position or "").upper().endswith("F")
+
+
 @app.post("/analyze")
 async def analyze(
     photo: UploadFile = File(...),
+    back_photo: UploadFile | None = File(None),
     device_id: str = Form(""),
     process: str = Form(""),
     position: str = Form(""),
@@ -142,6 +188,8 @@ async def analyze(
         raise HTTPException(400, "bad_work_type")
     if position and position not in POSITIONS[work_type]:
         raise HTTPException(400, "bad_position")
+    if back_photo is not None and not back_allowed(work_type, position):
+        raise HTTPException(400, "back_not_allowed")
     od = None
     if work_type == "pipe":  # 배관은 외경이 있어야 검사 구간(가운데 ±45°)을 정할 수 있다
         try:
@@ -150,21 +198,16 @@ async def analyze(
             raise HTTPException(400, "pipe_od_required")
         if not 10 <= od <= 2000:
             raise HTTPException(400, "pipe_od_required")
-    data = await photo.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise HTTPException(413, "photo_too_large")
-    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    if img is None:
-        raise HTTPException(400, "image_read_failed")
-    h, w = img.shape[:2]
-    if max(h, w) > MAX_SIDE:
-        s = MAX_SIDE / max(h, w)
-        img = cv2.resize(img, (round(w * s), round(h * s)), interpolation=cv2.INTER_AREA)
+    img = await _read_photo(photo)
+    back_img = await _read_photo(back_photo) if back_photo is not None else None
 
     sid = str(uuid.uuid4())
     photo_path = f"{user['id']}/{sid}.jpg"
-    ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 92])
-    await _step("save_photo", store.upload, "photos", photo_path, jpg.tobytes())
+    await _step("save_photo", store.upload, "photos", photo_path, _jpg(img, 92))
+    back_photo_path = None
+    if back_img is not None:
+        back_photo_path = f"{user['id']}/{sid}_back.jpg"
+        await _step("save_photo", store.upload, "photos", back_photo_path, _jpg(back_img, 92))
     await _step("save_record", store.insert, {
         "id": sid, "user_id": user["id"], "device_id": device_id or "-", "process": process or None,
         "position": position or None, "material": material or None,
@@ -172,17 +215,20 @@ async def analyze(
         "status": "processing", "photo_path": photo_path,
     })
 
-    extras = {}
-    res, vis, _ = await _step("analyze", analyze_image, img, Config(), None,
-                              lambda name: _set_progress(job_id, name), od, extras)
+    # 정면 분석
+    res, vis = await _analyze_side(img, od, lambda name: _set_progress(job_id, name))
+
+    # 이면 분석 (올렸을 때만). 결과는 정면 기록의 result.back 안에 함께 둔다 (따로 기록을 만들지 않음)
+    if back_img is not None:
+        _set_progress(job_id, "back")
+        bres, bvis = await _analyze_side(back_img, od, lambda name: None)
+        back = {"status": _status_of(bres), "photo_path": back_photo_path, "check_path": None}
+        if bvis is not None:
+            back["check_path"] = f"{user['id']}/{sid}_back_check.jpg"
+            await _step("save_check_image", store.upload, "results", back["check_path"], _jpg(bvis, 88))
+        back["result"] = bres
+        res["back"] = back
     _set_progress(job_id, "save_result")
-    # 윤곽 2차 검토 (Claude 비전): 측정에 쓴 가장자리가 비드 끝을 따라가는지. 실패해도 결과는 그대로 저장
-    if res.get("status") == "ok" and res.get("bead") and admin_settings.outline_mode() != "off":
-        try:
-            res["outline_review"] = await run_in_threadpool(outline_review.review, extras.get("review_img"))
-        except Exception as e:  # noqa: BLE001
-            print("[analyze] 윤곽 검토 실패", str(e)[:200], flush=True)
-            res["outline_review"] = {"status": "failed", "error": "exception"}
 
     # 갤러리용 작은 사진 (긴 변 480px)
     thumb_path = None
@@ -195,9 +241,8 @@ async def analyze(
 
     check_path = check_thumb_path = None
     if vis is not None:
-        ok, cj = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 88])
         check_path = f"{user['id']}/{sid}_check.jpg"
-        await _step("save_check_image", store.upload, "results", check_path, cj.tobytes())
+        await _step("save_check_image", store.upload, "results", check_path, _jpg(vis, 88))
         try:  # 목록·랭킹용 비드 이미지 (확인 그림 작은 것)
             check_thumb_path = f"{user['id']}/{sid}_check_thumb.jpg"
             await _step("save_check_image", store.upload, "results", check_thumb_path, media.check_thumb_bytes(vis))
@@ -206,11 +251,8 @@ async def analyze(
             check_thumb_path = None
 
     bead = res.get("bead") or {}
-    status = res.get("status", "error")
-    if status == "ok" and not bead:
-        status = "no_bead"
     update = {
-        "status": status,
+        "status": _status_of(res),
         "check_path": check_path,
         "thumb_path": thumb_path,
         "check_thumb_path": check_thumb_path,
@@ -231,17 +273,57 @@ def _can_see_outline(user):
     return mode == "all" or (mode == "staff" and user is not None and user.get("role") != "student")
 
 
+def _strip_outline(result, user):
+    if isinstance(result, dict) and "outline_review" in result and not _can_see_outline(user):
+        return {k: v for k, v in result.items() if k != "outline_review"}
+    return result
+
+
+def back_of(row):
+    """이면 결과 (올리지 않았으면 None). 정면 기록의 result.back 에 들어 있다."""
+    res = row.get("result")
+    back = res.get("back") if isinstance(res, dict) else None
+    return back if isinstance(back, dict) and back.get("photo_path") else None
+
+
+def _back_detail(row, user):
+    back = back_of(row)
+    if not back:
+        return None
+    bres = back.get("result") if isinstance(back.get("result"), dict) else {}
+    bead = bres.get("bead") or {}
+    status = back.get("status") or "error"
+    out = {
+        "status": status,
+        "result": _strip_outline(bres, user),
+        "photo_url": store.signed_url("photos", back.get("photo_path")),
+        "check_url": store.signed_url("results", back.get("check_path")),
+        "width_mean_mm": (bead.get("width") or {}).get("mean_mm"),
+        "straight_max_dev_mm": (bead.get("straightness") or {}).get("max_dev_mm"),
+        "defect_count": len(bres.get("defects") or []),
+        "score": scoring.score_of_row({"status": status, "result": bres}),
+    }
+    cj = rules.judgment_for(row, "back") if status == "ok" else None
+    if cj:
+        out["class_judgment"] = cj
+    return out
+
+
 def _detail(row, user=None):
     out = _summary(row)
-    out["result"] = row.get("result")
-    if isinstance(out["result"], dict) and "outline_review" in out["result"] and not _can_see_outline(user):
-        out["result"] = {k: v for k, v in out["result"].items() if k != "outline_review"}
+    res = row.get("result")
+    if isinstance(res, dict) and "back" in res:
+        res = {k: v for k, v in res.items() if k != "back"}
+    out["result"] = _strip_outline(res, user)
     out["photo_url"] = store.signed_url("photos", row.get("photo_path"))
     out["check_url"] = store.signed_url("results", row.get("check_path"))
     out["score"] = scoring.score_of_row(row)
     cj = rules.judgment_for(row) if row.get("status") == "ok" else None
     if cj:  # 적용 중인 선급규정이 있을 때만 (6-4b)
         out["class_judgment"] = cj
+    back = _back_detail(row, user)
+    if back:
+        out["back"] = back
     return out
 
 
@@ -364,14 +446,21 @@ def make_report(sid: str, body: ReportRequest, user=Depends(accounts.current_use
     if not stale and not unlimited and used >= limit:
         raise HTTPException(429, {"code": "daily_limit", "limit": limit})
 
-    data = report.build_input(row, sc, _history(row), rules.judge(row.get("result"), rs, row.get("position"), row.get("work_type")))
+    back = None
+    br = rules.back_result(row)
+    if br:  # 이면 사진도 올렸으면 같은 리포트에 이면도 함께
+        back = {"result": br, "score": scoring.score_of_row({"status": "ok", "result": br}),
+                "class_judgment": rules.judgment_for(row, "back", rs)}
+    data = report.build_input(row, sc, _history(row), rules.judgment_for(row, "front", rs), back)
     try:
         out, usage = report.generate(data, lang)
     except report.ReportError as e:
         print("[report] 실패", str(e)[:300], flush=True)
         raise HTTPException(503 if e.code == "ai_not_configured" else 502, {"code": e.code})
     if rkey:
-        out["_rule"] = rkey  # 어떤 선급규정으로 만든 글인지 (규정이 바뀌면 다시 만든다)
+        out["_rule"] = rkey
+    if back:
+        out["_back"] = True  # 어떤 선급규정으로 만든 글인지 (규정이 바뀌면 다시 만든다)
     new = {"submission_id": sid, "user_id": row["user_id"], "created_by": user["id"], "device_id": _device_or_none(body.device_id) or "-", "lang": lang, "model": report.model_name(),
            "report": out, "score": sc["score"], "verdict": sc["verdict"], **usage}
     if stale:

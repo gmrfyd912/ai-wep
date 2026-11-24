@@ -719,6 +719,20 @@ const es: Translation = {
   rules_calcPreview: "Vista previa: ancho {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
   rules_calcNeedAB: "Introduce A y B para calcular.",
   rules_calcBadge: "Cálculo",
+  side_front: "Frente",
+  side_back: "Reverso",
+  side_frontScore: "Puntuación del frente y veredicto preliminar IA",
+  side_backScore: "Puntuación del reverso y veredicto preliminar IA",
+  side_reportNote: "El informe IA de abajo explica el frente y el reverso. El ranking y el análisis acumulado usan la puntuación del frente.",
+  side_backHint: "El cordón del reverso (raíz), analizado igual que el frente. El ranking y el análisis acumulado solo usan la puntuación del frente.",
+  side_badge: "Frente·Reverso",
+  side_legend: "\"Frente·Reverso\" = también se analizó la foto del reverso (números y puntos son del frente)",
+  upload_backAdd: "Añadir foto del reverso (opcional)",
+  upload_backTitle: "Foto del reverso",
+  upload_backHint: "Dé la vuelta a la placa y fotografíe el cordón del reverso. Ponga el marcador justo al lado del cordón del reverso y tome 1 foto desde arriba, como el frente.",
+  upload_backRemove: "Quitar foto del reverso",
+  stage_back: "Analizando el reverso",
+  upload_frontChange: "Use los botones de abajo para cambiar la foto del frente. Toque X para quitar la foto del reverso.",
 };
 
 export default es;

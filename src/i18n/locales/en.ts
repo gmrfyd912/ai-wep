@@ -719,6 +719,20 @@ const en: Translation = {
   rules_calcPreview: "Preview: bead width {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
   rules_calcNeedAB: "Enter A and B to calculate.",
   rules_calcBadge: "Calc",
+  side_front: "Front",
+  side_back: "Back",
+  side_frontScore: "Front score & AI preliminary verdict",
+  side_backScore: "Back score & AI preliminary verdict",
+  side_reportNote: "The AI report below covers both the front and the back. Ranking and cumulative analysis use the front score.",
+  side_backHint: "The back (root) bead, analyzed the same way as the front. Ranking and cumulative analysis use only the front score.",
+  side_badge: "Front·Back",
+  side_legend: "\"Front·Back\" = the back photo was analyzed too (numbers and dots are for the front)",
+  upload_backAdd: "Add back photo (optional)",
+  upload_backTitle: "Back photo",
+  upload_backHint: "Turn the plate over and photograph the back (root) bead. Put the marker right next to the back bead and take 1 photo from straight above, like the front.",
+  upload_backRemove: "Remove back photo",
+  stage_back: "Analyzing the back",
+  upload_frontChange: "Use the buttons below to change the front photo. Tap X to remove the back photo.",
 };
 
 export default en;

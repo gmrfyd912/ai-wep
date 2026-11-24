@@ -442,10 +442,12 @@ def delete_me(body: DeleteBody, user=Depends(current_user)):
     if not check_password(body.password, user["password_hash"]):
         _err(400, "wrong_password")
     rows = store.select("submissions", {"user_id": f"eq.{user['id']}",
-                                        "select": "photo_path,thumb_path,check_path,check_thumb_path"})
+                                        "select": "photo_path,thumb_path,check_path,check_thumb_path,"
+                                                  "back_photo:result->back->>photo_path,back_check:result->back->>check_path"})
     store.remove_files("photos", [r.get("photo_path") for r in rows] + [r.get("thumb_path") for r in rows]
-                       + [user.get("avatar_path")])
-    store.remove_files("results", [r.get("check_path") for r in rows] + [r.get("check_thumb_path") for r in rows])
+                       + [r.get("back_photo") for r in rows] + [user.get("avatar_path")])
+    store.remove_files("results", [r.get("check_path") for r in rows] + [r.get("check_thumb_path") for r in rows]
+                       + [r.get("back_check") for r in rows])
     store.delete("users", {"id": f"eq.{user['id']}"})  # 기록·리포트·로그인은 함께 지워진다 (on delete cascade)
     return {"ok": True}
 

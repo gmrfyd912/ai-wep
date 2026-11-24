@@ -719,6 +719,20 @@ const vi: Translation = {
   rules_calcPreview: "Xem trước: rộng {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
   rules_calcNeedAB: "Nhập A và B để tính.",
   rules_calcBadge: "Tính",
+  side_front: "Mặt trước",
+  side_back: "Mặt sau",
+  side_frontScore: "Điểm mặt trước & đánh giá sơ bộ AI",
+  side_backScore: "Điểm mặt sau & đánh giá sơ bộ AI",
+  side_reportNote: "Báo cáo AI bên dưới giải thích cả mặt trước và mặt sau. Xếp hạng và phân tích tích lũy dùng điểm mặt trước.",
+  side_backHint: "Đường hàn mặt sau (chân), phân tích giống như mặt trước. Xếp hạng và phân tích tích lũy chỉ dùng điểm mặt trước.",
+  side_badge: "Trước·Sau",
+  side_legend: "\"Trước·Sau\" = đã phân tích cả ảnh mặt sau (số và chấm là của mặt trước)",
+  upload_backAdd: "Thêm ảnh mặt sau (tùy chọn)",
+  upload_backTitle: "Ảnh mặt sau",
+  upload_backHint: "Lật tấm thép và chụp đường hàn mặt sau. Đặt điểm đánh dấu ngay cạnh đường hàn mặt sau và chụp 1 ảnh thẳng từ trên xuống, giống mặt trước.",
+  upload_backRemove: "Bỏ ảnh mặt sau",
+  stage_back: "Phân tích mặt sau",
+  upload_frontChange: "Dùng các nút bên dưới để đổi ảnh mặt trước. Bấm X để bỏ ảnh mặt sau.",
 };
 
 export default vi;

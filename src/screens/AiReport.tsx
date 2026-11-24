@@ -18,10 +18,15 @@ export function AiReport({
   sid,
   score,
   classJudgment,
+  side = "front",
+  back,
 }: {
   sid: string;
   score: ScoreInfo | null | undefined;
   classJudgment?: ClassJudgment;
+  /** 이면 사진도 올렸을 때: 지금 보고 있는 면과 이면 점수·선급 판정 (리포트 글은 정면·이면 함께 하나) */
+  side?: "front" | "back";
+  back?: { score?: ScoreInfo | null; classJudgment?: ClassJudgment };
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
@@ -45,8 +50,11 @@ export function AiReport({
 
   useEffect(() => load(), [load]);
 
-  const sc = data?.score ?? score ?? null;
-  if (!sc) {
+  const frontSc = data?.score ?? score ?? null;
+  const onBack = side === "back" && !!back;
+  const sc = onBack ? back?.score ?? null : frontSc;
+  const cj = onBack ? back?.classJudgment : classJudgment;
+  if (!frontSc) {
     return (
       <Card>
         <Text style={styles.muted}>{t("report_notAnalyzed")}</Text>
@@ -57,8 +65,16 @@ export function AiReport({
 
   return (
     <>
-      <ScoreCard sc={sc} />
-      {classJudgment ? <ClassJudgmentCard cj={classJudgment} /> : null}
+      {back ? <Text style={styles.sideTitle}>{t(onBack ? "side_backScore" : "side_frontScore")}</Text> : null}
+      {sc ? (
+        <ScoreCard sc={sc} />
+      ) : (
+        <Card>
+          <Text style={styles.muted}>{t("report_notAnalyzed")}</Text>
+        </Card>
+      )}
+      {cj ? <ClassJudgmentCard cj={cj} /> : null}
+      {back ? <Text style={styles.sideNote}>{t("side_reportNote")}</Text> : null}
 
       {loading ? (
         <Card style={styles.center}>
@@ -195,6 +211,8 @@ function Section({ title, icon, color, items }: { title: string; icon: IconName;
 }
 
 const styles = StyleSheet.create({
+  sideTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  sideNote: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   center: { alignItems: "center", gap: space.sm, paddingVertical: space.xl },
   muted: { color: colors.muted, fontSize: 14, textAlign: "center" },
   error: { color: colors.danger, fontSize: 14, lineHeight: 21 },

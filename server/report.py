@@ -29,7 +29,7 @@ You receive those measurements as JSON and write a short, encouraging, practical
 
 Rules:
 - Write every field entirely in {language}. Many trainees are foreign workers learning welding, so use short, plain sentences and everyday words. Translate defect names into {language} (porosity, undercut, overlap, spatter, crack).
-- Use only the numbers in the JSON. Never invent measurements, causes you cannot connect to the data, or results for things that were not measured (bead height, penetration, back side, internal defects were NOT measured).
+- Use only the numbers in the JSON. Never invent measurements, causes you cannot connect to the data, or results for things that were not measured (bead height, penetration depth and internal defects were NOT measured; the back side was measured only when "back_side" is present).
 - Mention the actual numbers (mm) when you praise or point out something, so the trainee can see why.
 - The score and the pass/fail verdict were already calculated by fixed rules (fail if a crack is found, or if the score is below pass_score). Do not change, recalculate or question them. The verdict is a preliminary AI judgment; the teacher makes the final decision.
 - Width uniformity: smaller (max width − min width) is better. Straightness: smaller max deviation from the straight baseline is better. The first and last 10 mm of the bead are excluded from inspection.
@@ -38,6 +38,7 @@ Rules:
 - strengths: 2-3 items. improvements: 2-3 items, each with the number and the likely cause. practice: 2-3 items. Each item 1-2 sentences.
 - work_type tells plate or pipe. For a pipe, mention pipe-specific technique (following the curve, changing torch/electrode angle around the pipe) where it fits the numbers.
 - comparison: compare with the trainee's earlier records of the same work type (plate/pipe), process and position (oldest to newest). Say what improved or got worse with numbers. If there is no earlier record, say this is the first record and it will be the baseline.
+- back_side (only when present): the trainee also photographed the back (root) side of the same plate, and it was measured the same way (width, straightness, surface defects) with its own score and verdict. Call the photographed top side "front" and the root side "back" (translated into the report language). Cover both sides: mention back-side numbers and defects in strengths/improvements (say which side), and give root-pass drills (gap, root face, keyhole control, travel speed, current) when the back numbers call for it. The score and verdict at the top level are for the front side; do not merge or recalculate them. earlier_records are front-side only.
 - summary: one sentence overall comment.
 - class_rule_judgment (only when present): a separate preliminary check against the institute's classification society rule set. If an item failed, mention it in improvements with the measured value and the limit (and the rule name). Do not change that verdict either, and do not mix it with the 100-point score. Items in its "teacher_check" list could not be judged from the photo: do not judge them; you may remind the trainee that the teacher checks them (with the limit for this bead when "teacher_check_limits_for_this_bead" gives one). verdict "review" means nothing failed but something seen in the photo (for example an undercut, whose depth limit cannot be measured from a photo) needs the teacher's check: say so plainly, it is not a fail."""
 
@@ -73,12 +74,58 @@ def _num(v, nd=2):
     return None if v is None else round(float(v), nd)
 
 
-def build_input(row, score, history, class_judgment=None):
-    """AI에 보낼 숫자 묶음. history = 같은 용접법·자세의 이전 기록(오래된 → 최근, 최대 10개, 이번 제외)."""
-    res = row.get("result") or {}
+def _measures(res):
+    """한 면의 폭·직진도·결함 숫자."""
     bead = res.get("bead") or {}
     w = bead.get("width") or {}
     st = bead.get("straightness") or {}
+    return {
+        "width": {
+            "mean_mm": _num(w.get("mean_mm")),
+            "min_mm": _num(w.get("min_mm")),
+            "min_at_mm_from_start": _num(w.get("min_pos_mm"), 0),
+            "max_mm": _num(w.get("max_mm")),
+            "max_at_mm_from_start": _num(w.get("max_pos_mm"), 0),
+            "range_max_minus_min_mm": None if w.get("min_mm") is None or w.get("max_mm") is None
+            else _num(float(w["max_mm"]) - float(w["min_mm"])),
+            "std_dev_mm": _num(w.get("std_mm")),
+        },
+        "straightness": {
+            "max_deviation_mm": _num(st.get("max_dev_mm")),
+            "at_mm_from_start": _num(st.get("max_dev_pos_mm"), 0),
+        },
+        "defects": [
+            {"type": d.get("type"), "length_mm": _num(d.get("length_mm"), 1),
+             "at_mm_from_start": _num(d.get("pos_along_bead_mm"), 0)}
+            for d in (res.get("defects") or []) if isinstance(d, dict)
+        ],
+    }
+
+
+def _class_block(cj):
+    out = {
+        "rule_set": " ".join(x for x in (cj.get("society"), cj.get("name")) if x),
+        "verdict_fixed_by_rules": cj.get("verdict"),
+        "items": [{"item": i["key"], "check": i["check"], "ok": i["ok"], "measured": i["measured"],
+                   "limit": i["limit"], "unit": i["unit"]} for i in cj.get("items") or []],
+        "teacher_check": [m.get("name") or m.get("rule") for m in cj.get("manual") or []],
+    }
+    lims = [{"item": m.get("name") or m.get("rule"), "limit_mm": m["limit_mm"], "from_bead_width_mm": m.get("basis_mm")}
+            for m in cj.get("manual") or [] if m.get("limit_mm") is not None]
+    if lims:
+        out["teacher_check_limits_for_this_bead"] = lims
+    if cj.get("zone"):
+        out["inspected_zone_mm_from_start"] = [cj["zone"]["start_mm"], cj["zone"]["end_mm"]]
+    if cj.get("next_test"):
+        out["next_tests_after_visual"] = cj["next_test"]
+    return out
+
+
+def build_input(row, score, history, class_judgment=None, back=None):
+    """AI에 보낼 숫자 묶음. history = 같은 용접법·자세의 이전 기록(오래된 → 최근, 최대 10개, 이번 제외).
+    back = 이면 사진도 올렸을 때 {"result", "score", "class_judgment"}."""
+    res = row.get("result") or {}
+    bead = res.get("bead") or {}
     hist = []
     for h in history:
         sc = h.get("_score") or {}
@@ -105,45 +152,21 @@ def build_input(row, score, history, class_judgment=None):
                            f"(about {_num(pz.get('zone_arc_mm'), 0)} mm of circumference); straightness is measured "
                            f"against a curved baseline; positions are measured along the bead as seen in the photo")
         if pipe else "bead excluding first and last 10 mm",
-        "width": {
-            "mean_mm": _num(w.get("mean_mm")),
-            "min_mm": _num(w.get("min_mm")),
-            "min_at_mm_from_start": _num(w.get("min_pos_mm"), 0),
-            "max_mm": _num(w.get("max_mm")),
-            "max_at_mm_from_start": _num(w.get("max_pos_mm"), 0),
-            "range_max_minus_min_mm": None if w.get("min_mm") is None or w.get("max_mm") is None
-            else _num(float(w["max_mm"]) - float(w["min_mm"])),
-            "std_dev_mm": _num(w.get("std_mm")),
-        },
-        "straightness": {
-            "max_deviation_mm": _num(st.get("max_dev_mm")),
-            "at_mm_from_start": _num(st.get("max_dev_pos_mm"), 0),
-        },
-        "defects": [
-            {"type": d.get("type"), "length_mm": _num(d.get("length_mm"), 1),
-             "at_mm_from_start": _num(d.get("pos_along_bead_mm"), 0)}
-            for d in (res.get("defects") or []) if isinstance(d, dict)
-        ],
+        **_measures(res),
         "score_and_verdict_fixed_by_rules": score,
         "earlier_records_same_process_position": hist,
     }
     if class_judgment:
-        cj = class_judgment
-        out["class_rule_judgment"] = {
-            "rule_set": " ".join(x for x in (cj.get("society"), cj.get("name")) if x),
-            "verdict_fixed_by_rules": cj.get("verdict"),
-            "items": [{"item": i["key"], "check": i["check"], "ok": i["ok"], "measured": i["measured"],
-                       "limit": i["limit"], "unit": i["unit"]} for i in cj.get("items") or []],
-            "teacher_check": [m.get("name") or m.get("rule") for m in cj.get("manual") or []],
+        out["class_rule_judgment"] = _class_block(class_judgment)
+    if back and isinstance(back.get("result"), dict):
+        bb = back["result"].get("bead") or {}
+        out["back_side"] = {
+            "bead_length_mm": _num(bb.get("length_mm"), 0),
+            **_measures(back["result"]),
+            "back_score_and_verdict_fixed_by_rules": back.get("score"),
         }
-        lims = [{"item": m.get("name") or m.get("rule"), "limit_mm": m["limit_mm"], "from_bead_width_mm": m.get("basis_mm")}
-                for m in cj.get("manual") or [] if m.get("limit_mm") is not None]
-        if lims:
-            out["class_rule_judgment"]["teacher_check_limits_for_this_bead"] = lims
-        if cj.get("zone"):
-            out["class_rule_judgment"]["inspected_zone_mm_from_start"] = [cj["zone"]["start_mm"], cj["zone"]["end_mm"]]
-        if cj.get("next_test"):
-            out["class_rule_judgment"]["next_tests_after_visual"] = cj["next_test"]
+        if back.get("class_judgment"):
+            out["back_side"]["class_rule_judgment"] = _class_block(back["class_judgment"])
     return out
 
 

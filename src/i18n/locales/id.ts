@@ -719,6 +719,20 @@ const id: Translation = {
   rules_calcPreview: "Pratinjau: lebar {{w1}} mm → ≤ {{h1}} mm, {{w2}} mm → ≤ {{h2}} mm",
   rules_calcNeedAB: "Isi A dan B untuk menghitung.",
   rules_calcBadge: "Hitung",
+  side_front: "Depan",
+  side_back: "Belakang",
+  side_frontScore: "Skor depan & penilaian awal AI",
+  side_backScore: "Skor belakang & penilaian awal AI",
+  side_reportNote: "Laporan AI di bawah menjelaskan sisi depan dan belakang. Peringkat dan analisis kumulatif memakai skor depan.",
+  side_backHint: "Manik las sisi belakang (root), dianalisis dengan cara yang sama seperti depan. Peringkat dan analisis kumulatif hanya memakai skor depan.",
+  side_badge: "Depan·Belakang",
+  side_legend: "\"Depan·Belakang\" = foto belakang juga dianalisis (angka dan titik untuk sisi depan)",
+  upload_backAdd: "Tambah foto belakang (opsional)",
+  upload_backTitle: "Foto belakang",
+  upload_backHint: "Balik pelat dan foto manik las sisi belakang. Letakkan marker tepat di samping manik belakang dan ambil 1 foto lurus dari atas, seperti sisi depan.",
+  upload_backRemove: "Hapus foto belakang",
+  stage_back: "Menganalisis sisi belakang",
+  upload_frontChange: "Pakai tombol di bawah untuk mengganti foto depan. Ketuk X untuk menghapus foto belakang.",
 };
 
 export default id;

@@ -98,7 +98,7 @@ LIST_SELECT = ("id,user_id,device_id,status,hidden,work_type,pipe_od_mm,process,
                "width_max_mm:result->bead->width->max_mm,defect_types:result->defects,"
                "photo_path,thumb_path,check_path,check_thumb_path,"
                "check_w:result->check_layout->width,check_h:result->check_layout->height,"
-               "outline_status:result->outline_review->>status")
+               "outline_status:result->outline_review->>status,back_status:result->back->>status")
 
 
 def _list_submissions(col, value, limit):

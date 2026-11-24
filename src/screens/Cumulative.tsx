@@ -225,6 +225,7 @@ export function RecordLegend() {
         </View>
       </View>
       <Text style={styles.recLegendHint}>{t("records_legendHint")}</Text>
+      <Text style={styles.recLegendHint}>{t("side_legend")}</Text>
     </View>
   );
 }
@@ -266,6 +267,7 @@ export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: b
             {current ? `${showInfo ? "  " : ""}${t("cum_viewing")}` : ""}
           </Text>
           {r.outline_check ? <Text style={styles.outlineBadge}>{t("outline_badge")}</Text> : null}
+          {r.has_back ? <Text style={styles.backBadge}>{t("side_badge")}</Text> : null}
         </View>
         {r.status === "ok" ? (
           <View style={{ alignItems: "flex-end", gap: 4 }}>
@@ -288,6 +290,7 @@ export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: b
 
 const styles = StyleSheet.create({
   outlineBadge: { color: colors.warning, fontSize: 12, fontWeight: "700", marginTop: 2 },
+  backBadge: { color: colors.primary, fontSize: 12, fontWeight: "700", marginTop: 2 },
   hint: { color: colors.faint, fontSize: 11 },
   empty: { color: colors.muted, fontSize: 14, lineHeight: 20, paddingVertical: space.lg, textAlign: "center" },
   chartTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },
