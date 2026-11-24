@@ -5,10 +5,10 @@ import cv2
 import numpy as np
 
 from . import marker as mk
-from . import edges, measure, rectify, roboflow_client, visualize
+from . import edges, measure, rectify, review_image, roboflow_client, visualize
 from .config import Config
 
-ENGINE_VERSION = "0.3.1"
+ENGINE_VERSION = "0.3.2"
 
 
 def _is_bead(cls, cfg):
@@ -58,10 +58,11 @@ def _box_of(p):
             "x": round(x0, 1), "y": round(y0, 1), "w": round(x1 - x0, 1), "h": round(y1 - y0, 1)}
 
 
-def analyze_image(img, cfg=None, predictions=None, progress=None, pipe_od_mm=None):
+def analyze_image(img, cfg=None, predictions=None, progress=None, pipe_od_mm=None, extras=None):
     """img: BGR 배열 또는 파일 경로. predictions: 테스트용(주면 Roboflow 호출 생략).
     progress: 단계 이름을 받는 함수 (marker → roboflow → measure). 앱 진행 표시용.
     pipe_od_mm: 배관 외경. 있으면 배관 방식(가운데 ±45°만 검사, 곡선 기준선).
+    extras: dict 를 주면 extras["review_img"] 에 윤곽 2차 검토용 그림(BGR)을 넣어 준다.
     반환: (result dict, 확인용 그림, 보정 이미지)"""
     cfg = cfg or Config()
     t0 = time.time()
@@ -161,6 +162,14 @@ def analyze_image(img, cfg=None, predictions=None, progress=None, pipe_od_mm=Non
         # 마커는 빼고 비드(+결함)만 잘라서, 그림 폭이 그래프의 가로(비드 길이)와 거의 같게 한다
         keep_pts = np.vstack([bead_mm] + [p for _, p in defects])
         vis, res["check_layout"] = _align_to_bead(vis, geom, keep_pts, k, offset, cfg)
+        if extras is not None:
+            try:
+                def align(im):
+                    out, layout = _align_to_bead(im, geom, keep_pts, k, offset, cfg)
+                    return out if layout else None
+                extras["review_img"] = review_image.make(rect_img, geom, to_px, align)
+            except Exception:  # noqa: BLE001 (검토 그림이 없으면 검토만 건너뛴다)
+                extras["review_img"] = None
     res["rectified"] = {"px_per_mm": k, "width": rect_img.shape[1], "height": rect_img.shape[0]}
     res["timing_s"] = round(time.time() - t0, 2)
     return res, vis, rect_img

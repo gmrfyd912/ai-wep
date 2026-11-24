@@ -265,6 +265,7 @@ export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: b
             {showInfo ? date : ""}
             {current ? `${showInfo ? "  " : ""}${t("cum_viewing")}` : ""}
           </Text>
+          {r.outline_check ? <Text style={styles.outlineBadge}>{t("outline_badge")}</Text> : null}
         </View>
         {r.status === "ok" ? (
           <View style={{ alignItems: "flex-end", gap: 4 }}>
@@ -286,6 +287,7 @@ export function RecordRow({ r, current, showInfo = true }: { r: Row; current?: b
 }
 
 const styles = StyleSheet.create({
+  outlineBadge: { color: colors.warning, fontSize: 12, fontWeight: "700", marginTop: 2 },
   hint: { color: colors.faint, fontSize: 11 },
   empty: { color: colors.muted, fontSize: 14, lineHeight: 20, paddingVertical: space.lg, textAlign: "center" },
   chartTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },

@@ -37,6 +37,7 @@ export default function TrainingScreen() {
   const [pos, setPos] = useState("");
   const [work, setWork] = useState<WorkType | "">("");
   const [course, setCourse] = useState("all");
+  const [onlyOutline, setOnlyOutline] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [sum, setSum] = useState<ExportSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,13 +62,22 @@ export default function TrainingScreen() {
     setError("");
     setMsg("");
     const timer = setTimeout(() => {
-      trainingExport({ range, date_from: from, date_to: to, process: proc, position: pos, course, work_type: work })
+      trainingExport({
+        range,
+        date_from: from,
+        date_to: to,
+        process: proc,
+        position: pos,
+        course,
+        work_type: work,
+        outline_check: onlyOutline,
+      })
         .then((s) => n === req.current && setSum(s))
         .catch((e) => n === req.current && setError(t(authErrorKey(e).key as "error_network")))
         .finally(() => n === req.current && setLoading(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [range, from, to, proc, pos, course, work, t]);
+  }, [range, from, to, proc, pos, course, work, onlyOutline, t]);
 
   if (user?.role !== "admin") return <Redirect href="/" />;
 
@@ -140,6 +150,16 @@ export default function TrainingScreen() {
         value={course}
         onChange={setCourse}
       />
+      <Label>{t("train_outline")}</Label>
+      <Chips<"all" | "check">
+        options={[
+          { value: "all", label: t("common_all") },
+          { value: "check", label: t("train_outlineOnly") },
+        ]}
+        value={onlyOutline ? "check" : "all"}
+        onChange={(v) => setOnlyOutline(v === "check")}
+      />
+      <Text style={styles.hint}>{t("train_outlineHint")}</Text>
 
       {loading ? <ActivityIndicator color={colors.primary} /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}

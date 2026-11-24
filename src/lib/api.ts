@@ -99,6 +99,8 @@ export type SubmissionListItem = SubmissionSummary & {
   /** 5단계 점수(100점)·AI 예비판정. 분석 실패면 null */
   score?: number | null;
   verdict?: Verdict | null;
+  /** AI 윤곽 검토에서 '윤곽 확인 필요' (볼 수 있는 사람에게만 옴) */
+  outline_check?: boolean;
 } & BeadFields;
 
 export type Verdict = "pass" | "fail";
@@ -139,9 +141,17 @@ export type ReportResponse = {
  * dev_sign 을 직진도 이탈값에 곱하면 그림 위쪽이 그래프 + 쪽이 된다. */
 export type CheckLayout = { x_start_mm: number; x_end_mm: number; width: number; height: number; dev_sign: number };
 
+/** 윤곽 2차 검토 (Claude 비전): 측정에 쓴 가장자리가 비드 끝을 따라가는지 */
+export type OutlineReview = {
+  status: "ok" | "check" | "failed";
+  reason?: "none" | "cuts_into_bead" | "includes_plate" | "shadow" | "glare" | "spatter" | "other";
+  where?: "none" | "start" | "middle" | "end" | "whole";
+};
+
 export type EngineResult = {
   status: Status;
   warnings?: string[];
+  outline_review?: OutlineReview;
   check_layout?: CheckLayout | null;
   bead?: {
     length_mm: number;
@@ -699,11 +709,14 @@ export type AdminSettings = {
   crack_fail: boolean;
   fail_score_cap: number;
   report_daily_limit: number;
+  /** 윤곽 2차 검토: 끔 / 교사·관리자만 보임 / 모두 보임 */
+  outline_review?: OutlineMode;
   password_min_length: number;
   reset_password: string;
   updated_at?: string | null;
   updated_by?: string | null;
 };
+export type OutlineMode = "off" | "staff" | "all";
 export const getAdminSettings = () => request<AdminSettings>("/admin/settings", {}, BOARD_TIMEOUT);
 export const saveAdminSettings = (v: AdminSettings) => request<AdminSettings>("/admin/settings", json("PUT", v), BOARD_TIMEOUT);
 
@@ -716,6 +729,8 @@ export type ExportQuery = {
   position: string;
   course: string;
   work_type: string;
+  /** 윤곽 확인 필요(AI 검토)로 표시된 사진만 */
+  outline_check?: boolean;
 };
 export type ExportPart = { index: number; first: number; last: number; date_from: string; date_to: string; path: string };
 export type ExportSummary = { total: number; labeled: number; parts: ExportPart[]; expires_at: number; last_export_at: string | null };
