@@ -52,6 +52,7 @@ export default function BookViewer() {
   const asked = useRef(new Set<number>());
   const pending = useRef(new Set<number>());
   const lastSaved = useRef<number | null>(null);
+  const turned = useRef(false); // 쪽을 한 번이라도 넘겼나 (열기만 하고 나가면 "이어서 보기"에 남기지 않음)
 
   // 교재 정보
   useEffect(() => {
@@ -97,8 +98,8 @@ export default function BookViewer() {
   const flush = useCallback(() => {
     if (preview || !meta) return;
     const done = [...pending.current];
-    const last = cur.current;
-    if (done.length === 0 && last === lastSaved.current) return;
+    const last = turned.current ? cur.current : null;
+    if (done.length === 0 && (last === null || last === lastSaved.current)) return;
     pending.current.clear();
     lastSaved.current = last;
     saveTextbookProgress(meta.id, done, last).catch(() => {
@@ -118,6 +119,7 @@ export default function BookViewer() {
   }, [flush]);
 
   const turnedTo = (q: number) => {
+    turned.current = true;
     if (q === cur.current + 1) pending.current.add(cur.current); // 다음 쪽으로 넘김 → 앞 쪽 다 봄
     cur.current = q;
     setIndex(q - 1);

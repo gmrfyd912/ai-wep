@@ -68,10 +68,18 @@ export function TheoryHome() {
               </Text>
             </View>
             <ProgressBar ratio={book.book.pages ? book.done_count / book.book.pages : 0} />
+            {book.last_page ? (
+              <AppButton
+                label={t("theory_continue", { page: printed(book.last_page, book.book.page_offset) })}
+                icon="book-outline"
+                onPress={() => openAt(book.last_page!)}
+              />
+            ) : null}
             <AppButton
-              label={book.last_page ? t("theory_continue", { page: printed(book.last_page, book.book.page_offset) }) : t("theory_start")}
-              icon="book-outline"
-              onPress={() => openAt(book.last_page ?? firstPage(book.toc))}
+              label={t("theory_start")}
+              icon="play-skip-back-outline"
+              variant={book.last_page ? "secondary" : "primary"}
+              onPress={() => openAt(firstPage(book.toc))}
             />
           </Card>
 
@@ -145,7 +153,11 @@ function Legend() {
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 /** 책에 인쇄된 쪽 번호 (PDF 쪽 − 차이) */
 export const printed = (pdfPage: number, offset: number) => pdfPage - offset;
-const firstPage = (toc: TocPart[]) => toc.find((p) => p.pdf_page)?.pdf_page ?? 1;
+/** 목차에서 가장 앞 쪽 (목차가 없으면 1쪽) */
+const firstPage = (toc: TocPart[]) => {
+  const all = toc.flatMap((p) => [p.pdf_page, ...p.chapters.map((c) => c.pdf_page)]).filter((n): n is number => !!n && n > 0);
+  return all.length ? Math.min(...all) : 1;
+};
 
 const styles = StyleSheet.create({
   error: { color: colors.danger },
