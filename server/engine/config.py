@@ -38,6 +38,9 @@ class Config:
     edge_band_inner_mm: float = 3.5
     edge_band_outer_mm: float = 1.0
     edge_median_stations: int = 7
+    # 비드를 못 찾으면 마커 주변을 잘라 다시 찾기 (멀리서 찍어 비드가 작게 나온 사진용)
+    crop_retry: bool = True
+    crop_half_markers: float = 4.0  # 자를 범위: 마커 중심에서 마커 한 변 × 이 값 (반폭)
     # 폭 평균: 가장 큰 값·가장 작은 값을 각각 이 비율(%)만큼 빼고 평균 (절사평균)
     width_trim_percent: float = 10.0
     # 보정 이미지에서 관심 영역 바깥 여백(mm)
