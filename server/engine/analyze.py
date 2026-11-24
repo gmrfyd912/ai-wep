@@ -8,7 +8,7 @@ from . import marker as mk
 from . import edges, measure, rectify, roboflow_client, visualize
 from .config import Config
 
-ENGINE_VERSION = "0.3.0"
+ENGINE_VERSION = "0.3.1"
 
 
 def _is_bead(cls, cfg):
@@ -21,6 +21,35 @@ def _pred_points(p):
         return p["polygon"]
     x0, y0, x1, y1 = p["box"]
     return np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float)
+
+
+def _has_bead(preds, cfg):
+    return any(_is_bead(p["class"], cfg) and not any(k in p["class"].lower() for k in cfg.ignore_class_keywords)
+               for p in preds)
+
+
+def _predict_crop(img, corners, cfg):
+    """마커 중심에서 (마커 한 변 × crop_half_markers) 만큼 잘라 Roboflow에 보내고,
+    결과 좌표를 원본 사진 좌표로 되돌린다. 자를 범위가 사진 전체면 None."""
+    c = np.asarray(corners, float).reshape(-1, 2)
+    side = float(np.mean(np.linalg.norm(c - np.roll(c, 1, axis=0), axis=1)))
+    cx, cy = c.mean(0)
+    hw = cfg.crop_half_markers * side
+    h, w = img.shape[:2]
+    x0, y0 = max(0, int(cx - hw)), max(0, int(cy - hw))
+    x1, y1 = min(w, int(cx + hw)), min(h, int(cy + hw))
+    if x1 - x0 >= w and y1 - y0 >= h:
+        return None
+    preds = roboflow_client.predict(img[y0:y1, x0:x1], cfg)
+    out = []
+    for p in preds:
+        q = dict(p)
+        if q.get("polygon") is not None:
+            q["polygon"] = np.asarray(q["polygon"], float) + [x0, y0]
+        bx0, by0, bx1, by1 = q["box"]
+        q["box"] = (bx0 + x0, by0 + y0, bx1 + x0, by1 + y0)
+        out.append(q)
+    return out
 
 
 def _box_of(p):
@@ -59,13 +88,24 @@ def analyze_image(img, cfg=None, predictions=None, progress=None, pipe_od_mm=Non
 
     marker_mm = to_mm(corners)
     step("roboflow")
+    crop_retry = None  # None: 안 함, found / not_found / failed
     if predictions is None:
         try:
             predictions = roboflow_client.predict(img, cfg)
         except Exception as e:  # 네트워크·키 오류
             return _error("roboflow_failed", str(e)), None, None
+        if cfg.crop_retry and not _has_bead(predictions, cfg):
+            # 멀리서 찍으면 비드가 작아 AI가 놓친다 → 마커 주변만 잘라 다시 보낸다
+            # 결과는 경고가 아니라 detections.crop_retry 에 남긴다 (앱 화면에 보일 문구가 아님)
+            try:
+                retry = _predict_crop(img, corners, cfg)
+                crop_retry = "found" if retry is not None and _has_bead(retry, cfg) else "not_found"
+            except Exception:  # noqa: BLE001 (재검출 실패는 원래 결과 유지)
+                retry, crop_retry = None, "failed"
+            if crop_retry == "found":
+                predictions = retry
     step("measure")
-    res["detections"] = {"classes": sorted({p["class"] for p in predictions}),
+    res["detections"] = {"crop_retry": crop_retry, "classes": sorted({p["class"] for p in predictions}),
                          # AI가 찾은 상자 (원본 px, 왼쪽 위 x·y + 폭·높이): 학습용 사진 받기의 라벨
                          "boxes": [_box_of(p) for p in predictions]}
     predictions = [p for p in predictions if not any(k in p["class"].lower() for k in cfg.ignore_class_keywords)]

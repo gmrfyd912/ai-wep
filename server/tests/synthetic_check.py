@@ -101,7 +101,37 @@ def run():
             cv2.imwrite(f"{sys.argv[1]}/{name}_input.jpg", img)
             cv2.imwrite(f"{sys.argv[1]}/{name}_check.jpg", vis)
     print(f"최대 오차 {worst:.2f} mm ->", "통과" if worst <= 0.5 else "실패")
+    worst = max(worst, crop_retry_check(cfg, plane, poly, rng))
     return worst
+
+
+def crop_retry_check(cfg, plane, poly, rng):
+    """비드를 못 찾으면 마커 주변을 잘라 다시 찾는지: 전체 사진엔 빈 결과, 잘린 사진엔 비드를 돌려주는 가짜 AI."""
+    from engine import roboflow_client
+    img, pts = camera(plane, poly, rng, 15, 0, 1.0, NOISE)
+    calls = []
+
+    def fake(im, c, timeout=60):
+        calls.append(im.shape)
+        if im.shape == img.shape:
+            return []
+        off = im.__array_interface__["data"][0] - img.__array_interface__["data"][0]
+        y0, x0 = off // img.strides[0], (off % img.strides[0]) // img.strides[1]
+        q = pts - [x0, y0]
+        return [{"class": "weld_bead", "confidence": 0.9, "polygon": q, "box": (*q.min(0), *q.max(0))}]
+
+    orig = roboflow_client.predict
+    roboflow_client.predict = fake
+    try:
+        res, _, _ = analyze_image(img, cfg)
+        ref, _, _ = analyze_image(img, cfg, predictions=[{"class": "weld_bead", "confidence": 0.9, "polygon": pts,
+                                                          "box": (*pts.min(0), *pts.max(0))}])
+    finally:
+        roboflow_client.predict = orig
+    ok = (res["status"] == "ok" and len(calls) == 2 and res["detections"]["crop_retry"] == "found"
+          and abs(res["bead"]["width"]["mean_mm"] - ref["bead"]["width"]["mean_mm"]) < 1e-6)
+    print("자르기 재검출:", "통과" if ok else f"실패 {res.get('status')} {calls} {res.get('detections')}")
+    return 0.0 if ok else 99.0
 
 
 if __name__ == "__main__":
