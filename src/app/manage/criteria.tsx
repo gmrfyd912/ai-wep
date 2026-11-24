@@ -3,8 +3,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Platform, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { AppButton, Card, Field, Screen, SectionTitle } from "@/components/ui";
-import { authErrorKey, getAdminSettings, saveAdminSettings, type AdminSettings } from "@/lib/api";
+import { AppButton, Card, Chips, Field, Screen, SectionTitle } from "@/components/ui";
+import { authErrorKey, getAdminSettings, saveAdminSettings, type AdminSettings, type OutlineMode } from "@/lib/api";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
 
@@ -44,7 +44,7 @@ function toForm(s: AdminSettings): Form {
 
 const n = (v: string) => Number(String(v).replace(",", "."));
 
-function fromForm(f: Form, crack: boolean): AdminSettings | null {
+function fromForm(f: Form, crack: boolean, outline: OutlineMode): AdminSettings | null {
   if (NUM_KEYS.some((k) => f[k].trim() === "" || !Number.isFinite(n(f[k])))) return null;
   return {
     pass_score: Math.round(n(f.pass_score)),
@@ -61,6 +61,7 @@ function fromForm(f: Form, crack: boolean): AdminSettings | null {
     },
     crack_fail: crack,
     report_daily_limit: Math.round(n(f.report_daily_limit)),
+    outline_review: outline,
     password_min_length: Math.round(n(f.password_min_length)),
     reset_password: f.reset_password.trim(),
   };
@@ -72,6 +73,7 @@ export default function CriteriaScreen() {
   const { user } = useSession();
   const [form, setForm] = useState<Form | null>(null);
   const [crack, setCrack] = useState(true);
+  const [outline, setOutline] = useState<OutlineMode>("staff");
   const [meta, setMeta] = useState<{ at?: string | null; by?: string | null }>({});
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -80,6 +82,7 @@ export default function CriteriaScreen() {
   const apply = (s: AdminSettings) => {
     setForm(toForm(s));
     setCrack(s.crack_fail);
+    setOutline(s.outline_review ?? "staff");
     setMeta({ at: s.updated_at, by: s.updated_by });
   };
 
@@ -116,7 +119,7 @@ export default function CriteriaScreen() {
   const totalOk = Math.abs(total - 100) < 0.01;
 
   const doSave = async () => {
-    const body = fromForm(form, crack);
+    const body = fromForm(form, crack, outline);
     if (!body) return setError(t("crit_errNumbers"));
     setBusy(true);
     setError("");
@@ -188,6 +191,23 @@ export default function CriteriaScreen() {
       <Card>
         {num("report_daily_limit", t("crit_reportLimit"), t("crit_unitCount"))}
         <Text style={styles.hint}>{t("crit_reportHint")}</Text>
+      </Card>
+
+      <SectionTitle>{t("crit_outline")}</SectionTitle>
+      <Card>
+        <Chips<OutlineMode>
+          options={[
+            { value: "off", label: t("crit_outlineOff") },
+            { value: "staff", label: t("crit_outlineStaff") },
+            { value: "all", label: t("crit_outlineAll") },
+          ]}
+          value={outline}
+          onChange={(v) => {
+            setMsg("");
+            setOutline(v);
+          }}
+        />
+        <Text style={styles.hint}>{t("crit_outlineHint")}</Text>
       </Card>
 
       <SectionTitle>{t("crit_password")}</SectionTitle>

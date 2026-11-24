@@ -69,7 +69,7 @@ def _project(table, row, select):
             out[name] = _project(target, ref, inner) if ref else None
         elif ":" in part:  # 별명:열->키->키 (JSON 경로). 시험 행에 별명 이름 값이 있으면 그것
             name, path = part.split(":", 1)
-            keys = path.split("->")
+            keys = path.replace("->>", "->").split("->")
             v = row.get(keys[0])
             for k in keys[1:]:
                 v = v.get(k) if isinstance(v, dict) else None

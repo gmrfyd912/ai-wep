@@ -24,6 +24,7 @@ import store
 router = APIRouter()
 KST = timezone(timedelta(hours=9))
 AUTH_DEFAULT = {"password_min_length": 0, "reset_password": "0000"}
+OUTLINE_MODES = ("off", "staff", "all")  # 윤곽 2차 검토: 끔 / 교사·관리자만 보임 / 모두 보임
 PART_SIZE = 200  # ZIP 하나에 넣는 사진 수
 LINK_SECONDS = 3600  # 다운로드 링크 유효 시간
 _pool = ThreadPoolExecutor(8)
@@ -49,6 +50,12 @@ def _save_setting(key, value):
 
 # ---- 검사·운영 설정 ----
 
+def outline_mode():
+    """윤곽 2차 검토(Claude 비전) 방식. 기본 'staff': 검토는 하되 교사·관리자에게만 보인다."""
+    m = scoring.criteria().get("outline_review", "staff")
+    return m if m in OUTLINE_MODES else "staff"
+
+
 def _view():
     c = scoring.criteria()
     a = accounts._setting("auth", AUTH_DEFAULT)
@@ -64,6 +71,7 @@ def _view():
         "crack_fail": "crack" in [x.lower() for x in c.get("fail_types") or []],
         "fail_score_cap": int(c.get("fail_score_cap", 59)),
         "report_daily_limit": int(c.get("report_daily_limit", 5)),
+        "outline_review": outline_mode(),
         "password_min_length": int(a.get("password_min_length") or 0),
         "reset_password": str(a.get("reset_password") or "0000"),
         "updated_at": c.get("_updated_at"),
@@ -94,6 +102,7 @@ class SettingsBody(BaseModel):
     crack_fail: bool = True
     fail_score_cap: int = 59
     report_daily_limit: int
+    outline_review: str | None = None  # 예전 앱은 보내지 않음 → 그대로 둔다
     password_min_length: int
     reset_password: str
 
@@ -120,6 +129,8 @@ def put_settings(body: SettingsBody, user=Depends(need_admin)):
         _err(400, "bad_value")
     if not 0 <= body.password_min_length <= 32:
         _err(400, "bad_value")
+    if body.outline_review is not None and body.outline_review not in OUTLINE_MODES:
+        _err(400, "bad_value")
     reset = body.reset_password.strip()
     if not reset or len(reset) > 50:
         _err(400, "bad_reset_password")
@@ -144,6 +155,7 @@ def put_settings(body: SettingsBody, user=Depends(need_admin)):
         "fail_types": fail_types,
         "fail_score_cap": body.fail_score_cap,
         "report_daily_limit": body.report_daily_limit,
+        "outline_review": body.outline_review if body.outline_review is not None else cur.get("outline_review", "staff"),
         "_updated_at": datetime.now(timezone.utc).isoformat(),
         "_updated_by": user["name"],
     })
@@ -166,6 +178,7 @@ class ExportQuery(BaseModel):
     position: str = ""
     work_type: str = ""
     course: str = "all"
+    outline_check: bool = False  # 윤곽 확인 필요(AI 검토)로 표시된 사진만 → 재학습 때 먼저 라벨링
 
 
 def _day_start(day):
@@ -201,6 +214,8 @@ def _rows(q: ExportQuery, select="id,created_at"):
         params["position"] = f"eq.{q.position}"
     if q.work_type in ("plate", "pipe"):
         params["work_type"] = f"eq.{q.work_type}"
+    if q.outline_check:
+        params["result->outline_review->>status"] = "eq.check"
     if q.course != "all":
         members = [r["user_id"] for r in store.select("user_courses", {"course_id": f"eq.{q.course}", "select": "user_id"})]
         if not members:

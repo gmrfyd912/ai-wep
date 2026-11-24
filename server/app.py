@@ -26,6 +26,7 @@ import admin_settings
 import mail
 import manage
 import media
+import outline_review
 import social
 import report
 import rules
@@ -102,9 +103,12 @@ def _summary(row):
     return out
 
 
-def _list_item(row):
+def _list_item(row, show_outline=False):
     """내 기록 목록: 요약 + 추이·비교·결함 통계에 쓰는 값 (그래프 배열은 넣지 않아 가볍다)."""
     out = _summary(row)
+    st = row.get("outline_status") or (((row.get("result") or {}).get("outline_review") or {}).get("status"))
+    if show_outline and st == "check":
+        out["outline_check"] = True
     for k in ("width_std_mm", "width_min_mm", "width_max_mm"):
         out[k] = row.get(k)
     out["defect_types"] = [d.get("type") for d in (row.get("defect_types") or []) if isinstance(d, dict)]
@@ -168,9 +172,17 @@ async def analyze(
         "status": "processing", "photo_path": photo_path,
     })
 
+    extras = {}
     res, vis, _ = await _step("analyze", analyze_image, img, Config(), None,
-                              lambda name: _set_progress(job_id, name), od)
+                              lambda name: _set_progress(job_id, name), od, extras)
     _set_progress(job_id, "save_result")
+    # 윤곽 2차 검토 (Claude 비전): 측정에 쓴 가장자리가 비드 끝을 따라가는지. 실패해도 결과는 그대로 저장
+    if res.get("status") == "ok" and res.get("bead") and admin_settings.outline_mode() != "off":
+        try:
+            res["outline_review"] = await run_in_threadpool(outline_review.review, extras.get("review_img"))
+        except Exception as e:  # noqa: BLE001
+            print("[analyze] 윤곽 검토 실패", str(e)[:200], flush=True)
+            res["outline_review"] = {"status": "failed", "error": "exception"}
 
     # 갤러리용 작은 사진 (긴 변 480px)
     thumb_path = None
@@ -208,14 +220,22 @@ async def analyze(
         "defect_count": len(res.get("defects") or []),
     }
     row = await _step("save_result", store.update, sid, update)
-    out = await _step("make_links", _detail, row)
+    out = await _step("make_links", _detail, row, user)
     _set_progress(job_id, "done")
     return out
 
 
-def _detail(row):
+def _can_see_outline(user):
+    """윤곽 확인 결과를 볼 수 있는지: 'all' 이면 모두, 'staff' 이면 교사·행정·관리자만."""
+    mode = admin_settings.outline_mode()
+    return mode == "all" or (mode == "staff" and user is not None and user.get("role") != "student")
+
+
+def _detail(row, user=None):
     out = _summary(row)
     out["result"] = row.get("result")
+    if isinstance(out["result"], dict) and "outline_review" in out["result"] and not _can_see_outline(user):
+        out["result"] = {k: v for k, v in out["result"].items() if k != "outline_review"}
     out["photo_url"] = store.signed_url("photos", row.get("photo_path"))
     out["check_url"] = store.signed_url("results", row.get("check_path"))
     out["score"] = scoring.score_of_row(row)
@@ -225,9 +245,10 @@ def _detail(row):
     return out
 
 
-def list_items(rows, bg: BackgroundTasks | None = None):
+def list_items(rows, bg: BackgroundTasks | None = None, user=None):
     """기록 목록 항목 + 비드 이미지. 예전 기록에 작은 그림이 없으면 뒤에서 만들어 둔다."""
-    items = media.attach_bead([_list_item(r) for r in rows], rows)
+    show = _can_see_outline(user)
+    items = media.attach_bead([_list_item(r, show) for r in rows], rows)
     if bg is not None and media.needs_backfill(rows):
         bg.add_task(media.backfill, rows)
     return items
@@ -236,7 +257,7 @@ def list_items(rows, bg: BackgroundTasks | None = None):
 @app.get("/submissions")
 def list_submissions(bg: BackgroundTasks, limit: int = 200, user=Depends(accounts.current_user)):
     rows = store.list_by_user(user["id"], max(1, min(limit, 500)))
-    return list_items(rows, bg)
+    return list_items(rows, bg, user)
 
 
 def _own_row(sid, user):
@@ -254,7 +275,7 @@ def _own_row(sid, user):
 @app.get("/submissions/{sid}")
 def get_submission(sid: str, user=Depends(accounts.current_user)):
     row = _own_row(sid, user)
-    out = _detail(row)
+    out = _detail(row, user)
     out["user_id"] = row["user_id"]
     out["can_report"] = social.can_make_report(user, row)
     if row["user_id"] != user["id"]:  # 교사 등이 학생 결과를 볼 때 화면 위에 이름 표시
@@ -274,7 +295,7 @@ def list_student_submissions(uid: str, bg: BackgroundTasks, limit: int = 200, us
     rows = store.list_by_user(uid, max(1, min(limit, 500)))
     if not manage.can_view_student(user, uid):
         rows = [r for r in rows if r.get("status") == "ok" and not r.get("hidden")]
-    return list_items(rows, bg)
+    return list_items(rows, bg, user)
 
 
 # ---- 5단계: AI 종합리포트 ----

@@ -155,6 +155,18 @@ export function RealResult({ id, focus }: { id: string; focus?: string }) {
               {data.position?.endsWith("F") ? <Text style={styles.pipeWarn}>{t("pipe_filletTemp")}</Text> : null}
             </Card>
           ) : null}
+          {res?.outline_review?.status === "check" ? (
+            <Card style={styles.outlineCard}>
+              <Text style={styles.outlineTitle}>{t("outline_checkTitle")}</Text>
+              <Body>
+                {t(`outline_reason_${res.outline_review.reason ?? "other"}`, { defaultValue: t("outline_reason_other") })}
+                {res.outline_review.where && res.outline_review.where !== "none"
+                  ? ` (${t(`outline_where_${res.outline_review.where}`)})`
+                  : ""}
+              </Body>
+              <Text style={styles.note}>{t("outline_checkNote")}</Text>
+            </Card>
+          ) : null}
           {res ? <ResultCharts result={res} checkUrl={data.check_url} /> : null}
           {data.check_url && !res?.check_layout ? (
             <Text style={styles.caption}>{t("result_checkImage")}</Text>
@@ -314,6 +326,8 @@ const styles = StyleSheet.create({
   image: { width: "100%", height: 260, borderRadius: radius.md, backgroundColor: colors.card },
   error: { color: colors.danger, fontSize: 15, lineHeight: 22 },
   warnTitle: { color: colors.warning, fontWeight: "700" },
+  outlineCard: { borderColor: colors.warning, borderWidth: 1 },
+  outlineTitle: { color: colors.warning, fontWeight: "800", fontSize: 15 },
   note: { color: colors.faint, fontSize: 12, textAlign: "center" },
   metric: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md },
   metricLabel: { color: colors.muted, fontSize: 14, flexShrink: 1 },
