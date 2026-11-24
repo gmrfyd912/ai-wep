@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { Body, Card, ComingSoon, PreviewNotice, Screen, ScoreBadge, SectionTitle, Title } from "@/components/ui";
+import { Body, Card, PreviewNotice, Screen, ScoreBadge, SectionTitle, Title } from "@/components/ui";
 import { ME_STUDENT_ID, RESULTS, studentById } from "@/mock/data";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
@@ -40,10 +40,10 @@ export default function StudentHome() {
       ) : null}
 
       <SectionTitle>{t("home_theory")}</SectionTitle>
-      <Card>
-        <Body muted>{t("home_theoryDesc")}</Body>
+      <Card onPress={() => router.push("/student/theory")} style={styles.row}>
+        <Ionicons name="book-outline" size={24} color={colors.primary} />
+        <Body>{t("home_theoryDesc")}</Body>
       </Card>
-      <ComingSoon step={3} />
       <PreviewNotice />
     </Screen>
   );

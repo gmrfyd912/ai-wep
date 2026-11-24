@@ -189,6 +189,14 @@ def patch(table, filters, fields):
     return r.json()
 
 
+def upsert(table, rows, on_conflict, ignore=False):
+    """같은 열쇠(on_conflict)가 있으면 ignore=True 는 그대로 두고, 아니면 새 값으로 바꾼다."""
+    url, h = _base()
+    res = "ignore-duplicates" if ignore else "merge-duplicates"
+    _check(requests.post(f"{url}/rest/v1/{table}", json=rows, params={"on_conflict": on_conflict}, timeout=TIMEOUT,
+                         headers={**h, "Prefer": f"resolution={res},return=minimal"}))
+
+
 def delete(table, filters):
     url, h = _base()
     if not filters:

@@ -142,6 +142,18 @@ def remove_files(bucket, paths):
             FILES.pop(f"{bucket}/{p}", None)
 
 
+def upsert(table, rows, on_conflict, ignore=False):
+    keys = on_conflict.split(",")
+    rows = rows if isinstance(rows, list) else [rows]
+    table_rows = TABLES.setdefault(table, [])
+    for row in rows:
+        old = next((r for r in table_rows if all(str(r.get(k)) == str(row.get(k)) for k in keys)), None)
+        if old is None:
+            table_rows.append(dict(row))
+        elif not ignore:
+            old.update(row)
+
+
 def install():
     """store 의 함수를 가짜로 바꾼다."""
     TABLES.clear()
@@ -152,6 +164,7 @@ def install():
     store.patch = patch
     store.delete = delete
     store.remove_files = remove_files
+    store.upsert = upsert
     store.get_setting = lambda k: next((r["value"] for r in TABLES.get("app_settings", []) if r.get("key") == k), SETTINGS.get(k))
     store.configured = lambda: True
     store.upload = lambda b, p, d, content_type="image/jpeg": FILES.__setitem__(f"{b}/{p}", d)

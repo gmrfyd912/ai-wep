@@ -911,3 +911,118 @@ export async function extractRule(files: PickedFile[], name: string): Promise<Ru
     xhr.send(form);
   });
 }
+
+// ---- T1(이론): 교재 ----
+
+/** 목차 (쪽 = 책에 인쇄된 번호, pdf_page = 앱에서 여는 쪽) */
+export type TocSection = { title: string; page: number | null; pdf_page?: number | null };
+export type TocChapter = {
+  title: string;
+  page: number | null;
+  sections: TocSection[];
+  pdf_page?: number | null;
+  end_pdf_page?: number | null;
+  /** 이 장에서 다 본 쪽 / 전체 쪽 */
+  done?: number;
+  total?: number;
+};
+export type TocPart = {
+  title: string;
+  page: number | null;
+  chapters: TocChapter[];
+  pdf_page?: number | null;
+  end_pdf_page?: number | null;
+  done?: number;
+  total?: number;
+};
+export type TextbookInfo = { id: string; title: string; pages: number; page_offset: number };
+export type MyTextbook =
+  | { book: null }
+  | { book: TextbookInfo; can_view: boolean; last_page: number | null; done_count: number; toc: TocPart[] };
+export type TextbookPage = { page: number; url: string | null; key: string; width: number; height: number };
+
+export const getMyTextbook = () => request<MyTextbook>("/textbook", {}, BOARD_TIMEOUT);
+export const getTextbookPages = (bookId: string, start: number, end: number) =>
+  request<{ items: TextbookPage[] }>(`/textbook/pages?book_id=${bookId}&start=${start}&end=${end}`, {}, BOARD_TIMEOUT);
+/** 다 본 쪽(넘긴 쪽)과 마지막으로 보던 쪽 */
+export const saveTextbookProgress = (bookId: string, done: number[], last: number | null) =>
+  request<{ ok: boolean }>("/textbook/progress", json("POST", { book_id: bookId, done, last }), BOARD_TIMEOUT);
+
+export type AdminTextbook = {
+  id: string;
+  title: string;
+  pages: number;
+  processed: number;
+  status: "processing" | "ready" | "failed";
+  error: string;
+  page_offset: number;
+  toc_pages: string;
+  is_current: boolean;
+  show_students: boolean;
+  use_for_ai: boolean;
+  toc: TocPart[];
+  /** 지금 서버에서 나누는 중 (false 인데 processing 이면 멈춘 것 → 같은 PDF 로 이어서) */
+  running: boolean;
+  created_at: string;
+  updated_at: string;
+};
+export type SaveTextbook = Partial<
+  Pick<AdminTextbook, "title" | "page_offset" | "toc_pages" | "toc" | "is_current" | "show_students" | "use_for_ai">
+>;
+
+export const listTextbooks = () => request<{ items: AdminTextbook[]; ai_model: string }>("/admin/textbooks", {}, BOARD_TIMEOUT);
+export const getTextbook = (id: string) => request<AdminTextbook>(`/admin/textbooks/${id}`, {}, BOARD_TIMEOUT);
+export const saveTextbook = (id: string, v: SaveTextbook) =>
+  request<AdminTextbook>(`/admin/textbooks/${id}`, json("PUT", v), BOARD_TIMEOUT);
+export const aiTextbookToc = (id: string, pages: string) =>
+  request<AdminTextbook>(`/admin/textbooks/${id}/toc/ai`, json("POST", { pages }), 300000);
+export const deleteTextbook = (id: string) => request<{ ok: boolean }>(`/admin/textbooks/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
+
+/** 교재 PDF 올리기 (수십 MB라 오래 걸림). onProgress(0~1) = 올라간 비율. bookId 를 주면 멈춘 교재 이어서 */
+export async function uploadTextbook(
+  f: PickedFile,
+  title: string,
+  bookId: string | null,
+  onProgress: (ratio: number) => void,
+): Promise<AdminTextbook> {
+  const form = new FormData();
+  form.append("title", title);
+  if (bookId) form.append("book_id", bookId);
+  if (Platform.OS === "web") {
+    const blob = f.file ?? (await (await fetch(f.uri)).blob());
+    form.append("file", blob, f.name);
+  } else {
+    form.append("file", { uri: f.uri, name: f.name || "textbook.pdf", type: "application/pdf" } as unknown as Blob);
+  }
+  return new Promise<AdminTextbook>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/admin/textbooks/upload`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.timeout = 30 * 60 * 1000;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as AdminTextbook);
+        } catch {
+          reject(new NetworkError("textbook: bad response"));
+        }
+        return;
+      }
+      if (xhr.status === 401) onUnauthorized?.();
+      let detail: { code?: string; limit?: number; min?: number } | null = null;
+      try {
+        const d = JSON.parse(xhr.responseText)?.detail;
+        if (d && typeof d === "object") detail = d;
+      } catch {
+        /* 본문이 JSON 이 아님 */
+      }
+      reject(new NetworkError(`textbook: server ${xhr.status}`, xhr.status, detail));
+    };
+    xhr.onerror = () => reject(new NetworkError("textbook: network"));
+    xhr.ontimeout = () => reject(new NetworkError("textbook: timeout"));
+    xhr.send(form);
+  });
+}
