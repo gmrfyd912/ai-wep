@@ -32,6 +32,7 @@ import report
 import rules
 import scoring
 import store
+import textbook
 from engine.analyze import ENGINE_VERSION, analyze_image
 from engine.config import Config
 
@@ -49,6 +50,7 @@ app.include_router(manage.router)
 app.include_router(social.router)
 app.include_router(admin_settings.router)
 app.include_router(rules.router)
+app.include_router(textbook.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
