@@ -9,6 +9,8 @@
 - 쪽 번호: 목차에는 책에 인쇄된 번호를 쓰고, PDF 쪽 = 인쇄 번호 + page_offset.
 """
 import base64
+import ctypes
+import gc
 import json
 import os
 import re
@@ -83,6 +85,9 @@ def render_page(pdf, index):
             if spread < 6:
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, JPEG_Q])
+        w, h = int(img.shape[1]), int(img.shape[0])
+        del img
+        bm.close()  # 닫지 않으면 쪽마다 그림 메모리(약 6MB)가 쌓여 무료 서버(512MB)가 꺼진다
         if not ok:
             raise ValueError("encode")
         tp = pg.get_textpage()
@@ -91,7 +96,7 @@ def render_page(pdf, index):
         finally:
             tp.close()
         text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")[:20000]
-        return buf.tobytes(), int(img.shape[1]), int(img.shape[0]), text
+        return buf.tobytes(), w, h, text
     finally:
         pg.close()
 
@@ -149,6 +154,17 @@ def parse_range(s, pages):
     return list(range(a, min(b, a + TOC_MAX_PAGES - 1) + 1))
 
 
+REOPEN_EVERY = 10
+
+
+def _free_memory():
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # 리눅스가 아니면 건너뜀
+
+
 def _keep_awake_url():
     base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     return f"{base}/health" if base else None
@@ -163,6 +179,7 @@ def process_book(book_id, pdf_path):
         pdf = pdfium.PdfDocument(pdf_path)
         try:
             n = len(pdf)
+            since_open = 0
             done_rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "select": "page,text"})
             done = {r["page"] for r in done_rows}
             texts = {r["page"]: r.get("text") or "" for r in done_rows if r["page"] <= 120}
@@ -171,6 +188,14 @@ def process_book(book_id, pdf_path):
                 p = i + 1
                 if p in done:
                     continue
+                # PDF 를 오래 열어 두면 쪽 글자를 읽을 때마다 메모리(쪽당 약 6MB)가 쌓여
+                # 무료 서버(512MB)가 꺼진다 → 10쪽마다 다시 열고 메모리를 돌려준다
+                if since_open >= REOPEN_EVERY:
+                    pdf.close()
+                    _free_memory()
+                    pdf = pdfium.PdfDocument(pdf_path)
+                    since_open = 0
+                since_open += 1
                 jpg, w, h, text = render_page(pdf, i)
                 store.upload(BUCKET, page_path(book_id, p), jpg)
                 store.insert_rows("textbook_pages", {"book_id": book_id, "page": p, "image_path": page_path(book_id, p),
