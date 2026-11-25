@@ -759,7 +759,7 @@ const id: Translation = {
   theory_legendRule: "Halaman dihitung selesai saat kamu pindah ke halaman berikutnya",
   viewer_page: "Halaman {{page}}",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "Geser untuk ganti halaman · cubit dua jari untuk memperbesar · ketuk nomor halaman di bawah untuk daftar isi",
+  viewer_hint: "Geser untuk ganti halaman · cubit dua jari untuk memperbesar · ketuk sekali untuk layar penuh · ketuk nomor halaman di bawah untuk daftar isi",
   viewer_toc: "Daftar isi",
   viewer_goPh: "Nomor halaman buku (mis. 120)",
   viewer_go: "Buka",

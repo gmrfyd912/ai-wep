@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ScreenOrientation from "expo-screen-orientation";
+import { StatusBar } from "expo-status-bar";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -32,6 +33,7 @@ type Meta = { id: string; title: string; pages: number; offset: number; toc: Toc
 
 /**
  * 교재 보기: 옆으로 넘기기, 두 손가락 확대, 가로/세로 돌리기, 목차·쪽 이동.
+ * 쪽을 한 번 톡 치면 위(제목·상태바)·아래(쪽 번호) 바를 숨겨 넓게 보고, 다시 치면 보인다.
  * 다음 쪽으로 넘기면 그 앞 쪽을 "다 본 쪽"으로 저장한다 (목차·쪽 이동으로 건너뛴 쪽은 아님).
  * preview=1 (관리자 미리 보기)이면 진도를 저장하지 않는다.
  */
@@ -47,6 +49,7 @@ export default function BookViewer() {
   const [tocOpen, setTocOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [landscape, setLandscape] = useState(false);
+  const [full, setFull] = useState(false); // 위아래 바 숨김
   const [done, setDone] = useState<Set<number>>(new Set());
 
   const list = useRef<FlatList<number>>(null);
@@ -184,6 +187,8 @@ export default function BookViewer() {
     ).catch(() => null);
   };
 
+  const toggleFull = useCallback(() => setFull((f) => !f), []);
+
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     if (width !== size.w || height !== size.h) {
@@ -224,6 +229,7 @@ export default function BookViewer() {
       <Stack.Screen
         options={{
           title: meta.title,
+          headerShown: !full,
           headerRight: () => (
             <Pressable onPress={() => setTocOpen(true)} hitSlop={12} style={{ paddingHorizontal: space.sm }}>
               <Ionicons name="list-outline" size={24} color={colors.text} />
@@ -231,7 +237,8 @@ export default function BookViewer() {
           ),
         }}
       />
-      {preview ? <Text style={styles.previewBar}>{t("tb_previewBar")}</Text> : null}
+      <StatusBar hidden={full} />
+      {preview && !full ? <Text style={styles.previewBar}>{t("tb_previewBar")}</Text> : null}
       <View style={{ flex: 1 }} onLayout={onLayout}>
         {size.w > 0 ? (
           <FlatList
@@ -262,6 +269,7 @@ export default function BookViewer() {
                   ratio={pg.width ? pg.height / pg.width : 1.414}
                   fitWidth={fitWidth}
                   onZoom={setZoomed}
+                  onTap={toggleFull}
                 />
               ) : (
                 <View style={[styles.center, { width: size.w, height: size.h }]}>
@@ -273,28 +281,30 @@ export default function BookViewer() {
         ) : null}
       </View>
 
-      <SafeAreaView edges={["bottom", "left", "right"]} style={styles.bar}>
-        <Pressable onPress={() => step(-1)} hitSlop={10} disabled={pageNo <= 1} style={styles.arrow}>
-          <Ionicons name="chevron-back" size={26} color={pageNo <= 1 ? colors.faint : colors.text} />
-        </Pressable>
-        <Pressable onPress={() => setTocOpen(true)} style={{ alignItems: "center", flex: 1 }}>
-          <Text style={styles.pageText}>
-            {t("viewer_page", { page: printedNo })}
-            {done.has(pageNo) ? <Text style={styles.doneMark}>{"  ✓ " + t("viewer_doneMark")}</Text> : null}
-          </Text>
-          <Text style={styles.small}>
-            {t("viewer_pdfPage", { page: pageNo, pages: meta.pages })}
-            {preview ? "" : "  ·  " + t("viewer_readCount", { done: done.size })}
-          </Text>
-        </Pressable>
-        <Pressable onPress={rotate} hitSlop={10} style={styles.arrow} accessibilityLabel={t("viewer_rotate")}>
-          <Ionicons name={landscape ? "phone-portrait-outline" : "phone-landscape-outline"} size={22} color={colors.text} />
-        </Pressable>
-        <Pressable onPress={() => step(1)} hitSlop={10} disabled={pageNo >= meta.pages} style={styles.arrow}>
-          <Ionicons name="chevron-forward" size={26} color={pageNo >= meta.pages ? colors.faint : colors.text} />
-        </Pressable>
-      </SafeAreaView>
-      {fitWidth ? null : <Text style={styles.hint}>{t("viewer_hint")}</Text>}
+      {full ? null : (
+        <SafeAreaView edges={["bottom", "left", "right"]} style={styles.bar}>
+          <Pressable onPress={() => step(-1)} hitSlop={10} disabled={pageNo <= 1} style={styles.arrow}>
+            <Ionicons name="chevron-back" size={26} color={pageNo <= 1 ? colors.faint : colors.text} />
+          </Pressable>
+          <Pressable onPress={() => setTocOpen(true)} style={{ alignItems: "center", flex: 1 }}>
+            <Text style={styles.pageText}>
+              {t("viewer_page", { page: printedNo })}
+              {done.has(pageNo) ? <Text style={styles.doneMark}>{"  ✓ " + t("viewer_doneMark")}</Text> : null}
+            </Text>
+            <Text style={styles.small}>
+              {t("viewer_pdfPage", { page: pageNo, pages: meta.pages })}
+              {preview ? "" : "  ·  " + t("viewer_readCount", { done: done.size })}
+            </Text>
+          </Pressable>
+          <Pressable onPress={rotate} hitSlop={10} style={styles.arrow} accessibilityLabel={t("viewer_rotate")}>
+            <Ionicons name={landscape ? "phone-portrait-outline" : "phone-landscape-outline"} size={22} color={colors.text} />
+          </Pressable>
+          <Pressable onPress={() => step(1)} hitSlop={10} disabled={pageNo >= meta.pages} style={styles.arrow}>
+            <Ionicons name="chevron-forward" size={26} color={pageNo >= meta.pages ? colors.faint : colors.text} />
+          </Pressable>
+        </SafeAreaView>
+      )}
+      {fitWidth || full ? null : <Text style={styles.hint}>{t("viewer_hint")}</Text>}
 
       <TocSheet visible={tocOpen} meta={meta} current={pageNo} onJump={jump} onClose={() => setTocOpen(false)} />
     </View>

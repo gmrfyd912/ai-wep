@@ -759,7 +759,7 @@ const vi: Translation = {
   theory_legendRule: "Lật sang trang kế tiếp thì trang đó được tính là đã đọc",
   viewer_page: "Trang {{page}}",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "Vuốt để lật · dùng hai ngón tay để phóng to · chạm số trang bên dưới để xem mục lục",
+  viewer_hint: "Vuốt để lật · dùng hai ngón tay để phóng to · chạm một lần để xem toàn màn hình · chạm số trang bên dưới để xem mục lục",
   viewer_toc: "Mục lục",
   viewer_goPh: "Số trang sách (vd: 120)",
   viewer_go: "Đi",

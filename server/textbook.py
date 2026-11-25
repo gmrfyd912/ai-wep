@@ -62,8 +62,9 @@ def model_name():
     return os.environ.get("TEXTBOOK_MODEL") or DEFAULT_MODEL
 
 
-def page_path(book_id, page):
-    return f"textbook/{book_id}/{page:04d}.jpg"
+def page_path(book_id, page, quality=1):
+    # 화질을 올리면 새 이름으로 저장한다: 같은 이름에 덮어쓰면 저장소 CDN·휴대폰에 남은 예전 그림이 계속 보인다
+    return f"textbook/{book_id}/{page:04d}.jpg" if quality <= 1 else f"textbook/{book_id}/{page:04d}-q{quality}.jpg"
 
 
 # ---- 쪽 나누기 ----
@@ -181,9 +182,10 @@ def process_book(book_id, pdf_path):
         try:
             n = len(pdf)
             since_open = 0
-            done_rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "select": "page,text,quality"})
+            done_rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "select": "page,text,quality,image_path"})
             done = {r["page"] for r in done_rows if (r.get("quality") or 1) >= QUALITY}
             texts = {r["page"]: r.get("text") or "" for r in done_rows if r["page"] <= 120}
+            old_paths = {r["page"]: r.get("image_path") for r in done_rows}
             count = len(done)
             for i in range(n):
                 p = i + 1
@@ -198,10 +200,17 @@ def process_book(book_id, pdf_path):
                     since_open = 0
                 since_open += 1
                 jpg, w, h, text = render_page(pdf, i)
-                store.upload(BUCKET, page_path(book_id, p), jpg)
-                store.upsert("textbook_pages", [{"book_id": book_id, "page": p, "image_path": page_path(book_id, p),
+                path = page_path(book_id, p, QUALITY)
+                store.upload(BUCKET, path, jpg)
+                store.upsert("textbook_pages", [{"book_id": book_id, "page": p, "image_path": path,
                                                  "width": w, "height": h, "text": text, "quality": QUALITY}],
                              on_conflict="book_id,page")
+                old = old_paths.get(p)
+                if old and old != path:  # 예전 화질 그림은 지워 저장 공간을 아낀다
+                    try:
+                        store.remove_files(BUCKET, [old])
+                    except Exception:  # noqa: BLE001
+                        pass
                 if p <= 120:
                     texts[p] = text
                 count += 1
@@ -287,7 +296,10 @@ def clean_toc(raw, pages, offset=0):
             for s in (ch.get("sections") if isinstance(ch.get("sections"), list) else [])[:80]:
                 if isinstance(s, dict) and _title(s.get("title")):
                     sections.append({"title": _title(s["title"]), "page": _page(s.get("page"), lo, hi)})
-            chapters.append({"title": _title(ch["title"]), "page": _page(ch.get("page"), lo, hi), "sections": sections})
+            page = _page(ch.get("page"), lo, hi)
+            if page is None:  # 차례에 장 쪽 번호가 없으면 (절에만 있는 책) 첫 절의 쪽
+                page = next((x["page"] for x in sections if x["page"] is not None), None)
+            chapters.append({"title": _title(ch["title"]), "page": page, "sections": sections})
         page = _page(part.get("page"), lo, hi)
         if page is None and chapters:
             page = next((c["page"] for c in chapters if c["page"] is not None), None)
@@ -313,9 +325,11 @@ def make_toc(book_id, page_list, offset, pages):
         raise TocError("tb_bad_pages")
     import anthropic
     content = []
+    paths = {r["page"]: r["image_path"] for r in store.select("textbook_pages", {
+        "book_id": f"eq.{book_id}", "page": f"in.({','.join(str(p) for p in page_list)})", "select": "page,image_path"})}
     for p in page_list:
         try:
-            data = store.download(BUCKET, page_path(book_id, p))
+            data = store.download(BUCKET, paths.get(p) or page_path(book_id, p, QUALITY))
         except Exception as e:  # noqa: BLE001
             raise TocError("tb_page_missing", f"{p} {str(e)[:100]}")
         content.append({"type": "text", "text": f"PDF page {p}:"})
@@ -373,11 +387,11 @@ def units(toc, offset, pages):
     """진도를 세는 단위(장, 장이 없는 편은 편 전체) → [(편 번호, 장 번호 또는 None, PDF 시작, PDF 끝)]."""
     starts = []
     for pi, part in enumerate(toc):
-        if part.get("chapters"):
-            for ci, ch in enumerate(part["chapters"]):
-                if ch.get("page") is not None:
-                    starts.append((ch["page"] + offset, pi, ci))
-        elif part.get("page") is not None:
+        chs = [(ci, ch) for ci, ch in enumerate(part.get("chapters") or []) if ch.get("page") is not None]
+        if chs:
+            for ci, ch in chs:
+                starts.append((ch["page"] + offset, pi, ci))
+        elif part.get("page") is not None:  # 장이 없거나 장 쪽 번호가 하나도 없으면 편 전체
             starts.append((part["page"] + offset, pi, None))
     starts.sort()
     out = []
@@ -643,7 +657,7 @@ def textbook_pages(book_id: str, start: int = Query(..., ge=1), end: int = Query
     rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "and": f"(page.gte.{start},page.lt.{end + 1})",
                                            "select": "page,image_path,width,height,quality", "order": "page.asc"})
     urls = store.signed_urls(BUCKET, [r["image_path"] for r in rows], SIGN_SECONDS)
-    return {"items": [{"page": r["page"], "url": urls.get(r["image_path"]), "key": f'{r["image_path"]}?q{r.get("quality") or 1}',
+    return {"items": [{"page": r["page"], "url": urls.get(r["image_path"]), "key": f'{r["image_path"]}?q{r.get("quality") or 1}r2',
                        "width": r.get("width") or 0, "height": r.get("height") or 0} for r in rows]}
 
 
