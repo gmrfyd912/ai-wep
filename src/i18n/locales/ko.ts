@@ -775,7 +775,7 @@ const ko = {
   theory_legendRule: "다음 쪽으로 넘기면 그 쪽은 다 본 것으로 쳐요",
   viewer_page: "{{page}}쪽",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "옆으로 밀어 넘기기 · 두 손가락으로 확대 · 아래 쪽 번호를 누르면 목차",
+  viewer_hint: "옆으로 밀어 넘기기 · 두 손가락으로 확대 · 한 번 톡: 화면 넓게 · 아래 쪽 번호를 누르면 목차",
   viewer_toc: "목차",
   viewer_goPh: "책 쪽 번호 (예: 120)",
   viewer_go: "이동",

@@ -759,7 +759,7 @@ const fil: Translation = {
   theory_legendRule: "Bilang nabasa na ang pahina kapag lumipat ka sa susunod",
   viewer_page: "Pahina {{page}}",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "Mag-swipe para lumipat · gamitin ang dalawang daliri para mag-zoom · i-tap ang numero ng pahina sa ibaba para sa nilalaman",
+  viewer_hint: "Mag-swipe para lumipat · gamitin ang dalawang daliri para mag-zoom · i-tap nang isang beses para sa buong screen · i-tap ang numero ng pahina sa ibaba para sa nilalaman",
   viewer_toc: "Talaan",
   viewer_goPh: "Numero ng pahina ng aklat (hal. 120)",
   viewer_go: "Pumunta",

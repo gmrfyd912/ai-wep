@@ -759,7 +759,7 @@ const es: Translation = {
   theory_legendRule: "Una página cuenta como leída al pasar a la siguiente",
   viewer_page: "Página {{page}}",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "Desliza para pasar · pellizca con dos dedos para ampliar · toca el número de página abajo para el índice",
+  viewer_hint: "Desliza para pasar · pellizca con dos dedos para ampliar · toca una vez para pantalla completa · toca el número de página abajo para el índice",
   viewer_toc: "Índice",
   viewer_goPh: "Página del libro (ej.: 120)",
   viewer_go: "Ir",

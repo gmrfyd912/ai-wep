@@ -759,7 +759,7 @@ const uz: Translation = {
   theory_legendRule: "Keyingi sahifaga o'tsangiz, o'sha sahifa o'qilgan hisoblanadi",
   viewer_page: "{{page}}-sahifa",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "Varaqlash uchun suring · kattalashtirish uchun ikki barmoq bilan yoying · mundarija uchun pastdagi sahifa raqamini bosing",
+  viewer_hint: "Varaqlash uchun suring · kattalashtirish uchun ikki barmoq bilan yoying · to‘liq ekran uchun bir marta bosing · mundarija uchun pastdagi sahifa raqamini bosing",
   viewer_toc: "Mundarija",
   viewer_goPh: "Kitob sahifa raqami (masalan: 120)",
   viewer_go: "O'tish",

@@ -5,6 +5,7 @@ import {
   GestureDetector,
   usePanGesture,
   usePinchGesture,
+  useExclusiveGestures,
   useSimultaneousGestures,
   useTapGesture,
 } from "react-native-gesture-handler";
@@ -14,6 +15,7 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 
  * 교재 한 쪽: 두 손가락으로 벌려 확대, 확대 중엔 한 손가락으로 쪽 안을 움직이고, 두 번 톡 치면 원래 크기.
  * fitWidth(가로 화면)면 쪽을 화면 폭에 맞추고 위아래로 밀어 읽는다.
  * onZoom(true) 동안 바깥 목록은 옆으로 넘어가지 않게 막는다.
+ * 한 번 톡 치면 onTap (두 번 톡이 아닐 때만) → 보기 화면이 위아래 바를 숨기거나 보인다.
  */
 export function ZoomablePage({
   uri,
@@ -23,6 +25,7 @@ export function ZoomablePage({
   ratio,
   fitWidth,
   onZoom,
+  onTap,
 }: {
   uri: string;
   cacheKey: string;
@@ -32,6 +35,7 @@ export function ZoomablePage({
   ratio: number;
   fitWidth: boolean;
   onZoom: (zoomed: boolean) => void;
+  onTap?: () => void;
 }) {
   const [zoomed, setZoomed] = useState(false);
   const scale = useSharedValue(1);
@@ -102,7 +106,17 @@ export function ZoomablePage({
       }
     },
   });
-  const gesture = useSimultaneousGestures(pinch, pan, doubleTap);
+  const tap = () => onTap?.();
+  const singleTap = useTapGesture({
+    numberOfTaps: 1,
+    onActivate: () => {
+      "worklet";
+      runOnJS(tap)();
+    },
+  });
+  // 두 번 톡이 먼저: 두 번 톡이 아니라고 확인된 뒤에만 한 번 톡
+  const taps = useExclusiveGestures(doubleTap, singleTap);
+  const gesture = useSimultaneousGestures(pinch, pan, taps);
   const style = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
   }));

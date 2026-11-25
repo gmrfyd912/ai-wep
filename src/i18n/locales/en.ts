@@ -759,7 +759,7 @@ const en: Translation = {
   theory_legendRule: "A page counts as read when you turn to the next page",
   viewer_page: "Page {{page}}",
   viewer_pdfPage: "PDF {{page}} / {{pages}}",
-  viewer_hint: "Swipe to turn · pinch with two fingers to zoom · tap the page number below for contents",
+  viewer_hint: "Swipe to turn · pinch with two fingers to zoom · tap once for full screen · tap the page number below for contents",
   viewer_toc: "Contents",
   viewer_goPh: "Book page number (e.g. 120)",
   viewer_go: "Go",
