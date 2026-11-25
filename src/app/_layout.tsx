@@ -1,9 +1,11 @@
 import "@/i18n";
 
 import { Stack } from "expo-router";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useTranslation } from "react-i18next";
 
 import { headerOptions } from "@/components/ui";
@@ -15,6 +17,8 @@ export default function RootLayout() {
   // 저장된 언어를 먼저 불러온 뒤 화면을 그린다(잠깐 다른 언어가 보이는 것을 방지).
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    // 앱은 세로로 쓰고, 교재 보기 화면에서만 가로로 돌릴 수 있다
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => null);
     loadSavedLanguage()
       .catch(() => null)
       .finally(() => setReady(true));
@@ -29,10 +33,12 @@ export default function RootLayout() {
   }
 
   return (
-    <SessionProvider>
-      <StatusBar style="light" />
-      <RootStack />
-    </SessionProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SessionProvider>
+        <StatusBar style="light" />
+        <RootStack />
+      </SessionProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton, Body, Card, Screen, SectionTitle } from "@/components/ui";
-import { getMyTextbook, type MyTextbook, type TocPart } from "@/lib/api";
+import { getMyTextbookAfterSave, type MyTextbook, type TocPart } from "@/lib/api";
 import { ProgressBar, textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
@@ -22,7 +22,7 @@ export function TheoryHome() {
 
   useFocusEffect(
     useCallback(() => {
-      getMyTextbook()
+      getMyTextbookAfterSave()
         .then((d) => {
           setData(d);
           setError("");

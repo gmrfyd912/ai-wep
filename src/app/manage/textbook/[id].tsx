@@ -66,10 +66,10 @@ export default function TextbookScreen() {
   // 나누는 중이면 5초마다 진행 새로 받기 (끝나면 목차·쪽 번호 차이도 새로 채움)
   const kind = book ? bookKind(book) : null;
   useEffect(() => {
-    if (kind !== "running") return;
+    if (kind !== "running" && kind !== "upgrading") return;
     const h = setTimeout(() => {
       getTextbook(id)
-        .then((b) => apply(b, b.status !== "processing" && !tocDirty))
+        .then((b) => apply(b, b.status !== "processing" && !b.running && !tocDirty))
         .catch(() => undefined);
     }, 5000);
     return () => clearTimeout(h);
@@ -163,7 +163,14 @@ export default function TextbookScreen() {
             <AppButton label={t("tb_resume")} icon="refresh-outline" onPress={resume} disabled={busy !== ""} />
           </>
         ) : null}
-        {kind === "running" ? <Text style={styles.small}>{t("tb_runningHint")}</Text> : null}
+        {kind === "running" || kind === "upgrading" ? <Text style={styles.small}>{t("tb_runningHint")}</Text> : null}
+        {kind === "ready" && book.low_quality ? (
+          <>
+            <Text style={styles.small}>{t("tb_upgradeHint")}</Text>
+            {sent !== null ? <ProgressBar ratio={sent} /> : null}
+            <AppButton label={t("tb_upgrade")} icon="sparkles-outline" variant="secondary" onPress={resume} disabled={busy !== ""} />
+          </>
+        ) : null}
         <StatusLegend />
       </Card>
 
@@ -230,7 +237,7 @@ export default function TextbookScreen() {
 
       <View style={styles.danger}>
         <SectionTitle>{t("tb_dangerZone")}</SectionTitle>
-        <AppButton label={t("tb_delete")} icon="trash-outline" variant="danger" onPress={remove} disabled={busy !== "" || kind === "running"} />
+        <AppButton label={t("tb_delete")} icon="trash-outline" variant="danger" onPress={remove} disabled={busy !== "" || kind === "running" || kind === "upgrading"} />
         <Text style={styles.small}>{t("tb_deleteHint")}</Text>
       </View>
     </Screen>

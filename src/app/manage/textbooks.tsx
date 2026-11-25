@@ -31,7 +31,7 @@ export default function TextbooksScreen() {
   useFocusEffect(load);
 
   // 나누는 중인 교재가 있으면 5초마다 새로 받아 진행을 보여 준다
-  const running = rows?.some((r) => r.status === "processing" && r.running) ?? false;
+  const running = rows?.some((r) => r.running) ?? false;
   useEffect(() => {
     if (!running) return;
     timer.current = setTimeout(load, 5000);

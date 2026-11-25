@@ -938,15 +938,32 @@ export type TocPart = {
 export type TextbookInfo = { id: string; title: string; pages: number; page_offset: number };
 export type MyTextbook =
   | { book: null }
-  | { book: TextbookInfo; can_view: boolean; last_page: number | null; done_count: number; toc: TocPart[] };
+  | {
+      book: TextbookInfo;
+      can_view: boolean;
+      last_page: number | null;
+      done_count: number;
+      /** 다 본 쪽 (PDF 쪽 번호) */
+      done_pages: number[];
+      toc: TocPart[];
+    };
 export type TextbookPage = { page: number; url: string | null; key: string; width: number; height: number };
 
 export const getMyTextbook = () => request<MyTextbook>("/textbook", {}, BOARD_TIMEOUT);
 export const getTextbookPages = (bookId: string, start: number, end: number) =>
   request<{ items: TextbookPage[] }>(`/textbook/pages?book_id=${bookId}&start=${start}&end=${end}`, {}, BOARD_TIMEOUT);
 /** 다 본 쪽(넘긴 쪽)과 마지막으로 보던 쪽 */
-export const saveTextbookProgress = (bookId: string, done: number[], last: number | null) =>
-  request<{ ok: boolean }>("/textbook/progress", json("POST", { book_id: bookId, done, last }), BOARD_TIMEOUT);
+let progressSaving: Promise<unknown> = Promise.resolve();
+export const saveTextbookProgress = (bookId: string, done: number[], last: number | null) => {
+  const p = request<{ ok: boolean }>("/textbook/progress", json("POST", { book_id: bookId, done, last }), BOARD_TIMEOUT);
+  progressSaving = Promise.all([progressSaving, p.catch(() => null)]);
+  return p;
+};
+/** 진도 저장이 끝난 뒤에 내 교재 정보를 받는다 (교재 보기에서 막 돌아왔을 때 진도가 늦게 보이지 않게) */
+export const getMyTextbookAfterSave = async () => {
+  await progressSaving;
+  return getMyTextbook();
+};
 
 export type AdminTextbook = {
   id: string;
@@ -963,6 +980,8 @@ export type AdminTextbook = {
   toc: TocPart[];
   /** 지금 서버에서 나누는 중 (false 인데 processing 이면 멈춘 것 → 같은 PDF 로 이어서) */
   running: boolean;
+  /** 예전 화질(1100px) 쪽이 남아 있음 (교재 하나 볼 때만 옴) */
+  low_quality?: boolean;
   created_at: string;
   updated_at: string;
 };

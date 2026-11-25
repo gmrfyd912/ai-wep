@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image } from "expo-image";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -20,18 +20,18 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 
-import { ZoomImage } from "@/components/ZoomImage";
+import { ZoomablePage } from "@/components/ZoomablePage";
 import { getMyTextbook, getTextbook, getTextbookPages, saveTextbookProgress, type TextbookPage, type TocPart } from "@/lib/api";
 import { textbookError } from "@/screens/TextbookParts";
 import { colors, radius, space } from "@/theme";
 
 const BLOCK = 40; // 서버가 한 번에 주는 쪽 수
-const SAVE_EVERY = 8000;
+const SAVE_AFTER = 1500; // 쪽을 넘기고 이만큼 지나면 진도 저장
 
 type Meta = { id: string; title: string; pages: number; offset: number; toc: TocPart[] };
 
 /**
- * 교재 보기: 옆으로 넘기기, 누르면 크게 보기, 목차·쪽 이동.
+ * 교재 보기: 옆으로 넘기기, 두 손가락 확대, 가로/세로 돌리기, 목차·쪽 이동.
  * 다음 쪽으로 넘기면 그 앞 쪽을 "다 본 쪽"으로 저장한다 (목차·쪽 이동으로 건너뛴 쪽은 아님).
  * preview=1 (관리자 미리 보기)이면 진도를 저장하지 않는다.
  */
@@ -44,8 +44,10 @@ export default function BookViewer() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [index, setIndex] = useState(0); // 0부터
   const [pages, setPages] = useState<Record<number, TextbookPage>>({});
-  const [zoom, setZoom] = useState<string | null>(null);
   const [tocOpen, setTocOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const [landscape, setLandscape] = useState(false);
+  const [done, setDone] = useState<Set<number>>(new Set());
 
   const list = useRef<FlatList<number>>(null);
   const cur = useRef(1); // 지금 보는 쪽 (1부터)
@@ -53,20 +55,29 @@ export default function BookViewer() {
   const pending = useRef(new Set<number>());
   const lastSaved = useRef<number | null>(null);
   const turned = useRef(false); // 쪽을 한 번이라도 넘겼나 (열기만 하고 나가면 "이어서 보기"에 남기지 않음)
+  const quietUntil = useRef(0); // 화면을 돌린 직후 생기는 스크롤은 쪽 넘김으로 치지 않음
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 교재 정보
   useEffect(() => {
     const load = preview
-      ? getTextbook(params.id).then((b) => ({ id: b.id, title: b.title, pages: b.processed || b.pages, offset: b.page_offset, toc: b.toc }))
+      ? getTextbook(params.id).then((b) => ({
+          meta: { id: b.id, title: b.title, pages: b.processed || b.pages, offset: b.page_offset, toc: b.toc },
+          done: [] as number[],
+        }))
       : getMyTextbook().then((d) => {
           if (!d.book || d.book.id !== params.id || !d.can_view) throw new Error("hidden");
-          return { id: d.book.id, title: d.book.title, pages: d.book.pages, offset: d.book.page_offset, toc: d.toc };
+          return {
+            meta: { id: d.book.id, title: d.book.title, pages: d.book.pages, offset: d.book.page_offset, toc: d.toc },
+            done: d.done_pages ?? [],
+          };
         });
     load
-      .then((m) => {
+      .then(({ meta: m, done: d }) => {
         const start = Math.max(1, Math.min(Number(params.page) || 1, m.pages));
         cur.current = start;
         setIndex(start - 1);
+        setDone(new Set(d));
         setMeta(m);
       })
       .catch((e) => setError(e instanceof Error && e.message === "hidden" ? t("theory_hidden") : textbookError(t, e)));
@@ -94,39 +105,54 @@ export default function BookViewer() {
     });
   }, [meta, index]);
 
-  // 진도 저장 (모아서)
+  // 진도 저장
   const flush = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
     if (preview || !meta) return;
-    const done = [...pending.current];
+    const d = [...pending.current];
     const last = turned.current ? cur.current : null;
-    if (done.length === 0 && (last === null || last === lastSaved.current)) return;
+    if (d.length === 0 && (last === null || last === lastSaved.current)) return;
     pending.current.clear();
     lastSaved.current = last;
-    saveTextbookProgress(meta.id, done, last).catch(() => {
-      done.forEach((p) => pending.current.add(p)); // 실패하면 다음에 다시
+    saveTextbookProgress(meta.id, d, last).catch(() => {
+      d.forEach((p) => pending.current.add(p)); // 실패하면 다음에 다시
       lastSaved.current = null;
     });
   }, [meta, preview]);
 
   useEffect(() => {
-    const h = setInterval(flush, SAVE_EVERY);
     const sub = AppState.addEventListener("change", (s) => s !== "active" && flush());
     return () => {
-      clearInterval(h);
       sub.remove();
       flush();
     };
   }, [flush]);
 
+  // 화면을 나가면 다시 세로로
+  useEffect(
+    () => () => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => null);
+    },
+    [],
+  );
+
   const turnedTo = (q: number) => {
     turned.current = true;
-    if (q === cur.current + 1) pending.current.add(cur.current); // 다음 쪽으로 넘김 → 앞 쪽 다 봄
+    if (q === cur.current + 1 && !done.has(cur.current)) {
+      // 다음 쪽으로 넘김 → 앞 쪽 다 봄
+      pending.current.add(cur.current);
+      const p = cur.current;
+      setDone((old) => new Set(old).add(p));
+    }
     cur.current = q;
     setIndex(q - 1);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flush, SAVE_AFTER);
   };
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!size.w || !meta) return;
+    if (!size.w || !meta || Date.now() < quietUntil.current) return;
     const q = Math.max(1, Math.min(meta.pages, Math.round(e.nativeEvent.contentOffset.x / size.w) + 1));
     if (q !== cur.current) turnedTo(q);
   };
@@ -146,13 +172,33 @@ export default function BookViewer() {
     cur.current = q;
     setIndex(q - 1);
     setTocOpen(false);
+    quietUntil.current = Date.now() + 400;
     list.current?.scrollToIndex({ index: q - 1, animated: false });
+  };
+
+  const rotate = () => {
+    const next = !landscape;
+    setLandscape(next);
+    ScreenOrientation.lockAsync(
+      next ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP,
+    ).catch(() => null);
   };
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
-    if (width !== size.w || height !== size.h) setSize({ w: width, h: height });
+    if (width !== size.w || height !== size.h) {
+      quietUntil.current = Date.now() + 600;
+      setSize({ w: width, h: height });
+    }
   };
+
+  // 화면이 돌아가 폭이 바뀌면 보던 쪽으로 다시 맞춘다
+  useEffect(() => {
+    if (!size.w || !meta) return;
+    quietUntil.current = Date.now() + 600;
+    const h = setTimeout(() => list.current?.scrollToIndex({ index: cur.current - 1, animated: false }), 50);
+    return () => clearTimeout(h);
+  }, [size.w, meta]);
 
   if (error) {
     return (
@@ -171,6 +217,7 @@ export default function BookViewer() {
 
   const pageNo = index + 1;
   const printedNo = pageNo - meta.offset;
+  const fitWidth = size.w > size.h; // 가로 화면이면 폭에 맞추고 위아래로 읽기
 
   return (
     <View style={styles.root}>
@@ -189,58 +236,67 @@ export default function BookViewer() {
         {size.w > 0 ? (
           <FlatList
             ref={list}
+            key={fitWidth ? "wide" : "tall"}
             data={Array.from({ length: meta.pages }, (_, i) => i + 1)}
             keyExtractor={(p) => String(p)}
             horizontal
             pagingEnabled
+            scrollEnabled={!zoomed}
             showsHorizontalScrollIndicator={false}
-            initialScrollIndex={index}
+            initialScrollIndex={cur.current - 1}
             getItemLayout={(_, i) => ({ length: size.w, offset: size.w * i, index: i })}
             onScroll={onScroll}
             scrollEventThrottle={32}
             windowSize={3}
             initialNumToRender={2}
             maxToRenderPerBatch={2}
+            extraData={pages}
             renderItem={({ item }) => {
               const pg = pages[item];
-              return (
-                <Pressable style={{ width: size.w, height: size.h }} onPress={() => pg?.url && setZoom(pg.url)}>
-                  {pg?.url ? (
-                    <Image
-                      source={{ uri: pg.url, cacheKey: `${meta.id}-${item}` }}
-                      style={{ width: size.w, height: size.h }}
-                      contentFit="contain"
-                      cachePolicy="memory-disk"
-                      transition={100}
-                    />
-                  ) : (
-                    <View style={styles.center}>
-                      <ActivityIndicator color={colors.primary} />
-                    </View>
-                  )}
-                </Pressable>
+              return pg?.url ? (
+                <ZoomablePage
+                  uri={pg.url}
+                  cacheKey={`${meta.id}-${pg.key}`}
+                  width={size.w}
+                  height={size.h}
+                  ratio={pg.width ? pg.height / pg.width : 1.414}
+                  fitWidth={fitWidth}
+                  onZoom={setZoomed}
+                />
+              ) : (
+                <View style={[styles.center, { width: size.w, height: size.h }]}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
               );
             }}
           />
         ) : null}
       </View>
 
-      <SafeAreaView edges={["bottom"]} style={styles.bar}>
+      <SafeAreaView edges={["bottom", "left", "right"]} style={styles.bar}>
         <Pressable onPress={() => step(-1)} hitSlop={10} disabled={pageNo <= 1} style={styles.arrow}>
           <Ionicons name="chevron-back" size={26} color={pageNo <= 1 ? colors.faint : colors.text} />
         </Pressable>
         <Pressable onPress={() => setTocOpen(true)} style={{ alignItems: "center", flex: 1 }}>
-          <Text style={styles.pageText}>{t("viewer_page", { page: printedNo })}</Text>
-          <Text style={styles.small}>{t("viewer_pdfPage", { page: pageNo, pages: meta.pages })}</Text>
+          <Text style={styles.pageText}>
+            {t("viewer_page", { page: printedNo })}
+            {done.has(pageNo) ? <Text style={styles.doneMark}>{"  ✓ " + t("viewer_doneMark")}</Text> : null}
+          </Text>
+          <Text style={styles.small}>
+            {t("viewer_pdfPage", { page: pageNo, pages: meta.pages })}
+            {preview ? "" : "  ·  " + t("viewer_readCount", { done: done.size })}
+          </Text>
+        </Pressable>
+        <Pressable onPress={rotate} hitSlop={10} style={styles.arrow} accessibilityLabel={t("viewer_rotate")}>
+          <Ionicons name={landscape ? "phone-portrait-outline" : "phone-landscape-outline"} size={22} color={colors.text} />
         </Pressable>
         <Pressable onPress={() => step(1)} hitSlop={10} disabled={pageNo >= meta.pages} style={styles.arrow}>
           <Ionicons name="chevron-forward" size={26} color={pageNo >= meta.pages ? colors.faint : colors.text} />
         </Pressable>
       </SafeAreaView>
-      <Text style={styles.hint}>{t("viewer_hint")}</Text>
+      {fitWidth ? null : <Text style={styles.hint}>{t("viewer_hint")}</Text>}
 
       <TocSheet visible={tocOpen} meta={meta} current={pageNo} onJump={jump} onClose={() => setTocOpen(false)} />
-      <ZoomImage uri={zoom ?? ""} visible={!!zoom} onClose={() => setZoom(null)} />
     </View>
   );
 }
@@ -352,6 +408,7 @@ const styles = StyleSheet.create({
   bar: { flexDirection: "row", alignItems: "center", backgroundColor: colors.card, paddingHorizontal: space.md, paddingTop: space.sm },
   arrow: { padding: space.sm },
   pageText: { color: colors.text, fontSize: 15, fontWeight: "700" },
+  doneMark: { color: colors.success, fontSize: 13, fontWeight: "600" },
   small: { color: colors.muted, fontSize: 12 },
   hint: { color: colors.faint, fontSize: 11, textAlign: "center", backgroundColor: colors.card, paddingBottom: 4 },
   sheetBack: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.5)" },
