@@ -169,6 +169,7 @@ def main():
     assert b["low_quality"] is False and b["status"] == "ready" and len(db.TABLES["textbook_pages"]) == 8, b
     new_key = c.get(f"/textbook/pages?book_id={bid}&start=3&end=3", headers=S1).json()["items"][0]["key"]
     assert old_key != new_key, (old_key, new_key)  # 휴대폰에 저장된 예전 그림을 다시 쓰지 않게
+    assert all(r0["image_path"].endswith("-q2.jpg") for r0 in db.TABLES["textbook_pages"])  # 새 화질은 새 이름
     me2 = c.get("/textbook", headers=S1).json()
     assert me2["done_count"] == 3 and me2["toc"] == me["toc"], me2
 
@@ -191,6 +192,13 @@ def main():
     textbook.store.remove_files = db_remove
     assert removed and all(f"textbook/{bid}/" in p for p in removed) and len(removed) == 8, removed
     assert [x["id"] for x in c.get("/admin/textbooks", headers=A).json()["items"]] == [b2]
+    # 차례에 장 쪽 번호가 없고 절에만 있으면 첫 절 쪽을 장 쪽으로 (장별 진도·문제 만들기가 0이 되지 않게)
+    toc2 = textbook.clean_toc([{"title": "1편", "page": 0, "chapters": [
+        {"title": "1장", "page": None, "sections": [{"title": "1.", "page": 11}]},
+        {"title": "2장", "page": 0, "sections": [{"title": "1.", "page": 40}]}]}], 100, 0)
+    assert [ch["page"] for ch in toc2[0]["chapters"]] == [11, 40] and toc2[0]["page"] == 11, toc2
+    prog = textbook.toc_with_progress(toc2, 0, 100, {12, 13, 41})
+    assert [(ch["done"], ch["total"]) for ch in prog[0]["chapters"]] == [(2, 29), (1, 61)], prog
     print("textbook_check OK")
 
 
