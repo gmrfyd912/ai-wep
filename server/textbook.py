@@ -33,8 +33,9 @@ from admin_settings import need_admin
 router = APIRouter()
 
 BUCKET = "photos"
-PAGE_W = 1100            # 쪽 그림 가로 (휴대폰에서 글자가 읽히고, 쪽당 약 100KB)
-JPEG_Q = 62
+PAGE_W = 1600            # 쪽 그림 가로 (두 손가락으로 확대해도 글자가 선명, 쪽당 약 300KB)
+JPEG_Q = 72
+QUALITY = 2              # 쪽 그림 화질 단계 (1 = 예전 1100px). 낮은 쪽은 "화질 올려 다시 나누기" 때 새로 만든다
 MAX_UPLOAD = 400 * 1024 * 1024
 MAX_PAGES = 3000
 SIGN_SECONDS = 7 * 24 * 3600
@@ -180,8 +181,8 @@ def process_book(book_id, pdf_path):
         try:
             n = len(pdf)
             since_open = 0
-            done_rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "select": "page,text"})
-            done = {r["page"] for r in done_rows}
+            done_rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "select": "page,text,quality"})
+            done = {r["page"] for r in done_rows if (r.get("quality") or 1) >= QUALITY}
             texts = {r["page"]: r.get("text") or "" for r in done_rows if r["page"] <= 120}
             count = len(done)
             for i in range(n):
@@ -198,8 +199,9 @@ def process_book(book_id, pdf_path):
                 since_open += 1
                 jpg, w, h, text = render_page(pdf, i)
                 store.upload(BUCKET, page_path(book_id, p), jpg)
-                store.insert_rows("textbook_pages", {"book_id": book_id, "page": p, "image_path": page_path(book_id, p),
-                                                     "width": w, "height": h, "text": text}, returning=False)
+                store.upsert("textbook_pages", [{"book_id": book_id, "page": p, "image_path": page_path(book_id, p),
+                                                 "width": w, "height": h, "text": text, "quality": QUALITY}],
+                             on_conflict="book_id,page")
                 if p <= 120:
                     texts[p] = text
                 count += 1
@@ -436,7 +438,11 @@ def list_books(user=Depends(need_admin)):
 
 @router.get("/admin/textbooks/{book_id}")
 def get_book(book_id: str, user=Depends(need_admin)):
-    return _admin_out(_get(book_id))
+    row = _admin_out(_get(book_id))
+    # 예전 화질(1100px) 쪽이 남아 있으면 "화질 올려 다시 나누기" 버튼을 보여 준다
+    row["low_quality"] = bool(store.select("textbook_pages", {
+        "book_id": f"eq.{book_id}", "quality": f"lt.{QUALITY}", "select": "page", "limit": "1"}))
+    return row
 
 
 def _save_upload(f: UploadFile):
@@ -484,7 +490,13 @@ async def upload_book(file: UploadFile = File(...), title: str = Form(""), book_
             row = _get(book_id)
             if row.get("pages") != n:
                 _err(400, "tb_different_pdf", pages=row.get("pages"))
-            row = store.patch("textbooks", {"id": f"eq.{book_id}"}, {"status": "processing", "error": "", "updated_at": _now()})[0]
+            # 준비된 교재의 화질 올리기는 교육생이 계속 볼 수 있게 '준비됨' 그대로 두고 쪽 그림만 바꾼다
+            status = "ready" if row.get("status") == "ready" else "processing"
+            fields = {"status": status, "error": "", "updated_at": _now()}
+            if status == "ready":
+                fields["processed"] = len(store.select("textbook_pages", {
+                    "book_id": f"eq.{book_id}", "quality": f"gte.{QUALITY}", "select": "page"}))
+            row = store.patch("textbooks", {"id": f"eq.{book_id}"}, fields)[0]
         else:
             name = (title.strip() or os.path.splitext(file.filename or "")[0] or "교재")[:120]
             row = store.insert_rows("textbooks", {
@@ -611,6 +623,7 @@ def my_textbook(user=Depends(accounts.current_user)):
         "can_view": can_view(user, book),
         "last_page": last[0]["page"] if last else None,
         "done_count": len(done),
+        "done_pages": sorted(done),
         "toc": toc_with_progress(toc, offset, pages, done),
     }
 
@@ -628,9 +641,9 @@ def textbook_pages(book_id: str, start: int = Query(..., ge=1), end: int = Query
     if end < start:
         return {"items": []}
     rows = store.select("textbook_pages", {"book_id": f"eq.{book_id}", "and": f"(page.gte.{start},page.lt.{end + 1})",
-                                           "select": "page,image_path,width,height", "order": "page.asc"})
+                                           "select": "page,image_path,width,height,quality", "order": "page.asc"})
     urls = store.signed_urls(BUCKET, [r["image_path"] for r in rows], SIGN_SECONDS)
-    return {"items": [{"page": r["page"], "url": urls.get(r["image_path"]), "key": r["image_path"],
+    return {"items": [{"page": r["page"], "url": urls.get(r["image_path"]), "key": f'{r["image_path"]}?q{r.get("quality") or 1}',
                        "width": r.get("width") or 0, "height": r.get("height") or 0} for r in rows]}
 
 

@@ -938,15 +938,32 @@ export type TocPart = {
 export type TextbookInfo = { id: string; title: string; pages: number; page_offset: number };
 export type MyTextbook =
   | { book: null }
-  | { book: TextbookInfo; can_view: boolean; last_page: number | null; done_count: number; toc: TocPart[] };
+  | {
+      book: TextbookInfo;
+      can_view: boolean;
+      last_page: number | null;
+      done_count: number;
+      /** 다 본 쪽 (PDF 쪽 번호) */
+      done_pages: number[];
+      toc: TocPart[];
+    };
 export type TextbookPage = { page: number; url: string | null; key: string; width: number; height: number };
 
 export const getMyTextbook = () => request<MyTextbook>("/textbook", {}, BOARD_TIMEOUT);
 export const getTextbookPages = (bookId: string, start: number, end: number) =>
   request<{ items: TextbookPage[] }>(`/textbook/pages?book_id=${bookId}&start=${start}&end=${end}`, {}, BOARD_TIMEOUT);
 /** 다 본 쪽(넘긴 쪽)과 마지막으로 보던 쪽 */
-export const saveTextbookProgress = (bookId: string, done: number[], last: number | null) =>
-  request<{ ok: boolean }>("/textbook/progress", json("POST", { book_id: bookId, done, last }), BOARD_TIMEOUT);
+let progressSaving: Promise<unknown> = Promise.resolve();
+export const saveTextbookProgress = (bookId: string, done: number[], last: number | null) => {
+  const p = request<{ ok: boolean }>("/textbook/progress", json("POST", { book_id: bookId, done, last }), BOARD_TIMEOUT);
+  progressSaving = Promise.all([progressSaving, p.catch(() => null)]);
+  return p;
+};
+/** 진도 저장이 끝난 뒤에 내 교재 정보를 받는다 (교재 보기에서 막 돌아왔을 때 진도가 늦게 보이지 않게) */
+export const getMyTextbookAfterSave = async () => {
+  await progressSaving;
+  return getMyTextbook();
+};
 
 export type AdminTextbook = {
   id: string;
@@ -963,6 +980,8 @@ export type AdminTextbook = {
   toc: TocPart[];
   /** 지금 서버에서 나누는 중 (false 인데 processing 이면 멈춘 것 → 같은 PDF 로 이어서) */
   running: boolean;
+  /** 예전 화질(1100px) 쪽이 남아 있음 (교재 하나 볼 때만 옴) */
+  low_quality?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -1026,3 +1045,106 @@ export async function uploadTextbook(
     xhr.send(form);
   });
 }
+
+// ---- T2(이론): 매일 문제 ----
+
+export type DailyResult = {
+  answer: string | null;
+  correct: boolean | null;
+  score: number | null;
+  feedback: string;
+  /** auto(객관식) / ai / teacher / pending(채점 대기) / missed(안 풂) */
+  graded_by: "auto" | "ai" | "teacher" | "pending" | "missed";
+  correct_choice: number | null;
+  model_answer: string;
+  explanation: string;
+  tr: { model_answer: string; explanation: string } | null;
+};
+export type DailyItem = {
+  id: string;
+  kind: "mc" | "short";
+  unit_title: string;
+  question: string;
+  choices: string[];
+  page: number | null;
+  printed_page: number | null;
+  /** 내 앱 언어 번역 (한국어면 없음) */
+  tr: { question: string; choices: string[] } | null;
+  result: DailyResult | null;
+};
+export type MyDaily =
+  | { ready: false; reason: "no_book" | "no_questions"; day: string }
+  | { ready: true; day: string; book_id: string; items: DailyItem[]; done: number; total: number; score: number; max_score: number; streak: number };
+
+const AI_TIMEOUT = 90000;
+export const getMyDaily = (lang: string) => request<MyDaily>(`/daily?lang=${lang}`, {}, AI_TIMEOUT);
+export const answerDaily = (questionId: string, answer: number | string, lang: string) =>
+  request<DailyItem>("/daily/answer", json("POST", { question_id: questionId, answer, lang }), AI_TIMEOUT);
+export const getDailyHistory = (lang: string) =>
+  request<{ days: { day: string; items: DailyItem[]; done: number }[] }>(`/daily/history?lang=${lang}`, {}, AI_TIMEOUT);
+export const reportQuestion = (questionId: string, reason: string) =>
+  request<{ ok: boolean }>("/daily/report", json("POST", { question_id: questionId, reason }), BOARD_TIMEOUT);
+
+export type QuizInfo = {
+  status: "" | "running" | "ready" | "failed";
+  done: number;
+  total: number;
+  error: string;
+  running: boolean;
+  mc: number;
+  short: number;
+  hidden: number;
+  reported: number;
+};
+export type BankQuestion = {
+  id: string;
+  unit_key: string;
+  unit_title: string;
+  kind: "mc" | "short";
+  question: string;
+  choices: string[];
+  answer: number | null;
+  model_answer: string;
+  explanation: string;
+  page: number | null;
+  status: "active" | "hidden";
+  report_count: number;
+  reasons: string[];
+};
+export type QuestionEdit = Partial<Pick<BankQuestion, "question" | "choices" | "answer" | "model_answer" | "explanation" | "status">> & {
+  clear_reports?: boolean;
+};
+export const getQuizInfo = (bookId: string) => request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, {}, BOARD_TIMEOUT);
+export const startQuiz = (bookId: string, replace: boolean) =>
+  request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, json("POST", { replace }), BOARD_TIMEOUT);
+export const listBankQuestions = (bookId: string, filter: "all" | "reported" | "hidden") =>
+  request<{ items: BankQuestion[]; offset: number }>(`/admin/textbooks/${bookId}/questions?filter=${filter}`, {}, BOARD_TIMEOUT);
+export const editBankQuestion = (id: string, v: QuestionEdit) =>
+  request<{ ok: boolean }>(`/admin/questions/${id}`, json("PUT", v), BOARD_TIMEOUT);
+export const deleteBankQuestion = (id: string) => request<{ ok: boolean }>(`/admin/questions/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
+export type DailySettings = { mc: number; short: number };
+export const getDailySettings = () => request<DailySettings>("/admin/daily-settings", {}, BOARD_TIMEOUT);
+export const saveDailySettings = (v: DailySettings) => request<DailySettings>("/admin/daily-settings", json("PUT", v), BOARD_TIMEOUT);
+
+export type DailyBoardStudent = {
+  id: string;
+  name: string;
+  done: number;
+  total: number;
+  score: number;
+  max_score: number;
+  pending: number;
+  streak: number;
+  weak: string[];
+};
+export type DailyBoard = {
+  day: string;
+  students: DailyBoardStudent[];
+  summary: { count: number; finished: number };
+  weak_units: { title: string; wrong: number }[];
+};
+export const getDailyBoard = (courseId: string) => request<DailyBoard>(`/boards/courses/${courseId}/daily`, {}, BOARD_TIMEOUT);
+export const getStudentDaily = (userId: string, day: string) =>
+  request<{ day: string; items: DailyItem[] }>(`/daily/student/${userId}?day=${day}`, {}, BOARD_TIMEOUT);
+export const setDailyScore = (userId: string, day: string, questionId: string, score: number) =>
+  request<{ ok: boolean }>(`/daily/student/${userId}/${day}/${questionId}`, json("PUT", { score }), BOARD_TIMEOUT);

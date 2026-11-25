@@ -6,40 +6,46 @@ import { useTranslation } from "react-i18next";
 
 import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton, Body, Card, Screen, SectionTitle } from "@/components/ui";
-import { getMyTextbook, type MyTextbook, type TocPart } from "@/lib/api";
+import { getMyDaily, getMyTextbookAfterSave, type MyDaily, type MyTextbook, type TocPart } from "@/lib/api";
 import { ProgressBar, textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
 
 /** 이론 탭 (교육생·교사 같이 씀): AI 학습 보조 인사 + 이어서 보기 + 편·장별 진도 */
 export function TheoryHome() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useSession();
   const [data, setData] = useState<MyTextbook | null>(null);
+  const [daily, setDaily] = useState<MyDaily | null | "failed">(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<number | null>(null);
   const [greeted, setGreeted] = useState("");
 
   useFocusEffect(
     useCallback(() => {
-      getMyTextbook()
+      getMyTextbookAfterSave()
         .then((d) => {
           setData(d);
           setError("");
         })
         .catch((e) => setError(textbookError(t, e)));
-    }, [t]),
+      getMyDaily(i18n.language)
+        .then(setDaily)
+        .catch(() => setDaily((d) => d ?? "failed"));
+    }, [t, i18n.language]),
   );
 
   const book = data?.book ? data : null;
   const name = user?.name ?? "";
   // 인사말: 처음 받은 내용으로 한 번 정한다 (돌아올 때마다 말이 바뀌지 않게)
   let line = greeted;
-  if (!line && data) {
+  const todayQ = daily && daily !== "failed" && daily.ready ? daily : null;
+  if (!line && data && daily) {
     if (!data.book) line = t("buddy_helloNoBook", { name });
     else if (!book?.can_view) line = t("buddy_helloHidden", { name });
     else if (book.last_page) line = t("buddy_helloContinue", { name, page: printed(book.last_page, book.book.page_offset) });
     else line = t("buddy_helloFirst", { name });
+    if (todayQ && todayQ.done < todayQ.total) line += " " + t("buddy_dailyWaiting", { n: todayQ.total - todayQ.done });
     setGreeted(line);
   }
 
@@ -52,6 +58,27 @@ export function TheoryHome() {
     <Screen>
       <Card>{line ? <StudyBuddy text={line} /> : <ActivityIndicator color={colors.primary} />}</Card>
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {todayQ ? (
+        <Card onPress={() => router.push("/daily")} style={{ gap: space.sm }}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.bookTitle}>{t("dq_title")}</Text>
+            <Text style={styles.small}>{todayQ.streak > 0 ? t("dq_streak", { n: todayQ.streak }) : ""}</Text>
+          </View>
+          <View style={styles.unitRow}>
+            <View style={{ flex: 1 }}>
+              <ProgressBar ratio={todayQ.total ? todayQ.done / todayQ.total : 0} color={todayQ.done >= todayQ.total ? colors.success : colors.primary} />
+            </View>
+            <Text style={styles.small}>{t("dq_dayDone", { done: todayQ.done, total: todayQ.total })}</Text>
+          </View>
+          <AppButton
+            label={todayQ.done >= todayQ.total ? t("dq_reviewToday", { score: todayQ.score, max: todayQ.max_score }) : t("dq_start")}
+            icon={todayQ.done >= todayQ.total ? "checkmark-done-outline" : "create-outline"}
+            variant={todayQ.done >= todayQ.total ? "secondary" : "primary"}
+            onPress={() => router.push("/daily")}
+          />
+        </Card>
+      ) : null}
 
       {data && !data.book ? <Body muted>{t("theory_noBook")}</Body> : null}
       {book && !book.can_view ? <Body muted>{t("theory_hidden")}</Body> : null}
@@ -68,10 +95,18 @@ export function TheoryHome() {
               </Text>
             </View>
             <ProgressBar ratio={book.book.pages ? book.done_count / book.book.pages : 0} />
+            {book.last_page ? (
+              <AppButton
+                label={t("theory_continue", { page: printed(book.last_page, book.book.page_offset) })}
+                icon="book-outline"
+                onPress={() => openAt(book.last_page!)}
+              />
+            ) : null}
             <AppButton
-              label={book.last_page ? t("theory_continue", { page: printed(book.last_page, book.book.page_offset) }) : t("theory_start")}
-              icon="book-outline"
-              onPress={() => openAt(book.last_page ?? firstPage(book.toc))}
+              label={t("theory_start")}
+              icon="play-skip-back-outline"
+              variant={book.last_page ? "secondary" : "primary"}
+              onPress={() => openAt(firstPage(book.toc))}
             />
           </Card>
 
@@ -145,7 +180,11 @@ function Legend() {
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 /** 책에 인쇄된 쪽 번호 (PDF 쪽 − 차이) */
 export const printed = (pdfPage: number, offset: number) => pdfPage - offset;
-const firstPage = (toc: TocPart[]) => toc.find((p) => p.pdf_page)?.pdf_page ?? 1;
+/** 목차에서 가장 앞 쪽 (목차가 없으면 1쪽) */
+const firstPage = (toc: TocPart[]) => {
+  const all = toc.flatMap((p) => [p.pdf_page, ...p.chapters.map((c) => c.pdf_page)]).filter((n): n is number => !!n && n > 0);
+  return all.length ? Math.min(...all) : 1;
+};
 
 const styles = StyleSheet.create({
   error: { color: colors.danger },

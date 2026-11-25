@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/Avatar";
 import { AppButton, Body, Card, ScoreBadge } from "@/components/ui";
 import { approveMember, getCourseBoard, type CourseBoard, type CourseTeacher, type StudentCard } from "@/lib/api";
+import { DailyBoardSection } from "@/screens/DailyBoard";
 import { colors, space } from "@/theme";
 
 const TREND_ICON = { up: "trending-up", down: "trending-down", flat: "remove" } as const;
@@ -75,6 +76,7 @@ export function TeacherBoard({ courseId }: { courseId: string }) {
       {board.students.map((s) => (
         <StudentRow key={s.id} s={s} canApprove={board.can_care} onApprove={() => approve(s.id)} />
       ))}
+      <DailyBoardSection courseId={courseId} />
     </View>
   );
 }

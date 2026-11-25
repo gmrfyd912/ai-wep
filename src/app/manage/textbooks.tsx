@@ -10,6 +10,7 @@ import { listTextbooks, uploadTextbook, type AdminTextbook, type PickedFile } fr
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
 
+import { DailySettingsCard } from "@/screens/QuizBank";
 import { BookStatus, ProgressBar, StatusLegend, textbookError } from "@/screens/TextbookParts";
 
 /** 시스템관리자: 교재 목록 + 교재 PDF 올리기 (서버가 쪽마다 그림·글자로 나눔) */
@@ -31,7 +32,7 @@ export default function TextbooksScreen() {
   useFocusEffect(load);
 
   // 나누는 중인 교재가 있으면 5초마다 새로 받아 진행을 보여 준다
-  const running = rows?.some((r) => r.status === "processing" && r.running) ?? false;
+  const running = rows?.some((r) => r.running) ?? false;
   useEffect(() => {
     if (!running) return;
     timer.current = setTimeout(load, 5000);
@@ -109,6 +110,8 @@ export default function TextbooksScreen() {
         </Card>
       ))}
       {rows && rows.length > 0 ? <StatusLegend /> : null}
+
+      <DailySettingsCard />
     </Screen>
   );
 }

@@ -23,16 +23,17 @@ export function ProgressBar({ ratio, color = colors.primary }: { ratio: number; 
   );
 }
 
-type Kind = "running" | "stopped" | "ready" | "failed";
+type Kind = "running" | "upgrading" | "stopped" | "ready" | "failed";
 const KIND_COLOR: Record<Kind, string> = {
   running: colors.primary,
+  upgrading: colors.primary,
   stopped: colors.faint,
   ready: colors.success,
   failed: colors.danger,
 };
 
 export function bookKind(b: AdminTextbook): Kind {
-  if (b.status === "ready") return "ready";
+  if (b.status === "ready") return b.running ? "upgrading" : "ready";
   if (b.status === "failed") return "failed";
   return b.running ? "running" : "stopped";
 }

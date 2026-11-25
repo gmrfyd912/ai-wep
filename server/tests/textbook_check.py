@@ -151,6 +151,26 @@ def main():
     assert me["done_count"] == 3 and me["last_page"] == 7, me
     assert me["toc"][0]["chapters"][0]["done"] == 2 and me["toc"][0]["chapters"][1]["done"] == 1
     assert c.get("/textbook", headers=T1).json()["done_count"] == 0  # 사람마다 따로
+    assert me["done_pages"] == [4, 5, 6], me
+
+    # 화질 올려 다시 나누기: 예전 화질 쪽만 새로 만들고, 교재는 계속 '준비됨', 진도·목차 그대로
+    assert c.get(f"/admin/textbooks/{bid}", headers=A).json()["low_quality"] is False
+    for r0 in db.TABLES["textbook_pages"]:
+        r0["quality"] = 1
+    assert c.get(f"/admin/textbooks/{bid}", headers=A).json()["low_quality"] is True
+    old_key = c.get(f"/textbook/pages?book_id={bid}&start=3&end=3", headers=S1).json()["items"][0]["key"]
+    seen = []
+    real_patch = textbook.store.patch
+    textbook.store.patch = lambda t, f, v: (seen.append(v.get("status")), real_patch(t, f, v))[1]
+    r = c.post("/admin/textbooks/upload", data={"book_id": bid}, files={"file": ("x.pdf", pdf, "application/pdf")}, headers=A)
+    textbook.store.patch = real_patch
+    assert r.status_code == 200 and "processing" not in seen, (r.text, seen)
+    b = c.get(f"/admin/textbooks/{bid}", headers=A).json()
+    assert b["low_quality"] is False and b["status"] == "ready" and len(db.TABLES["textbook_pages"]) == 8, b
+    new_key = c.get(f"/textbook/pages?book_id={bid}&start=3&end=3", headers=S1).json()["items"][0]["key"]
+    assert old_key != new_key, (old_key, new_key)  # 휴대폰에 저장된 예전 그림을 다시 쓰지 않게
+    me2 = c.get("/textbook", headers=S1).json()
+    assert me2["done_count"] == 3 and me2["toc"] == me["toc"], me2
 
     # 교육생에게 쪽 숨기기: 교육생은 쪽 못 봄, 교사는 봄
     c.put(f"/admin/textbooks/{bid}", json={"show_students": False}, headers=A)
