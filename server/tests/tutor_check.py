@@ -89,6 +89,11 @@ def check_helpers():
         p = tutor.parse(t, toc, 0, 8)
         assert p["open"] and p["page"] is None, (t, p)
     assert tutor.parse("두 번째 쪽 열어줘", toc, 0, 8)["ord"] == 1 and tutor.parse("다음 쪽 보여줘", toc, 0, 8)["next"]
+    for t in ("그 내용이 들어가 있는 페이지 열어봐", "내용이 들어있는 페이지 열어봐", "페이지 열어봐", "이 내용 있는 페이지 보여줘"):
+        p = tutor.parse(t, toc, 0, 8)
+        assert p["open"] and p["page"] is None and not p["topic"], (t, p)
+    p = tutor.parse("TIG 용접 나오는 페이지 열어줘", toc, 0, 8)
+    assert p["open"] and p["topic"] == "TIG 용접", p
     assert not tutor.parse("예를 보여줘 용접 순서", toc, 0, 8)["open"]
     assert not tutor.parse("그건 왜 그래?", toc, 0, 8)["open"]
     # 같은 질문 알아보기
@@ -330,6 +335,10 @@ def main():
     assert ask("다음 쪽 보여줘", last_pages=[7]).json()["open"]["page"] == 8
     # 앱이 안 보내면 30분 안의 내 마지막 대화에서
     r = ask("거기 보여줘").json()
+    assert r["open"] and r["key"].startswith("tutor_openThat"), r
+    r = ask("그 내용이 들어가 있는 페이지 열어봐", last_pages=[7]).json()
+    assert r["open"]["page"] == 7 and not r["reply"], r
+    r = ask("text body 나오는 페이지 보여줘", A).json()  # 쪽 번호 대신 내용으로 찾아 연다
     assert r["open"] and r["key"].startswith("tutor_openThat"), r
     r = ask("그 페이지 펼쳐줘", T1).json()  # 교사는 아직 대화가 없음
     assert r["key"] == "tutor_whichPage" and r["open"] is None, r
