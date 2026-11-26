@@ -416,10 +416,16 @@ def _recent_ids(user_id, day):
 
 
 def _wrong_units(user_id, book_id=None):
-    """틀린 문제의 장 → 틀린 수 (최근 300개 답 중)."""
+    """틀린 문제의 장 → 틀린 수 (매일 문제 최근 300개 + 웰디 대화 중 문제 최근 200개)."""
     rows = store.select("daily_answers", {"user_id": f"eq.{user_id}", "select": "question_id,score",
                                           "order": "created_at.desc", "limit": "300"})
     bad = [r["question_id"] for r in rows if r.get("score") is not None and r["score"] < PASS_SCORE]
+    try:  # 웰디와 대화 중 틀린 문제도 (T3, step9 SQL 전이면 건너뜀)
+        bad += [r["question_id"] for r in store.select("tutor_answers", {
+            "user_id": f"eq.{user_id}", "correct": "is.false", "select": "question_id",
+            "order": "created_at.desc", "limit": "200"})]
+    except Exception:  # noqa: BLE001
+        pass
     if not bad:
         return {}
     qs = {q["id"]: q for q in store.select("quiz_questions", {"id": f"in.({','.join(set(bad))})",

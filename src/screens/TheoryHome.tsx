@@ -56,7 +56,16 @@ export function TheoryHome() {
 
   return (
     <Screen>
-      <Card>{line ? <StudyBuddy text={line} /> : <ActivityIndicator color={colors.primary} />}</Card>
+      <Card style={{ gap: space.sm }}>
+        {line ? (
+          <StudyBuddy text={line} onPress={() => router.push("/tutor")} hint={t("tutor_tapToTalk")} />
+        ) : (
+          <ActivityIndicator color={colors.primary} />
+        )}
+        {book && book.can_view ? (
+          <AppButton label={t("tutor_talk")} icon="chatbubble-ellipses-outline" variant="secondary" onPress={() => router.push("/tutor")} />
+        ) : null}
+      </Card>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {todayQ ? (

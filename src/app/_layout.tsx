@@ -76,6 +76,7 @@ function RootStack() {
       <Stack.Screen name="manage" options={{ headerShown: false }} />
       <Stack.Screen name="book" options={{ title: t("tb_viewerTitle") }} />
       <Stack.Screen name="daily" options={{ title: t("dq_title") }} />
+      <Stack.Screen name="tutor" options={{ title: t("buddy_name") }} />
       <Stack.Screen name="student-view/[id]" options={{ title: t("student_records") }} />
       <Stack.Screen name="settings/index" options={{ title: t("settings_title") }} />
       <Stack.Screen name="settings/profile" options={{ title: t("profile_title") }} />

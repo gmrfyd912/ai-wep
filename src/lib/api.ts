@@ -733,6 +733,8 @@ export type AdminSettings = {
   crack_fail: boolean;
   fail_score_cap: number;
   report_daily_limit: number;
+  /** 웰디(AI 학습 보조) 교육생 하루 질문 수 */
+  tutor_daily_limit?: number;
   /** 윤곽 2차 검토: 끔 / 교사·관리자만 보임 / 모두 보임 */
   outline_review?: OutlineMode;
   password_min_length: number;
@@ -1158,3 +1160,45 @@ export const getStudentDaily = (userId: string, day: string) =>
   request<{ day: string; items: DailyItem[] }>(`/daily/student/${userId}?day=${day}`, {}, BOARD_TIMEOUT);
 export const setDailyScore = (userId: string, day: string, questionId: string, score: number) =>
   request<{ ok: boolean }>(`/daily/student/${userId}/${day}/${questionId}`, json("PUT", { score }), BOARD_TIMEOUT);
+
+// ---- T3: AI 학습 보조 '웰디'와 대화 ----
+
+export type TutorTurn = { q: string; a: string };
+export type TutorReply = {
+  /** 대화 기록 id (신고할 때) */
+  id: string | null;
+  /** AI 대답 (비어 있으면 key 를 번역해서 보여 준다) */
+  reply: string;
+  key: string | null;
+  params: Record<string, string | number>;
+  /** 근거 쪽 (PDF 쪽, 책에 인쇄된 쪽) */
+  pages: { page: number; printed: number }[];
+  /** 교재 밖 내용 */
+  outside: boolean;
+  /** 교재 쪽 열기 */
+  open: { page: number; printed: number } | null;
+  /** 대화 중 문제 (OX·객관식) */
+  quiz: DailyItem | null;
+  book_id: string | null;
+  /** 오늘 남은 질문 수 (교육생만) */
+  left: number | null;
+};
+export const askTutor = (text: string, lang: string, history: TutorTurn[], page?: number) =>
+  request<TutorReply>("/tutor/ask", json("POST", { text, lang, history, page: page ?? null }), AI_TIMEOUT);
+export const answerTutorQuiz = (questionId: string, answer: number, lang: string) =>
+  request<DailyItem>("/tutor/quiz", json("POST", { question_id: questionId, answer, lang }), BOARD_TIMEOUT);
+export const reportTutor = (messageId: string, note = "") =>
+  request<{ ok: boolean }>("/tutor/report", json("POST", { message_id: messageId, note }), BOARD_TIMEOUT);
+export type TutorReport = {
+  id: string;
+  name: string;
+  question: string;
+  answer: string;
+  printed: number[];
+  report_note: string;
+  reported_at: string;
+  lang: string;
+};
+export const listTutorReports = () => request<{ items: TutorReport[] }>("/admin/tutor/reports", {}, BOARD_TIMEOUT);
+export const clearTutorReport = (id: string) =>
+  request<{ ok: boolean }>(`/admin/tutor/reports/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);

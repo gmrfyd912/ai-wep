@@ -27,13 +27,32 @@ const VOICE: Record<string, string> = {
   es: "es-ES",
 };
 const W = 104;
-const H = Math.round((W * 364) / 240);
+const ratio = 364 / 240;
 
 /**
- * AI 학습 보조 캐릭터: 말할 때 입이 움직이고(그림 4장), 자막은 항상 글자로 보여 준다.
- * 목소리는 휴대폰 기본 음성 (소리 끄기 가능, 설정 기억). 캐릭터를 누르면 다시 말한다.
+ * AI 학습 보조 캐릭터 '웰디': 말할 때 입이 움직이고(그림 4장), 자막은 항상 글자로 보여 준다.
+ * 목소리는 휴대폰 기본 음성 (소리 끄기 가능, 설정 기억).
+ * onPress 가 없으면 캐릭터를 누를 때 다시 말한다. nonce 가 바뀌면 같은 말도 다시 한다.
+ * onDone: 말(또는 자막)이 끝났을 때.
  */
-export function StudyBuddy({ text }: { text: string }) {
+export function StudyBuddy({
+  text,
+  nonce = 0,
+  onPress,
+  onDone,
+  hint,
+  size = W,
+}: {
+  text: string;
+  nonce?: number;
+  onPress?: () => void;
+  onDone?: () => void;
+  hint?: string;
+  size?: number;
+}) {
+  const H = Math.round(size * ratio);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
   const { t, i18n } = useTranslation();
   const [frame, setFrame] = useState(0);
   const [shown, setShown] = useState(""); // 자막 (한 글자씩)
@@ -82,16 +101,21 @@ export function StudyBuddy({ text }: { text: string }) {
       }, 45);
       if (!withSound) {
         startMouth(text.length * 45);
+        setTimeout(() => doneRef.current?.(), text.length * 45 + 300);
         return;
       }
       startMouth(null);
+      const finished = () => {
+        stopMouth();
+        doneRef.current?.();
+      };
       Speech.speak(text, {
         language: VOICE[i18n.language] ?? i18n.language,
         rate: 1.0,
         pitch: 1.15,
-        onDone: stopMouth,
+        onDone: finished,
         onStopped: stopMouth,
-        onError: stopMouth,
+        onError: finished,
       });
     },
     [text, i18n.language, startMouth, stopMouth],
@@ -101,7 +125,7 @@ export function StudyBuddy({ text }: { text: string }) {
   useEffect(() => {
     if (sound === null || !text) return;
     say(sound);
-  }, [text, sound === null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [text, nonce, sound === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(
     () => () => {
@@ -135,10 +159,10 @@ export function StudyBuddy({ text }: { text: string }) {
 
   return (
     <View style={styles.wrap}>
-      <Pressable onPress={() => say(!!sound)} accessibilityLabel={t("buddy_name")}>
-        <View style={{ width: W, height: H }}>
+      <Pressable onPress={onPress ?? (() => say(!!sound))} accessibilityLabel={t("buddy_name")}>
+        <View style={{ width: size, height: H }}>
           {FRAMES.map((src, i) => (
-            <Image key={i} source={src} style={[styles.img, { opacity: frame === i ? 1 : 0 }]} resizeMode="contain" />
+            <Image key={i} source={src} style={[styles.img, { width: size, height: H, opacity: frame === i ? 1 : 0 }]} resizeMode="contain" />
           ))}
         </View>
       </Pressable>
@@ -153,7 +177,7 @@ export function StudyBuddy({ text }: { text: string }) {
         <View style={styles.bubble}>
           <Text style={styles.text}>{shown || " "}</Text>
         </View>
-        <Text style={styles.hint}>{t("buddy_tapHint")}</Text>
+        <Text style={styles.hint}>{hint ?? t("buddy_tapHint")}</Text>
       </View>
     </View>
   );
@@ -161,7 +185,7 @@ export function StudyBuddy({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   wrap: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
-  img: { position: "absolute", width: W, height: H },
+  img: { position: "absolute" },
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   name: { color: colors.primary, fontSize: 13, fontWeight: "700" },
   soundBtn: { flexDirection: "row", alignItems: "center", gap: 4 },

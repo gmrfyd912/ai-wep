@@ -71,6 +71,7 @@ def _view():
         "crack_fail": "crack" in [x.lower() for x in c.get("fail_types") or []],
         "fail_score_cap": int(c.get("fail_score_cap", 59)),
         "report_daily_limit": int(c.get("report_daily_limit", 5)),
+        "tutor_daily_limit": int(c.get("tutor_daily_limit", 50)),
         "outline_review": outline_mode(),
         "password_min_length": int(a.get("password_min_length") or 0),
         "reset_password": str(a.get("reset_password") or "0000"),
@@ -102,6 +103,7 @@ class SettingsBody(BaseModel):
     crack_fail: bool = True
     fail_score_cap: int = 59
     report_daily_limit: int
+    tutor_daily_limit: int | None = None  # 예전 앱은 보내지 않음 → 그대로 둔다
     outline_review: str | None = None  # 예전 앱은 보내지 않음 → 그대로 둔다
     password_min_length: int
     reset_password: str
@@ -126,6 +128,8 @@ def put_settings(body: SettingsBody, user=Depends(need_admin)):
     if not 0 <= body.pass_score <= 100 or not 0 <= body.fail_score_cap <= 100:
         _err(400, "bad_value")
     if not 0 <= body.report_daily_limit <= 100:
+        _err(400, "bad_value")
+    if body.tutor_daily_limit is not None and not 0 <= body.tutor_daily_limit <= 500:
         _err(400, "bad_value")
     if not 0 <= body.password_min_length <= 32:
         _err(400, "bad_value")
@@ -155,6 +159,7 @@ def put_settings(body: SettingsBody, user=Depends(need_admin)):
         "fail_types": fail_types,
         "fail_score_cap": body.fail_score_cap,
         "report_daily_limit": body.report_daily_limit,
+        "tutor_daily_limit": body.tutor_daily_limit if body.tutor_daily_limit is not None else int(cur.get("tutor_daily_limit", 50)),
         "outline_review": body.outline_review if body.outline_review is not None else cur.get("outline_review", "staff"),
         "_updated_at": datetime.now(timezone.utc).isoformat(),
         "_updated_by": user["name"],
