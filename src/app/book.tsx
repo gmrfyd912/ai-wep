@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -231,9 +231,21 @@ export default function BookViewer() {
           title: meta.title,
           headerShown: !full,
           headerRight: () => (
-            <Pressable onPress={() => setTocOpen(true)} hitSlop={12} style={{ paddingHorizontal: space.sm }}>
-              <Ionicons name="list-outline" size={24} color={colors.text} />
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {preview ? null : (
+                <Pressable
+                  onPress={() => router.push(`/tutor?page=${pageNo}`)}
+                  hitSlop={12}
+                  style={{ paddingHorizontal: space.sm }}
+                  accessibilityLabel={t("tutor_askHere")}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={23} color={colors.primary} />
+                </Pressable>
+              )}
+              <Pressable onPress={() => setTocOpen(true)} hitSlop={12} style={{ paddingHorizontal: space.sm }}>
+                <Ionicons name="list-outline" size={24} color={colors.text} />
+              </Pressable>
+            </View>
           ),
         }}
       />

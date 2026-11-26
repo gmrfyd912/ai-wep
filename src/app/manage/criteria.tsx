@@ -27,6 +27,7 @@ const NUM_KEYS = [
   "defects.spatter",
   "defects.other",
   "report_daily_limit",
+  "tutor_daily_limit",
   "password_min_length",
 ] as const;
 
@@ -38,7 +39,7 @@ function get(o: AdminSettings, key: string): number {
 
 function toForm(s: AdminSettings): Form {
   const f: Form = { reset_password: s.reset_password };
-  NUM_KEYS.forEach((k) => (f[k] = String(get(s, k))));
+  NUM_KEYS.forEach((k) => (f[k] = String(get(s, k) ?? (k === "tutor_daily_limit" ? 50 : ""))));
   return f;
 }
 
@@ -61,6 +62,7 @@ function fromForm(f: Form, crack: boolean, outline: OutlineMode): AdminSettings 
     },
     crack_fail: crack,
     report_daily_limit: Math.round(n(f.report_daily_limit)),
+    tutor_daily_limit: Math.round(n(f.tutor_daily_limit)),
     outline_review: outline,
     password_min_length: Math.round(n(f.password_min_length)),
     reset_password: f.reset_password.trim(),
@@ -191,6 +193,8 @@ export default function CriteriaScreen() {
       <Card>
         {num("report_daily_limit", t("crit_reportLimit"), t("crit_unitCount"))}
         <Text style={styles.hint}>{t("crit_reportHint")}</Text>
+        {num("tutor_daily_limit", t("crit_tutorLimit"), t("crit_unitCount"))}
+        <Text style={styles.hint}>{t("crit_tutorHint")}</Text>
       </Card>
 
       <SectionTitle>{t("crit_outline")}</SectionTitle>
