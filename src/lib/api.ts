@@ -1122,6 +1122,8 @@ export type BankQuestion = {
   status: "active" | "hidden";
   report_count: number;
   reasons: string[];
+  /** admin = 관리자 문제 은행, tutor = 교육생이 웰디에게 요청해 만든 문제 */
+  source?: "admin" | "tutor";
 };
 export type QuestionEdit = Partial<Pick<BankQuestion, "question" | "choices" | "answer" | "model_answer" | "explanation" | "status">> & {
   clear_reports?: boolean;
@@ -1129,7 +1131,7 @@ export type QuestionEdit = Partial<Pick<BankQuestion, "question" | "choices" | "
 export const getQuizInfo = (bookId: string) => request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, {}, BOARD_TIMEOUT);
 export const startQuiz = (bookId: string, body: QuizStartBody) =>
   request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, json("POST", body), BOARD_TIMEOUT);
-export const listBankQuestions = (bookId: string, filter: "all" | "reported" | "hidden", kind: QuizKind | "" = "") =>
+export const listBankQuestions = (bookId: string, filter: "all" | "reported" | "hidden" | "tutor", kind: QuizKind | "" = "") =>
   request<{ items: BankQuestion[]; offset: number }>(`/admin/textbooks/${bookId}/questions?filter=${filter}&kind=${kind}`, {}, BOARD_TIMEOUT);
 export const editBankQuestion = (id: string, v: QuestionEdit) =>
   request<{ ok: boolean }>(`/admin/questions/${id}`, json("PUT", v), BOARD_TIMEOUT);
@@ -1177,15 +1179,126 @@ export type TutorReply = {
   outside: boolean;
   /** 교재 쪽 열기 */
   open: { page: number; printed: number } | null;
-  /** 대화 중 문제 (OX·객관식) */
+  /** 대화 중 문제 (OX·객관식·단답형) */
   quiz: DailyItem | null;
   book_id: string | null;
   /** 오늘 남은 질문 수 (교육생만) */
   left: number | null;
+  /** 전에 누가 한 같은 질문의 저장된 답 (AI 안 씀) */
+  cached?: boolean;
+  /** 이번에 새로 만들어 문제 은행에 넣은 문제 */
+  made?: boolean;
 };
-export const askTutor = (text: string, lang: string, history: TutorTurn[], page?: number) =>
-  request<TutorReply>("/tutor/ask", json("POST", { text, lang, history, page: page ?? null }), AI_TIMEOUT);
-export const answerTutorQuiz = (questionId: string, answer: number, lang: string) =>
+export const askTutor = (text: string, lang: string, history: TutorTurn[], page?: number, lastPages: number[] = []) =>
+  request<TutorReply>(
+    "/tutor/ask",
+    json("POST", { text, lang, history, page: page ?? null, last_pages: lastPages }),
+    AI_TIMEOUT,
+  );
+export type TutorEvent = { t: "delta"; text: string } | { t: "status"; key: string };
+
+/** 웰디 대답을 쓰는 대로 받는다 (첫 문장부터 말하려고). 예전 서버면 한 번에 받는 방식으로. */
+export async function askTutorStream(
+  text: string,
+  lang: string,
+  history: TutorTurn[],
+  page: number | undefined,
+  lastPages: number[],
+  onEvent: (e: TutorEvent) => void,
+  ctrl: AbortController = new AbortController(),
+): Promise<TutorReply> {
+  const started = Date.now();
+  let timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT);
+  const alive = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT);
+  };
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/tutor/ask/stream`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({ text, lang, history, page: page ?? null, last_pages: lastPages }),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const err = e as Error;
+    const secs = Math.round((Date.now() - started) / 1000);
+    const msg = err?.message ?? String(e);
+    throw new NetworkError(
+      err?.name === "AbortError" || /cancel|abort/i.test(msg) ? `tutor: timeout ${secs}s` : `tutor: network ${secs}s ${msg}`,
+    );
+  }
+  if (res.status === 404 || res.status === 405) {
+    clearTimeout(timer);
+    return askTutor(text, lang, history, page, lastPages); // 아직 예전 서버
+  }
+  if (!res.ok) {
+    clearTimeout(timer);
+    const body = await res.text().catch(() => "");
+    let detail: { code?: string } | null = null;
+    try {
+      const d = JSON.parse(body)?.detail;
+      if (d && typeof d === "object") detail = d;
+    } catch {
+      // 본문이 JSON 이 아니면 무시
+    }
+    if (res.status === 401 && token) onUnauthorized?.();
+    throw new NetworkError(`tutor: server ${res.status}`, res.status, detail);
+  }
+  let done: TutorReply | null = null;
+  let buf = "";
+  const take = (chunk: string) => {
+    buf += chunk;
+    let i: number;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const block = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      for (const line of block.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.t === "done") {
+            const { t: _t, ...rest } = ev;
+            done = rest as TutorReply;
+          } else onEvent(ev as TutorEvent);
+        } catch {
+          // 깨진 줄은 건너뜀
+        }
+      }
+    }
+  };
+  try {
+    const reader = res.body?.getReader?.();
+    const Decoder = (globalThis as { TextDecoder?: typeof TextDecoder }).TextDecoder;
+    if (reader && Decoder) {
+      const dec = new Decoder();
+      for (;;) {
+        const { value, done: end } = await reader.read();
+        if (end) break;
+        alive();
+        if (value) take(dec.decode(value, { stream: true }));
+      }
+      take(dec.decode() + "\n\n");
+    } else {
+      take((await res.text()) + "\n\n");
+    }
+  } catch (e) {
+    const err = e as Error;
+    if (!done) {
+      const secs = Math.round((Date.now() - started) / 1000);
+      throw new NetworkError(
+        err?.name === "AbortError" || /cancel|abort/i.test(err?.message ?? "") ? `tutor: timeout ${secs}s` : `tutor: network ${secs}s`,
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!done) throw new NetworkError("tutor: network cut");
+  return done;
+}
+export const answerTutorQuiz = (questionId: string, answer: number | string, lang: string) =>
   request<DailyItem>("/tutor/quiz", json("POST", { question_id: questionId, answer, lang }), BOARD_TIMEOUT);
 export const reportTutor = (messageId: string, note = "") =>
   request<{ ok: boolean }>("/tutor/report", json("POST", { message_id: messageId, note }), BOARD_TIMEOUT);
@@ -1202,6 +1315,18 @@ export type TutorReport = {
 export const listTutorReports = () => request<{ items: TutorReport[] }>("/admin/tutor/reports", {}, BOARD_TIMEOUT);
 export const clearTutorReport = (id: string) =>
   request<{ ok: boolean }>(`/admin/tutor/reports/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
+export type TutorFaq = {
+  id: string;
+  question: string;
+  answer: string;
+  count: number;
+  printed: number[];
+  lang: string;
+  outside: boolean;
+  reported: boolean;
+};
+export const listTutorFaq = (days = 30) =>
+  request<{ items: TutorFaq[]; days: number }>(`/admin/tutor/faq?days=${days}`, {}, BOARD_TIMEOUT);
 
 // ---- T4(이론): 학습 보드 (모든 사용자) ----
 

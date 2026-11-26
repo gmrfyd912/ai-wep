@@ -11,7 +11,7 @@ import { textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
-type Filter = "all" | "reported" | "hidden";
+type Filter = "all" | "reported" | "hidden" | "tutor";
 const MARK = ["①", "②", "③", "④"];
 const OX = ["O", "X"];
 
@@ -48,6 +48,7 @@ export default function QuestionsScreen() {
           { value: "all", label: t("qb_filterAll") },
           { value: "reported", label: t("qb_filterReported") },
           { value: "hidden", label: t("qb_filterHidden") },
+          { value: "tutor", label: t("qb_filterTutor") },
         ]}
         value={filter}
         onChange={setFilter}
@@ -83,6 +84,7 @@ export default function QuestionsScreen() {
                   <Text style={styles.tag}>{t(kindKey[q.kind])}</Text>
                   {q.report_count ? <Text style={styles.warn}>⚑ {q.report_count}</Text> : null}
                   {q.status === "hidden" ? <Text style={styles.small}>{t("qb_hiddenTag")}</Text> : null}
+                  {q.source === "tutor" ? <Text style={styles.tutorTag}>{t("qb_tutorTag")}</Text> : null}
                   <View style={{ flex: 1 }} />
                   {q.page ? <Text style={styles.small}>{t("dq_pageShort", { page: q.page - offset })}</Text> : null}
                 </View>
@@ -221,6 +223,7 @@ function Editor({ q, offset, onDone, onError }: { q: BankQuestion; offset: numbe
 
 const styles = StyleSheet.create({
   small: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  tutorTag: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   error: { color: colors.danger },
   unit: { color: colors.primary, fontSize: 13, fontWeight: "700", marginTop: space.sm },
   row: { flexDirection: "row", alignItems: "center", gap: space.sm },
