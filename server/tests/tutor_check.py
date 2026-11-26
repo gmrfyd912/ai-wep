@@ -26,6 +26,18 @@ def fake_call(system, prompt, max_tokens, timeout=45):
     return json.dumps(out, ensure_ascii=False)
 
 
+def fake_stream(system, prompt, max_tokens, timeout=45):
+    """웰디 대답을 조각조각 ('말 @@@ {정보}' 모양)."""
+    out = fake_ask("m", system, prompt, max_tokens)
+    if isinstance(out, str):
+        full = out
+    else:
+        meta = {k: v for k, v in out.items() if k != "reply"}
+        full = f"{out['reply']}\n@@@\n{json.dumps(meta, ensure_ascii=False)}"
+    for i in range(0, len(full), 4):
+        yield full[i:i + 4]
+
+
 def fake_ask(model, system, text, max_tokens, timeout=180):
     if system is tutor.KEYWORDS_SYSTEM:
         CALLS.append("keywords")
@@ -63,6 +75,30 @@ def check_helpers():
     p = tutor.parse("1편 보여줘", toc, 0, 8)
     assert p["open"] and p["page"] == 4 and p["range"] == (4, 8), p
     assert tutor.parse("99쪽 보여줘", toc, 0, 8)["page"] is None  # 책 밖 쪽
+    # 쪽을 말한 문제 만들기, 종류, 새 문제
+    p = tutor.parse("5쪽에서 객관식 문제 하나 만들어 줘", toc, 0, 8)
+    assert p["quiz"] and p["focus"] == 5 and p["kind"] == "mc" and not p["new"] and not p["open"], p
+    p = tutor.parse("그 페이지에서 새 문제 만들어줘", toc, 0, 8)
+    assert p["quiz"] and p["that"] and p["new"] and p["kind"] is None, p
+    assert tutor.parse("OX 문제 내줘", toc, 0, 8)["kind"] == "ox"
+    assert tutor.parse("단답형 하나 만들어 줘", toc, 0, 8)["kind"] == "word"
+    assert tutor.parse("make a new multiple choice question", toc, 0, 8)["kind"] == "mc"
+    assert not tutor.parse("문제 내용이 뭐야", toc, 0, 8)["quiz"]
+    # "그 페이지 펼쳐줘" (쪽 번호 없이)
+    for t in ("그 페이지 펼쳐줘", "그 쪽 보자", "거기 보여줘", "펼쳐 줘", "open that page", "두 번째 쪽 열어줘", "다음 쪽 보여줘"):
+        p = tutor.parse(t, toc, 0, 8)
+        assert p["open"] and p["page"] is None, (t, p)
+    assert tutor.parse("두 번째 쪽 열어줘", toc, 0, 8)["ord"] == 1 and tutor.parse("다음 쪽 보여줘", toc, 0, 8)["next"]
+    assert not tutor.parse("예를 보여줘 용접 순서", toc, 0, 8)["open"]
+    assert not tutor.parse("그건 왜 그래?", toc, 0, 8)["open"]
+    # 같은 질문 알아보기
+    assert tutor.norm_q("보호 가스가 뭐예요?") == tutor.norm_q("보호가스가 뭐야") == "보호가스가뭐"
+    assert tutor.similar(tutor.norm_q("TIG 용접 원리가 뭐예요"), tutor.norm_q("tig 용접 원리가 뭐야?")) == 1
+    assert tutor.similar(tutor.norm_q("TIG 용접 원리"), tutor.norm_q("MIG 용접 원리")) < 0.9
+    # 꼬리 질문
+    h = [tutor.Turn(q="보호 가스가 뭐야", a="공기를 막아요")]
+    assert tutor.is_follow("그건 왜 그래?", h) and tutor.is_follow("이해가 안 돼", h) and tutor.is_follow("더 쉽게", h)
+    assert not tutor.is_follow("그건 왜 그래?", []) and not tutor.is_follow("피복 아크 용접봉의 종류를 알려줘", h)
     assert tutor.find_chapter([{"title": "A", "chapters": [{"title": "Intro"}, {"title": "Gas"}]}], 2)[2]["title"] == "Gas"
     assert tutor.terms("가스용접을") == ["가스", "스용", "용접", "접을"]
 
@@ -126,14 +162,86 @@ def check_call_ai():
     daily._client, tutor.time.sleep, report.configured = old
 
 
+def check_stream_ai():
+    """흘려 보내기: 조각을 그대로, 첫 글자 전 바쁨은 한 번 더, '@@@' 뒤 정보는 말에서 뺀다."""
+    import anthropic
+    import httpx
+    req = httpx.Request("POST", "https://x")
+
+    class S:
+        def __init__(self, pieces):
+            self.pieces = pieces
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        @property
+        def text_stream(self):
+            yield from self.pieces
+
+        def get_final_message(self):
+            return type("M", (), {"stop_reason": "end_turn"})()
+
+    class Msgs:
+        def __init__(self, plan):
+            self.plan = plan
+
+        def stream(self, **kw):
+            p = self.plan.pop(0)
+            if isinstance(p, Exception):
+                raise p
+            return S(p)
+
+    def client_with(plan):
+        c = type("C", (), {})()
+        c.beta = type("B", (), {})()
+        c.beta.messages = Msgs(plan)
+        return lambda timeout: (anthropic, c)
+
+    old = daily._client, tutor.time.sleep, report.configured, tutor.stream_ai
+    tutor.time.sleep = lambda s: None
+    report.configured = lambda: True
+    busy = anthropic.APIStatusError("overloaded", response=httpx.Response(529, request=req), body=None)
+    daily._client = client_with([busy, ["보호 ", "가스는 ", "공기를 막아요. ", "더 궁금해요?\n@", "@@\n{\"pages\":[6],\"outside\":false}"]])
+    assert "".join(tutor.stream_ai("s", "p", 10)) .startswith("보호 가스는")
+    # ask_ai: 말 조각만 앱으로, 정보는 마지막에
+    daily._client = client_with([["**보호** 가스는 ", "공기를 막아요.", "\n@@", "@\n{\"pages\":[2],\"quiz\":false}"]])
+    book = {"id": "b-stream", "updated_at": "x", "page_offset": 0, "pages": 3}
+    tutor._cache["b-stream"] = ("x", {1: "가스", 2: "보호 가스 공기", 3: "끝"}, {"tf": {1: {"가스": 1}, 2: {"보호": 1, "가스": 1}, 3: {}},
+                                                                     "df": {"가스": 2, "보호": 1}, "n": 3})
+    evs = list(tutor.ask_ai(book, "보호 가스가 뭐야", "ko", [], None))
+    deltas = "".join(v for k, v in evs if k == "delta")
+    assert deltas.strip() == "보호 가스는 공기를 막아요." and "@" not in deltas, deltas
+    assert evs[-1][0] == "done" and evs[-1][1]["reply"] == "보호 가스는 공기를 막아요." and evs[-1][1]["pages"] == [2], evs[-1]
+    # 형식을 안 지키고 JSON 으로 오면 조각을 안 보내고 다 받은 뒤 읽는다
+    daily._client = client_with([['{"reply":"제이슨', ' 대답","pages":[1]}']])
+    evs = list(tutor.ask_ai(book, "보호 가스", "ko", [], None))
+    assert [k for k, _ in evs] == ["done"] and evs[0][1]["reply"] == "제이슨 대답", evs
+    auth = anthropic.AuthenticationError("bad key", response=httpx.Response(401, request=req), body=None)
+    daily._client = client_with([auth])
+    try:
+        list(tutor.stream_ai("s", "p", 10))
+        raise AssertionError("no error")
+    except tutor.TutorError as e:
+        assert e.code == "key"
+    daily._client, tutor.time.sleep, report.configured = old[:3]
+    tutor._cache.pop("b-stream", None)
+
+
 def main():
     check_helpers()
     check_call_ai()
+    check_stream_ai()
     db.install()
     db.SETTINGS["signup"] = {"avatar_required": False}
     report.configured = lambda: True
     daily._ask = fake_ask
     tutor.call_ai = fake_call
+    tutor.stream_ai = fake_stream
+    tutor.QUIZ_TEXT_MIN = 1
     textbook.make_toc = lambda *a, **k: (_ for _ in ()).throw(textbook.TocError("ai_not_configured"))
     daily.UNIT_TEXT_MIN = 1
     textbook._start_job = textbook.process_book
@@ -165,7 +273,7 @@ def main():
     # 문제 은행이 비었으면
     assert ask("문제 내줘").json()["key"] == "tutor_noQuiz"
     assert c.post(f"/admin/textbooks/{bid}/quiz", json={}, headers=A).status_code == 200
-    r = ask("Chapter 2 문제 내줘").json()
+    r = ask("Chapter 2 객관식 문제 내줘").json()
     q = r["quiz"]
     assert r["key"] == "tutor_quiz" and q["kind"] in ("ox", "mc") and q["result"] is None, r
     assert 6 <= q["page"] <= 8, q  # 말한 장에서
@@ -183,12 +291,28 @@ def main():
     CALLS.clear()
     r = ask("Chapter text body 가 뭐야?", history=[{"q": "앞 질문", "a": "앞 대답"}], page=6).json()
     assert r["reply"] == "보호 가스는 공기를 막아 줘요." and r["pages"] == [{"page": 6, "printed": 6}], r
-    assert r["left"] == 49 and r["id"], r
+    assert r["left"] == 49 and r["id"] and not r["cached"], r
     assert "[p.6]" in CALLS[-1] and "앞 대답" in CALLS[-1] and "keywords" not in CALLS, CALLS
-    # 외국어 질문은 한국어 찾기 낱말로 바꿔서 찾음
+    # 같은 질문은 저장된 답을 바로 (AI 안 부름, 한도에 안 셈) — 다른 교육생도
+    s2, S2 = user("s2", "student")
+    CALLS.clear()
+    r = ask("chapter text body가 뭐예요", S2).json()
+    assert r["cached"] and r["reply"] == "보호 가스는 공기를 막아 줘요." and r["pages"][0]["page"] == 6 and not CALLS, r
+    hit = db.TABLES["tutor_messages"][-1]
+    assert hit["ai"] is False and hit["cache_of"] and hit["kind"] == "explain", hit
+    # 꼬리 질문은 저장된 답을 안 쓰고, 앞 질문과 합쳐 찾고, 앞 대답의 쪽도 다시
+    CALLS.clear()
+    r = ask("이해가 안 돼, 더 쉽게", history=[{"q": "Chapter text body 가 뭐야?", "a": "보호 가스는"}], last_pages=[7]).json()
+    assert not r["cached"] and r["reply"], r
+    assert "[p.7]" in CALLS[-1] and "Explain it again more simply" in CALLS[-1], CALLS
+    # 외국어 질문은 한국어 찾기 낱말로 바꿔서 찾음 (같은 질문은 한 번만 바꿈)
     CALLS.clear()
     ask("What is shielding gas?", lang="en")
     assert CALLS[0] == "keywords", CALLS
+    CALLS.clear()
+    tutor.cache_clear()
+    ask("What is shielding gas", S2, lang="en")
+    assert "keywords" not in CALLS
     r = ask("로봇 용접 알려줘").json()
     assert r["outside"] and r["pages"] == [], r
     r = ask("오늘 날씨 어때").json()
@@ -199,13 +323,88 @@ def main():
     r = ask("설명하고 문제도 줄래").json()
     assert r["reply"] and r["quiz"], r
 
+    # "그 페이지 펼쳐줘": 바로 전 대답의 첫 쪽
+    r = ask("그 페이지 펼쳐줘", last_pages=[7, 8]).json()
+    assert r["key"] == "tutor_openThatMore" and r["open"]["page"] == 7 and r["pages"] == [{"page": 8, "printed": 8}], r
+    assert ask("두 번째 쪽 보여줘", last_pages=[7, 8]).json()["open"]["page"] == 8
+    assert ask("다음 쪽 보여줘", last_pages=[7]).json()["open"]["page"] == 8
+    # 앱이 안 보내면 30분 안의 내 마지막 대화에서
+    r = ask("거기 보여줘").json()
+    assert r["open"] and r["key"].startswith("tutor_openThat"), r
+    r = ask("그 페이지 펼쳐줘", T1).json()  # 교사는 아직 대화가 없음
+    assert r["key"] == "tutor_whichPage" and r["open"] is None, r
+
+    # 쪽을 말한 문제: 은행에 있으면 바로, 없으면 그 쪽 글로 만들어 은행에 넣음
+    r = ask("6쪽에서 객관식 문제 내줘").json()
+    assert r["key"] == "tutor_quiz" and r["quiz"]["kind"] == "mc" and 5 <= r["quiz"]["page"] <= 7 and not r["made"], r
+    n_bank = len(db.TABLES["quiz_questions"])
+    made = []
+    serial = [0]
+
+    def make_ask(model, system, text, max_tokens, timeout=180):
+        if system is daily.QUIZ_SYSTEM:
+            made.append(text)
+            serial[0] += 1
+            return {"questions": [{"kind": "mc", "question": ["가스 유량은 어떻게 맞추나요", "텅스텐 전극 끝 모양은", "예열 온도를 정하는 기준"][serial[0] - 1], "choices": ["가", "나", "다", "라"],
+                                   "answer": 1, "explanation": "해설", "page": 8}]}
+        return fake_ask(model, system, text, max_tokens, timeout)
+
+    daily._ask = make_ask
+    tutor.call_ai = lambda system, prompt, max_tokens, timeout=45: json.dumps(make_ask("m", system, prompt, max_tokens))
+    r = ask("8쪽에서 객관식 문제 하나 만들어 줘", S2).json()
+    assert r["key"] == "tutor_quizNew" and r["made"] and r["quiz"]["page"] == 8 and r["left"] is not None, r
+    assert "page 8" in made[0] and "1 multiple choice" in made[0], made
+    new = db.TABLES["quiz_questions"][-1]
+    assert len(db.TABLES["quiz_questions"]) == n_bank + 1 and new["source"] == "tutor" and new["created_by"] == s2, new
+    assert new["status"] == "active" and new["unit_key"], new
+    # 다른 교육생이 같은 쪽 문제를 달라고 하면 은행에서 바로 (AI 안 부름)
+    made.clear()
+    r = ask("8쪽 객관식 문제 내줘").json()
+    assert r["key"] == "tutor_quiz" and r["quiz"]["id"] == new["id"] and not made, r
+    # "새 문제" → 또 만든다
+    r = ask("8쪽에서 새 문제 만들어줘").json()
+    assert r["key"] == "tutor_quizNew" and len(made) == 1 and "가스 유량은 어떻게" in made[0], (r, made)  # 있는 문제는 피하라고
+    # 쪽을 말 안 하고 새 문제 → 어디서 만들지 물음
+    assert ask("새 문제 만들어 줘").json()["key"] == "tutor_noQuizWhere"
+    # 관리자 문제 은행: 웰디로 만든 문제만 보기
+    tq = c.get(f"/admin/textbooks/{bid}/questions?filter=tutor", headers=A).json()["items"]
+    assert len(tq) == 2 and all(q["source"] == "tutor" for q in tq), tq
+    assert c.get(f"/admin/textbooks/{bid}/questions", headers=A).json()["items"][0]["source"] == "admin"
+    # 웰디로 만든 문제는 신고되면 바로 숨김
+    assert c.post("/daily/report", json={"question_id": new["id"], "reason": "이상함"}, headers=S1).json()["ok"]
+    assert next(q for q in db.TABLES["quiz_questions"] if q["id"] == new["id"])["status"] == "hidden"
+    daily._ask = fake_ask
+    tutor.call_ai = fake_call
+    # 단답형 문제는 글로 답한다
+    word = next(q for q in db.TABLES["quiz_questions"] if q["kind"] == "word")
+    r = c.post("/tutor/quiz", json={"question_id": word["id"], "answer": "GTAW"}, headers=S1).json()
+    assert r["result"]["correct"] is True, r
+    assert db.TABLES["tutor_answers"][-1]["answer"] == "GTAW"
+
+    # 흘려 보내기: 조각들 → 마지막 done
+    res = c.post("/tutor/ask/stream", json={"text": "Chapter 2 차폐 원리 설명"}, headers=T1)
+    assert res.status_code == 200 and res.headers["content-type"].startswith("text/event-stream")
+    evs = [json.loads(line[6:]) for line in res.text.split("\n") if line.startswith("data: ")]
+    assert evs[-1]["t"] == "done" and evs[-1]["reply"] == "보호 가스는 공기를 막아 줘요.", evs[-1]
+    assert len([e for e in evs if e["t"] == "delta"]) > 2 and "".join(e["text"] for e in evs if e["t"] == "delta").startswith("보호"), evs
+    evs = [json.loads(line[6:]) for line in c.post("/tutor/ask/stream", json={"text": "Chapter 1 보여줘"}, headers=T1).text.split("\n")
+           if line.startswith("data: ")]
+    assert len(evs) == 1 and evs[0]["key"] == "tutor_open", evs
+
+    # 자주 묻는 질문 (관리자): 같은 질문을 묶어 많은 순
+    faq = c.get("/admin/tutor/faq", headers=A).json()["items"]
+    top = {f["question"].lower(): f["count"] for f in faq}
+    assert top.get("chapter text body 가 뭐야?") == 2 and top.get("what is shielding gas?") == 2, faq
+    assert c.get("/admin/tutor/faq", headers=S1).status_code == 403
+
     # 하루 한도 (교육생만)
     db.SETTINGS["criteria"] = {**scoring.criteria(), "tutor_daily_limit": 5}
     scoring.clear_cache()
-    r = ask("Chapter text body?").json()
+    r = ask("용접봉 건조 온도는?").json()
     assert r["key"] == "tutor_limit" and r["params"] == {"n": 5} and r["left"] == 0, r
     assert ask("Chapter 1 보여줘").json()["open"]  # 열기·문제는 한도와 상관없음
-    assert ask("Chapter text body?", T1).json()["reply"]  # 교사는 한도 없음
+    assert ask("chapter text body 가 뭐야").json()["cached"]  # 저장된 답도 한도와 상관없음
+    assert ask("용접봉 건조 온도는?", T1).json()["reply"]  # 교사는 한도 없음
     # 관리자 운영 설정에서 바꿈 (예전 앱이 안 보내면 그대로)
     st = c.get("/admin/settings", headers=A).json()
     assert st["tutor_daily_limit"] == 5
@@ -221,13 +420,13 @@ def main():
     assert ask("Chapter 1 보여줘").json()["open"]
     assert c.put(f"/admin/textbooks/{bid}", json={"use_for_ai": True}, headers=A).status_code == 200
     # AI 실패: 이유를 알려 준다
-    tutor.call_ai = lambda *a, **k: (_ for _ in ()).throw(tutor.TutorError("busy"))
-    assert ask("Chapter text body?").json()["key"] == "tutor_fail_busy"
-    tutor.call_ai = lambda *a, **k: (_ for _ in ()).throw(ValueError("boom"))
-    r = ask("Chapter text body?").json()
+    tutor.stream_ai = lambda *a, **k: (_ for _ in ()).throw(tutor.TutorError("busy"))
+    assert ask("아크 길이 설명 1").json()["key"] == "tutor_fail_busy"
+    tutor.stream_ai = lambda *a, **k: (_ for _ in ()).throw(ValueError("boom"))
+    r = ask("아크 길이 설명 2").json()
     assert r["key"] == "tutor_fail_other" and "boom" in r["params"]["code"], r
     assert db.TABLES["tutor_messages"][-1]["answer"].startswith("error: other"), db.TABLES["tutor_messages"][-1]
-    tutor.call_ai = fake_call
+    tutor.stream_ai = fake_stream
     r = ask("따옴표 대답 해줘").json()
     assert r["reply"] == '그건 "보호 가스"예요.' and r["pages"] == [{"page": 6, "printed": 6}], r
 
@@ -235,6 +434,7 @@ def main():
     mid = next(m["id"] for m in db.TABLES["tutor_messages"] if m["kind"] == "explain")
     assert c.post("/tutor/report", json={"message_id": mid, "note": "틀림"}, headers=T1).status_code == 404  # 남의 대화
     assert c.post("/tutor/report", json={"message_id": mid, "note": "틀림"}, headers=S1).json()["ok"]
+    assert not ask("chapter text body가 뭐예요", T1).json()["cached"]  # 신고된 답은 다시 안 줌
     assert c.get("/admin/tutor/reports", headers=S1).status_code == 403
     items = c.get("/admin/tutor/reports", headers=A).json()["items"]
     assert len(items) == 1 and items[0]["name"] == "s1" and items[0]["report_note"] == "틀림" and items[0]["printed"] == [6], items
