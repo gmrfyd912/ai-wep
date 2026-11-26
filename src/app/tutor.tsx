@@ -1,11 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as IntentLauncher from "expo-intent-launcher";
 import * as Speech from "expo-speech";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,7 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 
-import { StudyBuddy } from "@/components/StudyBuddy";
+import { StudyBuddy, VOICE } from "@/components/StudyBuddy";
 import { answerTutorQuiz, askTutor, reportTutor, type DailyItem, type TutorReply, type TutorTurn } from "@/lib/api";
 import { textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
@@ -29,6 +31,8 @@ const FOLLOW_KEY = "tutor_follow"; // 대답 뒤 이어 듣기
 const QUIET_MS = 1500; // 받아쓴 글자가 이만큼 안 바뀌면 말이 끝난 것으로 본다
 const FOLLOW_S = 8; // 대답 뒤 이어 말하기를 기다리는 시간
 const MARK = ["①", "②", "③", "④"];
+/** 안드로이드는 앱 안 🎤 버튼으로 구글 음성 입력 창을 연다 (Expo Go 에서도 됨). 아이폰은 자판 받아쓰기 */
+const ANDROID = Platform.OS === "android";
 const OX = ["O", "X"];
 /** 말 끝에 붙이면 바로 보내는 말 */
 const END_RE = /\s*(끝|다\s*했어요?|다했어요?|이상입니다|over|done|that'?s all|selesai|xong|tamom|listo|tapos na|เสร็จแล้ว)[.!?。\s]*$/i;
@@ -64,6 +68,7 @@ export default function TutorScreen() {
   const [left, setLeft] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [kb, setKb] = useState(0);
+  const [noVoice, setNoVoice] = useState(false); // 안드로이드인데 음성 입력 창을 못 여는 휴대폰
 
   const input = useRef<TextInputInstance | null>(null);
   const list = useRef<ScrollViewInstance | null>(null);
@@ -71,9 +76,20 @@ export default function TutorScreen() {
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
   const dictating = useRef(false); // 받아쓰기처럼 글자가 한꺼번에 들어오면 true (손으로 칠 때는 자동으로 안 보냄)
   const counter = useRef(0);
-  // 처음 인사가 끝나면 그냥 듣기 상태로 (8초 기다리기 없음)
-  const afterSpeak = useRef<null | (() => void)>(() => setPhase("ready"));
+  // 처음 인사가 끝나면: 안드로이드는 바로 듣기, 아이폰은 자판 받아쓰기를 기다림 (8초 기다리기 없음)
+  const afterSpeak = useRef<null | (() => void)>(() => (ANDROID ? voice() : setPhase("ready")));
   const textRef = useRef("");
+  const focused = useRef(true);
+  const voiceOpen = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      return () => {
+        focused.current = false;
+      };
+    }, []),
+  );
 
   useEffect(() => {
     AsyncStorage.multiGet([AUTO_KEY, FOLLOW_KEY]).then(([[, a], [, f]]) => {
@@ -113,8 +129,40 @@ export default function TutorScreen() {
     return n;
   };
 
+  /** 안드로이드: 구글 음성 입력 창으로 듣고, 받아쓴 말을 바로 보낸다. 말이 없거나 취소하면 대화 끝 */
+  const voice = async (followUp = false) => {
+    if (!focused.current || voiceOpen.current) return;
+    Speech.stop();
+    stopTimers();
+    Keyboard.dismiss();
+    setPhase(followUp ? "follow" : "ready");
+    voiceOpen.current = true;
+    try {
+      const r = await IntentLauncher.startActivityAsync("android.speech.action.RECOGNIZE_SPEECH", {
+        extra: {
+          "android.speech.extra.LANGUAGE_MODEL": "free_form",
+          "android.speech.extra.LANGUAGE": VOICE[lang] ?? lang,
+          "android.speech.extra.PROMPT": t("tutor_voicePrompt"),
+          "android.speech.extra.MAX_RESULTS": 1,
+        },
+      });
+      voiceOpen.current = false;
+      const list = (r.extra as Record<string, unknown> | undefined)?.["android.speech.extra.RESULTS"];
+      const said = Array.isArray(list) && typeof list[0] === "string" ? list[0] : "";
+      if (r.resultCode === IntentLauncher.ResultCode.Success && said.trim()) send(said);
+      else setPhase("closed");
+    } catch {
+      // 구글 음성 입력이 없는 휴대폰: 자판으로
+      voiceOpen.current = false;
+      setNoVoice(true);
+      setPhase("ready");
+      input.current?.focus();
+    }
+  };
+
   const listen = () => {
     stopTimers();
+    if (ANDROID && !noVoice) return voice();
     setPhase("ready");
     input.current?.focus();
   };
@@ -129,6 +177,7 @@ export default function TutorScreen() {
       Keyboard.dismiss();
       return;
     }
+    if (ANDROID && !noVoice) return voice(true); // 음성 입력 창을 다시 연다 (말이 없으면 창이 알아서 닫힘)
     setPhase("follow");
     input.current?.focus();
     let s = FOLLOW_S;
@@ -351,24 +400,42 @@ export default function TutorScreen() {
             placeholderTextColor={colors.faint}
             style={styles.input}
             multiline
-            autoFocus
+            autoFocus={!ANDROID || noVoice}
             editable={phase !== "thinking"}
             onFocus={() => {
               if (phase === "closed") setPhase("ready");
             }}
           />
-          <Pressable
-            onPress={() => send(text)}
-            disabled={!text.trim() || phase === "thinking"}
-            style={[styles.sendBtn, (!text.trim() || phase === "thinking") && { opacity: 0.4 }]}
-            accessibilityLabel={t("tutor_send")}
-          >
-            <Ionicons name="arrow-up" size={20} color={colors.text} />
-          </Pressable>
+          {ANDROID && !noVoice && !text.trim() ? (
+            <Pressable
+              onPress={() => {
+                Speech.stop();
+                afterSpeak.current = null;
+                voice();
+              }}
+              disabled={phase === "thinking"}
+              style={({ pressed }) => [styles.micBtn, (pressed || phase === "thinking") && { opacity: 0.6 }]}
+              accessibilityLabel={t("tutor_mic")}
+            >
+              <Ionicons name="mic" size={24} color={colors.text} />
+            </Pressable>
+          ) : null}
+          {ANDROID && !noVoice && !text.trim() ? null : (
+            <Pressable
+              onPress={() => send(text)}
+              disabled={!text.trim() || phase === "thinking"}
+              style={[styles.sendBtn, (!text.trim() || phase === "thinking") && { opacity: 0.4 }]}
+              accessibilityLabel={t("tutor_send")}
+            >
+              <Ionicons name="arrow-up" size={20} color={colors.text} />
+            </Pressable>
+          )}
         </View>
-        <Text style={styles.micHint}>{t("tutor_micHint")}</Text>
+        <Text style={styles.micHint}>{ANDROID && !noVoice ? t("tutor_micHintAndroid") : t(noVoice ? "tutor_noVoice" : "tutor_micHint")}</Text>
         <View style={styles.toggles}>
-          <Toggle label={t("tutor_autoSend")} on={auto} onPress={() => toggle(AUTO_KEY, !auto, setAuto)} />
+          {ANDROID && !noVoice ? null : (
+            <Toggle label={t("tutor_autoSend")} on={auto} onPress={() => toggle(AUTO_KEY, !auto, setAuto)} />
+          )}
           <Toggle label={t("tutor_followOn")} on={follow} onPress={() => toggle(FOLLOW_KEY, !follow, setFollow)} />
         </View>
         {kb ? null : <Text style={styles.legend}>{t("tutor_legend")}</Text>}
@@ -462,6 +529,7 @@ const styles = StyleSheet.create({
   small: { color: colors.muted, fontSize: 12 },
   inputRow: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
   input: { flex: 1, color: colors.text, backgroundColor: colors.cardAlt, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: 10, fontSize: 16, maxHeight: 110 },
+  micBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   micHint: { color: colors.faint, fontSize: 11 },
   toggles: { flexDirection: "row", flexWrap: "wrap", gap: space.md },

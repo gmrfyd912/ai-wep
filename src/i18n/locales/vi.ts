@@ -969,11 +969,11 @@ const vi: Translation = {
   tutor_tapToTalk: "Chạm vào tôi để đặt câu hỏi",
   tutor_talk: "Hỏi Weldy",
   tutor_askHere: "Hỏi Weldy",
-  tutor_hello: "{{name}}, hãy hỏi tôi bất cứ điều gì! Chạm vào micro trên bàn phím rồi nói nhé.",
+  tutor_hello: "{{name}}, hãy hỏi tôi bằng giọng nói nhé!",
   tutor_examples: "Hãy thử nói: \"Hàn TIG là gì?\" · \"Cho xem chương 3\" · \"Mở trang 120\" · \"Đố tôi đi\"",
-  tutor_tapHint: "Chạm vào tôi để bắt đầu nghe, hoặc để tôi ngừng nói",
+  tutor_tapHint: "Chạm vào tôi để bắt đầu nghe (hoặc để tôi ngừng nói)",
   tutor_ph: "Nói hoặc gõ câu hỏi",
-  tutor_micHint: "Chạm 🎤 trên bàn phím rồi nói. Khi bạn ngừng 1,5 giây sẽ tự gửi. Nói \"xong\" ở cuối để gửi ngay.",
+  tutor_micHint: "Chạm 🎤 (đọc chính tả) trên bàn phím rồi nói. Ngừng 1,5 giây sẽ tự gửi. Không thấy 🎤? Bật Cài đặt › Cài đặt chung › Bàn phím › Bật Đọc chính tả.",
   tutor_send: "Gửi",
   tutor_listen: "Đang nghe",
   tutor_thinking: "Weldy đang tìm trong giáo trình…",
@@ -1008,6 +1008,10 @@ const vi: Translation = {
   crit_tutorLimit: "Số câu hỏi Weldy mỗi ngày (học viên)",
   crit_tutorHint: "Số lần một học viên được Weldy giải thích bằng AI mỗi ngày (giá trị ví dụ, hãy đặt theo ý bạn). Giáo viên và quản trị viên không giới hạn; \"Cho xem chương 3\" và \"Đố tôi đi\" không tính. 0 = tắt giải thích AI cho học viên.",
   auth_err_tutor_empty: "Hãy viết điều bạn muốn hỏi.",
+  tutor_micHintAndroid: "Chạm 🎤 hoặc Weldy rồi nói. Ngừng nói là gửi ngay. Sau mỗi câu trả lời, cửa sổ nghe sẽ mở lại.",
+  tutor_noVoice: "Điện thoại này không mở được nhập giọng nói. Hãy dùng 🎤 trên bàn phím hoặc gõ chữ.",
+  tutor_voicePrompt: "Hãy nói với Weldy",
+  tutor_mic: "Nói",
 };
 
 export default vi;

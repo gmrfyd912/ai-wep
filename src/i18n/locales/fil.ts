@@ -969,11 +969,11 @@ const fil: Translation = {
   tutor_tapToTalk: "Pindutin ako para magtanong",
   tutor_talk: "Magtanong kay Weldy",
   tutor_askHere: "Magtanong kay Weldy",
-  tutor_hello: "{{name}}, magtanong ka ng kahit ano! Pindutin ang mikropono sa keyboard at magsalita lang.",
+  tutor_hello: "{{name}}, magtanong ka sa akin gamit ang boses!",
   tutor_examples: "Subukang sabihin: \"Ano ang TIG welding?\" · \"Ipakita ang kabanata 3\" · \"Buksan ang pahina 120\" · \"Tanungin mo ako\"",
-  tutor_tapHint: "Pindutin ako para makinig, o para huminto ako sa pagsasalita",
+  tutor_tapHint: "Pindutin ako para makinig (o para huminto ako)",
   tutor_ph: "Magsalita o mag-type ng tanong",
-  tutor_micHint: "Pindutin ang 🎤 sa keyboard at magsalita. Kusa itong ipapadala kapag huminto ka nang 1.5 segundo. Sabihin ang \"tapos na\" sa dulo para ipadala agad.",
+  tutor_micHint: "Pindutin ang 🎤 (dictation) sa keyboard at magsalita. Kusang ipapadala kapag huminto ka nang 1.5 segundo. Walang 🎤? I-on ang Settings › General › Keyboard › Enable Dictation.",
   tutor_send: "Ipadala",
   tutor_listen: "Nakikinig",
   tutor_thinking: "Hinahanap ni Weldy sa aklat…",
@@ -1008,6 +1008,10 @@ const fil: Translation = {
   crit_tutorLimit: "Tanong kay Weldy bawat araw (trainee)",
   crit_tutorHint: "Ilang paliwanag ng AI ang makukuha ng isang trainee kay Weldy bawat araw (halimbawang halaga, itakda ang sa iyo). Walang limit ang guro at admin, at hindi binibilang ang \"Ipakita ang kabanata 3\" o \"Tanungin mo ako\". 0 = naka-off ang paliwanag ng AI para sa trainee.",
   auth_err_tutor_empty: "Isulat ang gusto mong itanong.",
+  tutor_micHintAndroid: "Pindutin ang 🎤 o si Weldy at magsalita. Ipapadala agad kapag huminto ka. Pagkatapos ng sagot, magbubukas ulit ang pakikinig.",
+  tutor_noVoice: "Hindi mabuksan ng teleponong ito ang voice input. Gamitin ang 🎤 sa keyboard o mag-type.",
+  tutor_voicePrompt: "Magsalita kay Weldy",
+  tutor_mic: "Magsalita",
 };
 
 export default fil;

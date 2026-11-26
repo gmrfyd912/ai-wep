@@ -969,11 +969,11 @@ const id: Translation = {
   tutor_tapToTalk: "Ketuk aku untuk bertanya",
   tutor_talk: "Tanya Weldy",
   tutor_askHere: "Tanya Weldy",
-  tutor_hello: "{{name}}, tanya apa saja! Ketuk mikrofon di papan ketik lalu bicara saja.",
+  tutor_hello: "{{name}}, tanya aku pakai suara ya!",
   tutor_examples: "Coba katakan: \"Apa itu las TIG?\" · \"Tunjukkan bab 3\" · \"Buka halaman 120\" · \"Beri aku soal\"",
-  tutor_tapHint: "Ketuk aku untuk mulai mendengar, atau untuk menghentikan suaraku",
+  tutor_tapHint: "Ketuk aku untuk mulai mendengar (atau menghentikan suaraku)",
   tutor_ph: "Ucapkan atau ketik pertanyaan",
-  tutor_micHint: "Ketuk 🎤 di papan ketik lalu bicara. Terkirim sendiri saat kamu berhenti 1,5 detik. Ucapkan \"selesai\" di akhir untuk langsung kirim.",
+  tutor_micHint: "Ketuk 🎤 (dikte) di papan ketik lalu bicara. Terkirim sendiri saat berhenti 1,5 detik. Tidak ada 🎤? Nyalakan Pengaturan › Umum › Papan Ketik › Aktifkan Dikte.",
   tutor_send: "Kirim",
   tutor_listen: "Mendengarkan",
   tutor_thinking: "Weldy sedang mencari di buku…",
@@ -1008,6 +1008,10 @@ const id: Translation = {
   crit_tutorLimit: "Pertanyaan Weldy per hari (peserta)",
   crit_tutorHint: "Berapa kali satu peserta bisa mendapat penjelasan AI dari Weldy per hari (nilai contoh, atur sendiri). Guru dan admin tanpa batas, dan \"Tunjukkan bab 3\" atau \"Beri aku soal\" tidak dihitung. 0 = penjelasan AI untuk peserta mati.",
   auth_err_tutor_empty: "Tulis apa yang ingin kamu tanyakan.",
+  tutor_micHintAndroid: "Ketuk 🎤 atau Weldy lalu bicara. Langsung terkirim saat kamu berhenti. Setelah jawaban, jendela mendengar terbuka lagi.",
+  tutor_noVoice: "Ponsel ini tidak bisa membuka input suara. Pakai 🎤 di papan ketik atau ketik saja.",
+  tutor_voicePrompt: "Bicara ke Weldy",
+  tutor_mic: "Bicara",
 };
 
 export default id;

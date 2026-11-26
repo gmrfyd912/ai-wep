@@ -985,11 +985,11 @@ const ko = {
   tutor_tapToTalk: "저를 누르면 물어볼 수 있어요",
   tutor_talk: "웰디에게 물어보기",
   tutor_askHere: "웰디에게 묻기",
-  tutor_hello: "{{name}}님, 궁금한 걸 물어보세요! 자판의 마이크를 누르고 말하면 돼요.",
+  tutor_hello: "{{name}}님, 궁금한 걸 말로 물어보세요!",
   tutor_examples: "이렇게 말해 보세요: \"TIG 용접이 뭐야?\" · \"3장 보여줘\" · \"120쪽 열어줘\" · \"문제 내줘\"",
-  tutor_tapHint: "저를 누르면 듣기 시작하고, 말하는 중이면 멈춰요",
+  tutor_tapHint: "저를 누르면 듣기 시작해요 (말하는 중이면 멈춰요)",
   tutor_ph: "말하거나 써 주세요",
-  tutor_micHint: "자판의 🎤를 누르고 말하면, 말이 1.5초 멈출 때 자동으로 보내요. 끝에 \"끝\"이라고 하면 바로 보내요.",
+  tutor_micHint: "자판의 🎤(받아쓰기)를 누르고 말하면, 1.5초 멈출 때 자동으로 보내요. 🎤가 없으면 설정 › 일반 › 키보드 › '받아쓰기 활성화'를 켜 주세요.",
   tutor_send: "보내기",
   tutor_listen: "듣고 있어요",
   tutor_thinking: "웰디가 교재를 찾아보고 있어요…",
@@ -1024,6 +1024,10 @@ const ko = {
   crit_tutorLimit: "웰디 하루 질문 수 (교육생)",
   crit_tutorHint: "교육생 한 명이 하루에 웰디에게 AI 설명을 받을 수 있는 수예요(예시이니 본인 값으로). 교사·관리자는 한도가 없고, \"3장 보여줘\"·\"문제 내줘\"는 세지 않아요. 0이면 교육생 AI 설명이 꺼져요.",
   auth_err_tutor_empty: "물어볼 말을 써 주세요.",
+  tutor_micHintAndroid: "🎤나 웰디를 누르고 말하세요. 말을 멈추면 바로 보내요. 대답 뒤에는 듣기 창이 다시 열려요.",
+  tutor_noVoice: "이 휴대폰에서는 음성 입력 창을 열 수 없어요. 자판의 🎤를 쓰거나 글자로 써 주세요.",
+  tutor_voicePrompt: "웰디에게 말하세요",
+  tutor_mic: "말하기",
 } as const;
 
 export default ko;

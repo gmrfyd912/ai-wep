@@ -969,11 +969,11 @@ const uz: Translation = {
   tutor_tapToTalk: "Savol berish uchun meni bosing",
   tutor_talk: "Weldydan so'rash",
   tutor_askHere: "Weldydan so'rash",
-  tutor_hello: "{{name}}, xohlagan narsangizni so'rang! Klaviaturadagi mikrofonni bosib gapiring.",
+  tutor_hello: "{{name}}, mendan ovoz bilan so'rang!",
   tutor_examples: "Shunday deb ko'ring: \"TIG payvandlash nima?\" · \"3-bobni ko'rsat\" · \"120-betni och\" · \"Savol ber\"",
-  tutor_tapHint: "Tinglashni boshlash yoki gapimni to'xtatish uchun meni bosing",
+  tutor_tapHint: "Tinglashni boshlash uchun meni bosing (yoki gapimni to'xtatish uchun)",
   tutor_ph: "Gapiring yoki savol yozing",
-  tutor_micHint: "Klaviaturadagi 🎤 ni bosib gapiring. 1,5 soniya to'xtasangiz o'zi yuboriladi. Oxirida \"tamom\" desangiz darhol yuboriladi.",
+  tutor_micHint: "Klaviaturadagi 🎤 (diktovka)ni bosib gapiring. 1,5 soniya to'xtasangiz o'zi yuboriladi. 🎤 yo'qmi? Sozlamalar › Umumiy › Klaviatura › Diktovkani yoqing.",
   tutor_send: "Yuborish",
   tutor_listen: "Tinglayapman",
   tutor_thinking: "Weldy darslikdan qidiryapti…",
@@ -1008,6 +1008,10 @@ const uz: Translation = {
   crit_tutorLimit: "Kuniga Weldy savollari (o'quvchi)",
   crit_tutorHint: "Bir o'quvchi kuniga Weldydan necha marta AI tushuntirishi olishi mumkin (namuna qiymat, o'zingiznikini qo'ying). O'qituvchi va administratorga cheklov yo'q, \"3-bobni ko'rsat\" va \"Savol ber\" hisoblanmaydi. 0 = o'quvchilar uchun AI tushuntirishi o'chiq.",
   auth_err_tutor_empty: "So'ramoqchi bo'lgan narsangizni yozing.",
+  tutor_micHintAndroid: "🎤 yoki Weldyni bosib gapiring. To'xtashingiz bilan yuboriladi. Javobdan keyin tinglash oynasi yana ochiladi.",
+  tutor_noVoice: "Bu telefonda ovozli kiritishni ochib bo'lmaydi. Klaviaturadagi 🎤 dan foydalaning yoki yozing.",
+  tutor_voicePrompt: "Weldyga gapiring",
+  tutor_mic: "Gapirish",
 };
 
 export default uz;

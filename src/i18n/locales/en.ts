@@ -969,11 +969,11 @@ const en: Translation = {
   tutor_tapToTalk: "Tap me to ask a question",
   tutor_talk: "Ask Weldy",
   tutor_askHere: "Ask Weldy",
-  tutor_hello: "{{name}}, ask me anything! Tap the microphone on your keyboard and just talk.",
+  tutor_hello: "{{name}}, ask me anything by voice!",
   tutor_examples: "Try saying: \"What is TIG welding?\" · \"Show chapter 3\" · \"Open page 120\" · \"Quiz me\"",
-  tutor_tapHint: "Tap me to start listening, or to stop me talking",
+  tutor_tapHint: "Tap me to start listening (or to stop me talking)",
   tutor_ph: "Say or type your question",
-  tutor_micHint: "Tap 🎤 on your keyboard and talk. It sends by itself when you pause for 1.5 seconds. Say \"done\" at the end to send right away.",
+  tutor_micHint: "Tap 🎤 (dictation) on your keyboard and talk. It sends when you pause for 1.5 seconds. No 🎤? Turn on Settings › General › Keyboard › Enable Dictation.",
   tutor_send: "Send",
   tutor_listen: "Listening",
   tutor_thinking: "Weldy is checking the textbook…",
@@ -1008,6 +1008,10 @@ const en: Translation = {
   crit_tutorLimit: "Weldy questions per day (trainees)",
   crit_tutorHint: "How many AI explanations one trainee can get from Weldy per day (example value, set your own). Teachers and admins have no limit, and \"Show chapter 3\" or \"Quiz me\" don't count. 0 turns off AI explanations for trainees.",
   auth_err_tutor_empty: "Please type what you want to ask.",
+  tutor_micHintAndroid: "Tap 🎤 or Weldy and talk. It sends as soon as you stop. After each answer the listening window opens again.",
+  tutor_noVoice: "This phone can't open voice input. Use 🎤 on your keyboard or type instead.",
+  tutor_voicePrompt: "Talk to Weldy",
+  tutor_mic: "Speak",
 };
 
 export default en;
