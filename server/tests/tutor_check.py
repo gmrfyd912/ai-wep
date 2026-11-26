@@ -18,6 +18,14 @@ from tests.textbook_check import H, book_pdf
 CALLS = []
 
 
+def fake_call(system, prompt, max_tokens, timeout=45):
+    """웰디 대답 (진짜 AI 처럼 JSON 글자로)."""
+    out = fake_ask("m", system, prompt, max_tokens)
+    if isinstance(out, str):
+        return out
+    return json.dumps(out, ensure_ascii=False)
+
+
 def fake_ask(model, system, text, max_tokens, timeout=180):
     if system is tutor.KEYWORDS_SYSTEM:
         CALLS.append("keywords")
@@ -26,6 +34,8 @@ def fake_ask(model, system, text, max_tokens, timeout=180):
         CALLS.append(text)
         if "날씨" in text:
             return {"reply": "용접 공부 이야기를 해요.", "pages": [], "offtopic": True}
+        if "따옴표" in text:  # JSON 이 깨진 대답도 살린다
+            return '{"reply":"그건 "보호 가스"예요.","pages":[6],"quiz":false}'
         if "로봇" in text:
             return {"reply": "교재에는 없지만 짧게 말하면...", "pages": [], "outside": True}
         return {"reply": "**보호 가스**는 공기를 막아 줘요.", "pages": [6, 999], "open_page": None,
@@ -57,12 +67,73 @@ def check_helpers():
     assert tutor.terms("가스용접을") == ["가스", "스용", "용접", "접을"]
 
 
+def check_call_ai():
+    """AI 오류 → 이유 코드 (바쁨·끊김은 한 번 더 해 봄)."""
+    import anthropic
+    import httpx
+    req = httpx.Request("POST", "https://x")
+    calls = []
+
+    class Msgs:
+        def __init__(self, errs):
+            self.errs = errs
+
+        def create(self, **kw):
+            calls.append(1)
+            if self.errs:
+                raise self.errs.pop(0)
+            return type("R", (), {"stop_reason": "end_turn",
+                                  "content": [type("B", (), {"type": "text", "text": '{"reply":"ok"}'})()]})()
+
+    def client_with(errs):
+        c = type("C", (), {})()
+        c.beta = type("B", (), {})()
+        c.beta.messages = Msgs(errs)
+        return lambda timeout: (anthropic, c)
+
+    old = daily._client, tutor.time.sleep, report.configured
+    tutor.time.sleep = lambda s: None
+    report.configured = lambda: True
+    busy = anthropic.APIStatusError("overloaded", response=httpx.Response(529, request=req), body=None)
+    daily._client = client_with([busy])
+    assert tutor.call_ai("s", "p", 10) == '{"reply":"ok"}' and len(calls) == 2  # 한 번 더 해서 됨
+    daily._client = client_with([anthropic.APITimeoutError(request=req), anthropic.APITimeoutError(request=req)])
+    try:
+        tutor.call_ai("s", "p", 10)
+        raise AssertionError("no error")
+    except tutor.TutorError as e:
+        assert e.code == "timeout", e
+    auth = anthropic.AuthenticationError("bad key", response=httpx.Response(401, request=req), body=None)
+    daily._client = client_with([auth])
+    try:
+        tutor.call_ai("s", "p", 10)
+        raise AssertionError("no error")
+    except tutor.TutorError as e:
+        assert e.code == "key", e
+    bad = anthropic.BadRequestError("bad", response=httpx.Response(400, request=req), body=None)
+    daily._client = client_with([bad])
+    try:
+        tutor.call_ai("s", "p", 10)
+        raise AssertionError("no error")
+    except tutor.TutorError as e:
+        assert e.code == "other" and e.detail.startswith("400"), e
+    report.configured = lambda: False
+    try:
+        tutor.call_ai("s", "p", 10)
+        raise AssertionError("no error")
+    except tutor.TutorError as e:
+        assert e.code == "config"
+    daily._client, tutor.time.sleep, report.configured = old
+
+
 def main():
     check_helpers()
+    check_call_ai()
     db.install()
     db.SETTINGS["signup"] = {"avatar_required": False}
     report.configured = lambda: True
     daily._ask = fake_ask
+    tutor.call_ai = fake_call
     textbook.make_toc = lambda *a, **k: (_ for _ in ()).throw(textbook.TocError("ai_not_configured"))
     daily.UNIT_TEXT_MIN = 1
     textbook._start_job = textbook.process_book
@@ -149,10 +220,16 @@ def main():
     assert ask("Chapter text body?").json()["key"] == "tutor_aiOff"
     assert ask("Chapter 1 보여줘").json()["open"]
     assert c.put(f"/admin/textbooks/{bid}", json={"use_for_ai": True}, headers=A).status_code == 200
-    # AI 실패
-    daily._ask = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ai_busy"))
-    assert ask("Chapter text body?").json()["key"] == "tutor_aiFailed"
-    daily._ask = fake_ask
+    # AI 실패: 이유를 알려 준다
+    tutor.call_ai = lambda *a, **k: (_ for _ in ()).throw(tutor.TutorError("busy"))
+    assert ask("Chapter text body?").json()["key"] == "tutor_fail_busy"
+    tutor.call_ai = lambda *a, **k: (_ for _ in ()).throw(ValueError("boom"))
+    r = ask("Chapter text body?").json()
+    assert r["key"] == "tutor_fail_other" and "boom" in r["params"]["code"], r
+    assert db.TABLES["tutor_messages"][-1]["answer"].startswith("error: other"), db.TABLES["tutor_messages"][-1]
+    tutor.call_ai = fake_call
+    r = ask("따옴표 대답 해줘").json()
+    assert r["reply"] == '그건 "보호 가스"예요.' and r["pages"] == [{"page": 6, "printed": 6}], r
 
     # 신고 → 관리자 목록 → 지우기
     mid = next(m["id"] for m in db.TABLES["tutor_messages"] if m["kind"] == "explain")

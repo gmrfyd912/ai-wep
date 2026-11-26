@@ -1012,6 +1012,14 @@ const fil: Translation = {
   tutor_noVoice: "Hindi mabuksan ng teleponong ito ang voice input. Gamitin ang 🎤 sa keyboard o mag-type.",
   tutor_voicePrompt: "Magsalita kay Weldy",
   tutor_mic: "Magsalita",
+  tutor_fail_key: "May problema sa AI key kaya hindi ako makasagot. Sabihan ang admin.",
+  tutor_fail_busy: "Abala ang AI ngayon. Magtanong ulit pagkalipas ng mga 10 segundo.",
+  tutor_fail_timeout: "Masyadong natagalan ang paggawa ng sagot. Paikliin ang tanong at subukan ulit.",
+  tutor_fail_network: "Hindi maabot ang AI server. Magtanong ulit mamaya.",
+  tutor_fail_pages: "Hindi ma-load ang teksto ng aklat. Magtanong ulit mamaya.",
+  tutor_fail_refusal: "Hindi ko masasagot ang tanong na ito. Itanong sa ibang paraan.",
+  tutor_fail_config: "Hindi pa naka-set up ang AI. Sabihan ang admin.",
+  tutor_fail_other: "Hindi nakasagot dahil sa hindi kilalang error. Sabihin ito sa admin: {{code}}",
 };
 
 export default fil;

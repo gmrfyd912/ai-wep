@@ -1012,6 +1012,14 @@ const es: Translation = {
   tutor_noVoice: "Este teléfono no puede abrir la entrada de voz. Usa 🎤 del teclado o escribe.",
   tutor_voicePrompt: "Habla con Weldy",
   tutor_mic: "Hablar",
+  tutor_fail_key: "Hay un problema con la clave de IA y no puedo responder. Avisa al administrador.",
+  tutor_fail_busy: "La IA está ocupada ahora. Vuelve a preguntar en unos 10 segundos.",
+  tutor_fail_timeout: "Preparar la respuesta tardó demasiado. Pregunta algo más corto e inténtalo de nuevo.",
+  tutor_fail_network: "No pude conectar con el servidor de IA. Vuelve a preguntar en un momento.",
+  tutor_fail_pages: "No pude cargar el texto del libro. Vuelve a preguntar en un momento.",
+  tutor_fail_refusal: "No puedo responder esta pregunta. Pregúntala de otra forma.",
+  tutor_fail_config: "La IA aún no está configurada. Avisa al administrador.",
+  tutor_fail_other: "No pude responder por un error desconocido. Dile esto al administrador: {{code}}",
 };
 
 export default es;

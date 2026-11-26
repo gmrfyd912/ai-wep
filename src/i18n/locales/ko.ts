@@ -1028,6 +1028,14 @@ const ko = {
   tutor_noVoice: "이 휴대폰에서는 음성 입력 창을 열 수 없어요. 자판의 🎤를 쓰거나 글자로 써 주세요.",
   tutor_voicePrompt: "웰디에게 말하세요",
   tutor_mic: "말하기",
+  tutor_fail_key: "AI 키에 문제가 있어 대답할 수 없어요. 관리자에게 알려 주세요.",
+  tutor_fail_busy: "지금 AI가 바빠서 대답하지 못했어요. 10초쯤 뒤에 다시 물어봐 주세요.",
+  tutor_fail_timeout: "대답을 만드는 데 시간이 너무 오래 걸렸어요. 질문을 조금 짧게 해서 다시 물어봐 주세요.",
+  tutor_fail_network: "AI 서버에 연결하지 못했어요. 잠시 뒤 다시 물어봐 주세요.",
+  tutor_fail_pages: "교재 글자를 불러오지 못했어요. 잠시 뒤 다시 물어봐 주세요.",
+  tutor_fail_refusal: "이 질문에는 대답할 수 없어요. 다르게 물어봐 주세요.",
+  tutor_fail_config: "AI가 아직 설정되지 않았어요. 관리자에게 알려 주세요.",
+  tutor_fail_other: "알 수 없는 오류로 대답하지 못했어요. 관리자에게 이 내용을 알려 주세요: {{code}}",
 } as const;
 
 export default ko;

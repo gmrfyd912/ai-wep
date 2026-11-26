@@ -1012,6 +1012,14 @@ const en: Translation = {
   tutor_noVoice: "This phone can't open voice input. Use 🎤 on your keyboard or type instead.",
   tutor_voicePrompt: "Talk to Weldy",
   tutor_mic: "Speak",
+  tutor_fail_key: "There's a problem with the AI key, so I can't answer. Please tell the admin.",
+  tutor_fail_busy: "The AI is busy right now. Please ask again in about 10 seconds.",
+  tutor_fail_timeout: "Making the answer took too long. Please ask a bit shorter and try again.",
+  tutor_fail_network: "I couldn't reach the AI server. Please ask again in a moment.",
+  tutor_fail_pages: "I couldn't load the textbook text. Please ask again in a moment.",
+  tutor_fail_refusal: "I can't answer this question. Please ask it another way.",
+  tutor_fail_config: "The AI isn't set up yet. Please tell the admin.",
+  tutor_fail_other: "I couldn't answer because of an unknown error. Please tell the admin this: {{code}}",
 };
 
 export default en;
