@@ -130,6 +130,61 @@ def find_pages(book, query, near=None, k=PICK_PAGES, ranked=False):
     return top if ranked else sorted(top)
 
 
+# ---- 근거 확인 (근거 없는 말 막기) ----
+
+def key_terms(book, text, limit=12):
+    """찾기 낱말 중 교재에서 드문 낱말 (흔한 낱말 '용접'·'하는' 등은 뺀다) — 잘 구별되는 순."""
+    _, idx = _index(book)
+    n = idx["n"]
+    ws = {w for w in terms(text) if w in idx["df"]}
+    rare = [w for w in ws if idx["df"][w] <= max(2, n * 0.25)]
+    rare.sort(key=lambda w: idx["df"][w])
+    return rare[:limit]
+
+
+def page_has(book, page, words, need=0.5):
+    """그 쪽 글에 낱말이 need 비율 이상 들어 있나."""
+    if not words:
+        return False
+    _, idx = _index(book)
+    tf = idx["tf"].get(page) or {}
+    hit = sum(1 for w in words if w in tf)
+    return hit >= max(1, math.ceil(len(words) * need))
+
+
+def verified(book, pages, reply, given):
+    """AI 가 근거라고 한 쪽 중 실제로 준 쪽이고, 대답의 드문 낱말이 그 쪽에 들어 있는 쪽만."""
+    words = key_terms(book, reply, 16)
+    out = []
+    for p in pages:
+        if p in given and p not in out and page_has(book, p, words, 0.3 if len(words) >= 4 else 0.5):
+            out.append(p)
+    return out
+
+
+def mentions(book, query, near=None):
+    """교재 전체에서 그 주제가 실제로 나오는 쪽 (드문 낱말이 절반 넘게 들어 있는 쪽), 잘 맞는 순으로 최대 4쪽."""
+    words = key_terms(book, query, 8)
+    if not words:
+        return []
+    return [p for p in find_pages(book, query, near, k=8, ranked=True) if page_has(book, p, words, 0.5)][:4]
+
+
+# 교육생이 따지는 말 ("이 페이지에 없잖아", "교재에 없어?", "틀렸어")
+META_RE = re.compile(
+    r"없잖|없는데|안\s*나와|안\s*나오|없어\?|없냐|없나요|없어요\?|틀렸|틀린|아닌데|아니잖|엉뚱|상관\s*없|관련\s*(?:된|있는|없)|거짓|맞아\?|맞나요|정말|진짜"
+    r"|not\s+(?:there|in|on)|wrong|isn'?t|doesn'?t|really\?|are\s+you\s+sure|sai\s+rồi|không\s+có|salah|tidak\s+ada|noto'?g'?ri|yo'?q|incorrect|no\s+está|mali|wala|ผิด|ไม่มี", re.I)
+
+
+def topic_of(history):
+    """대화 주제: 앞 대화에서 꼬리 질문이 아닌 마지막 질문."""
+    for h in reversed(history or []):
+        q = (h.q or "").strip()
+        if q and not FOLLOW_RE.search(q) and not META_RE.search(q) and len(norm_q(q)) >= 5:
+            return q
+    return ""
+
+
 # ---- 같은 질문 알아보기 ----
 
 ENDINGS = re.compile(r"(?:입니까|인가요|인가|일까요|일까|이에요|에요|예요|이야|이죠|인지|나요|니까|까요|어요|아요|야|요|니|냐|죠|지|까)+$")
@@ -375,9 +430,9 @@ def unit_of(book, page):
 
 
 def last_pages(user, book, sent):
-    """바로 전 대답의 쪽 (앱이 보낸 것, 없으면 30분 안의 내 마지막 대화에서)."""
-    pages = [p for p in sent if isinstance(p, int) and 1 <= p <= (book.get("pages") or 0)]
-    if pages:
+    """바로 전 대답의 확인된 쪽 (앱이 보낸 것, 앱이 대화를 처음 연 경우만 30분 안의 내 마지막 대화에서)."""
+    pages = [p for p in (sent or []) if isinstance(p, int) and 1 <= p <= (book.get("pages") or 0)]
+    if pages or sent is not None:
         return pages
     since = datetime.fromtimestamp(time.time() - 1800, timezone.utc).isoformat()
     try:
@@ -386,10 +441,8 @@ def last_pages(user, book, sent):
                                                "order": "created_at.desc", "limit": "6"})
     except Exception:  # noqa: BLE001
         return []
-    for r in rows:
-        if r.get("pages"):
-            return list(r["pages"])
-    return []
+    # 바로 전 대화 하나만 본다 (더 앞 대화로 거슬러 가면 지금 이야기와 상관없는 쪽이 열린다)
+    return list(rows[0].get("pages") or []) if rows else []
 
 
 # ---- 대화 중 문제 ----
@@ -467,16 +520,21 @@ Trainees and teachers talk to you by voice; your reply is read aloud by a phone 
 Rules:
 - Reply in {lang}. 2 to 4 short spoken sentences. No markdown, no lists, no emoji, no URLs.
 - Base the answer on the TEXTBOOK EXCERPTS (scanned text, may be noisy). Each excerpt starts with its printed page like [p.123].
-  Put the printed page numbers you actually used in "pages".
-- If the excerpts do not cover it but it is about welding or the trainee's study, answer briefly from general welding knowledge,
-  say it is not in the textbook, and set "outside": true with "pages": [].
+  Put in "pages" only printed page numbers of excerpts whose text you actually used. Never invent or guess a page number.
+- TEXTBOOK SEARCH is a fact checked by the app. Never contradict it:
+  if it lists pages, the textbook DOES cover the topic: never say it is not in the textbook.
+  If it says nothing was found, say you could not find it in the textbook (do not say the textbook does not have it),
+  then you may answer briefly from general welding knowledge and set "outside": true with "pages": [].
+- Never guess. If the excerpts and your sure knowledge do not answer it, say you could not confirm it.
+- If the trainee says you are wrong or that a page does not have it, do not simply agree. Re-read the excerpts and the
+  TEXTBOOK SEARCH, then say plainly what the textbook says and on which printed page, or that you could not confirm it.
 - If it is not about welding, safety or studying, politely decline in one sentence, steer back to studying, and set "offtopic": true.
 - Use the RECENT CONVERSATION for follow-up questions (it, that, why...).
 - If the trainee did not understand or asks again or asks for an easier explanation: explain it again more simply than before,
   with shorter words and one everyday comparison (kitchen, cars, the body...), not the same sentences as before,
   and end with a short check such as "이해됐어요?" in {lang}.
 - If the trainee asks for an example, give one concrete example from a welding shop or shipyard.
-- If the trainee asks to see a page or chapter, set "open_page" to that printed page number. If they ask you to quiz them, set "quiz": true.
+- If the trainee asks to see a page, set "open_page" to a printed page from "pages" (never any other page). If they ask you to quiz them, set "quiz": true.
 - Keep technical terms (GTAW, SMAW, HAZ...) as they are. Be warm and encouraging. Call yourself Weldy (웰디) only if asked.
 Output format: first the spoken reply as plain text. Then a new line with exactly @@@ and then ONE JSON object:
 @@@
@@ -626,27 +684,48 @@ def clean_speech(s):
     return re.sub(r"[*#`>]+", "", s)
 
 
-def ask_ai(book, text, lang, history, near, focus=None, prev_pages=(), follow=False):
-    """→ ("delta", 글자 조각) … 그리고 마지막에 ("done", 대답 dict)."""
+def search_query(text, history, follow):
+    """교재를 찾을 말: 꼬리 질문·따지는 말이면 대화 주제와 합친다."""
+    if (follow or META_RE.search(text)) and history:
+        topic = topic_of(history)
+        if topic and norm_q(topic) not in norm_q(text):
+            return f"{topic} {text}"
+    return text
+
+
+def ask_ai(book, text, lang, history, near, focus=None, prev_pages=(), follow=False, seen=None):
+    """→ ("delta", 글자 조각) … 그리고 마지막에 ("done", 대답 dict).
+    seen: 교육생이 방금 본 교재 쪽 (그 쪽 글도 같이 준다)."""
     offset = book.get("page_offset") or 0
     try:
         texts, _ = _index(book)
     except Exception as e:  # noqa: BLE001
         raise TutorError("pages", str(e)[:160])
-    query = text
-    if follow and history:  # 꼬리 질문은 앞 질문과 합쳐서 찾는다
-        query = f"{history[-1].q} {text}"
-    pages = find_pages(book, korean_query(query), near)
+    meta = bool(META_RE.search(text)) and bool(history)
+    query = korean_query(search_query(text, history, follow))
+    pages = find_pages(book, query, near)
+    found = mentions(book, query, near)  # 교재 전체에서 주제가 실제로 나오는 쪽 (서버가 확인한 사실)
     first = []
     if focus:  # "277쪽에서 ○○" → 그 쪽을 꼭 넣는다
         first += [p for p in (focus, focus + 1) if p in texts]
-    if follow:  # 앞 대답에 쓴 쪽도 다시
+    if seen and seen in texts:  # 방금 본 쪽
+        first.append(seen)
+    first += found[:3]
+    if follow or meta:  # 앞 대답에 쓴 쪽도 다시
         first += [p for p in list(prev_pages)[:2] if p in texts]
-    pages = list(dict.fromkeys(first + pages))[:PICK_PAGES + 1]
-    excerpts = "\n\n".join(f"[p.{p - offset}]\n{texts.get(p, '')[:PAGE_CHARS]}" for p in pages) or "(no matching pages)"
+    pages = list(dict.fromkeys(first + pages))[:PICK_PAGES + 2]
+    given = set(pages)
+    excerpts = "\n\n".join(
+        f"[p.{p - offset}]" + (" (the page the trainee just looked at)" if p == seen else "") + f"\n{texts.get(p, '')[:PAGE_CHARS]}"
+        for p in pages) or "(no matching pages)"
+    search_fact = (f"pages that mention this topic: {', '.join(f'p.{p - offset}' for p in found)}" if found
+                   else "no page clearly mentions this topic (the search may have missed it)")
     hist = "\n".join(f"Trainee: {h.q}\nWeldy: {h.a}" for h in history[-HISTORY:] if h.q or h.a)
     prompt = (f"TEXTBOOK EXCERPTS:\n{excerpts}\n\n"
+              + f"TEXTBOOK SEARCH (checked by the app, trust this): {search_fact}\n\n"
               + (f"RECENT CONVERSATION:\n{hist}\n\n" if hist else "")
+              + ("NOTE: The trainee is questioning your last answer. Check the excerpts again before you answer. "
+                 "Do not just agree.\n\n" if meta else "")
               + ("NOTE: The trainee did not understand the last answer. Explain it again more simply.\n\n"
                  if follow and CONFUSED_RE.search(text) else "")
               + f"TRAINEE NOW SAYS:\n{text}")
@@ -670,22 +749,25 @@ def ask_ai(book, text, lang, history, near, focus=None, prev_pages=(), follow=Fa
     reply = clean_speech(str(out.get("reply") or "")).strip()[:800]
     if not reply:
         raise TutorError("other", "empty reply")
-    used = []
+    said = []
     for v in out.get("pages") or []:
         try:
-            pdf = int(v) + offset
+            said.append(int(v) + offset)
         except (TypeError, ValueError):
             continue
-        if pdf in texts and pdf not in used:
-            used.append(pdf)
+    # 실제로 준 쪽이고 대답 낱말이 들어 있는 쪽만 근거로 (한국어가 아닌 대답은 한국어 찾기 낱말로 확인)
+    used = verified(book, said, reply if HANGUL.search(reply) else query, given)
+    if said and not used:
+        print("[tutor] 근거 쪽 버림", said, flush=True)
     op = out.get("open_page")
     try:
         op = int(op) + offset if op not in (None, "", False) else None
     except (TypeError, ValueError):
         op = None
-    yield "done", {"reply": reply, "pages": used[:4], "outside": bool(out.get("outside")) and not used,
-                   "offtopic": bool(out.get("offtopic")),
-                   "open": op if op and 1 <= op <= (book.get("pages") or 0) else None, "quiz": bool(out.get("quiz"))}
+    if op not in used:  # 확인된 근거 쪽만 연다
+        op = used[0] if op and used else None
+    yield "done", {"reply": reply, "pages": used[:4], "outside": bool(out.get("outside")) and not used and not found,
+                   "offtopic": bool(out.get("offtopic")), "open": op, "quiz": bool(out.get("quiz")), "found": found}
 
 
 # ---- API ----
@@ -700,7 +782,8 @@ class AskBody(BaseModel):
     lang: str = "ko"
     page: int | None = None          # 교재 보다가 물었으면 그 PDF 쪽
     history: list[Turn] = []
-    last_pages: list[int] = []       # 바로 전 대답의 쪽 (PDF) — "그 페이지 펼쳐줘"
+    last_pages: list[int] | None = None  # 바로 전 대답의 확인된 쪽 (PDF) — "그 페이지 펼쳐줘". 앱이 대화를 처음 열면 None
+    seen_page: int | None = None     # 웰디 대화에서 열어 본 교재 쪽 (PDF)
 
 
 def _used_today(user):
@@ -795,17 +878,19 @@ def run(body: AskBody, user):
                 "quiz": item, "made": made, "pages": _pages_out(row["pages"], offset)}
 
     follow = is_follow(text, body.history)
-    prev = last_pages(user, book, body.last_pages) if intent["that"] or intent["open"] or follow else []
+    meta = bool(META_RE.search(text)) and bool(body.history)
+    prev = last_pages(user, book, body.last_pages) if intent["that"] or intent["open"] or follow or meta else []
 
     # 1) 쪽·장 열기 ("그 페이지 펼쳐줘" 는 바로 전 대답의 쪽, "TIG 나오는 페이지 열어줘" 는 찾은 쪽)
     if intent["open"] and not intent["page"]:
-        if intent["topic"]:
+        # 찾을 말: "TIG 나오는 페이지" 면 그 말, "그 내용 있는 페이지" 인데 바로 전 쪽이 없으면 대화 주제
+        want = intent["topic"] or ("" if prev else topic_of(body.history))
+        if want:
             try:
-                found = find_pages(book, korean_query(intent["topic"]), near, k=3, ranked=True)
+                found = mentions(book, korean_query(want), near)  # 그 내용이 실제로 들어 있는 쪽만
             except Exception:  # noqa: BLE001
                 found = []
-            if found:
-                prev = found
+            prev = found
         if not prev:
             yield done({**base, "key": "tutor_whichPage"}, "open")
             return
@@ -867,7 +952,7 @@ def run(body: AskBody, user):
         return
 
     # 3) 같은 질문을 전에 누가 했으면 그 대답을 바로 (꼬리 질문·쪽을 말한 질문은 빼고)
-    if not follow and not intent["focus"] and book.get("use_for_ai", True):
+    if not follow and not meta and not intent["focus"] and book.get("use_for_ai", True):
         hit = cache_find(book, lang, text)
         if hit:
             row.update(answer=hit["answer"], pages=hit["pages"], cache_of=hit["id"])
@@ -886,7 +971,8 @@ def run(body: AskBody, user):
         return
     ai = None
     try:
-        for kind, v in ask_ai(book, text, lang, body.history, near, intent["focus"], prev, follow):
+        seen = body.seen_page if body.seen_page and 1 <= body.seen_page <= pages else None
+        for kind, v in ask_ai(book, text, lang, body.history, near, intent["focus"], prev, follow, seen):
             if kind == "delta":
                 yield {"t": "delta", "text": v}
             else:
@@ -905,7 +991,7 @@ def run(body: AskBody, user):
             out["quiz"] = daily._public(q, None, lang, offset)
     kind = "offtopic" if ai["offtopic"] else "outside" if ai["outside"] else "explain"
     ev = done(out, kind, (ai["pages"] or [None])[0] or ctx_page)
-    if kind != "offtopic" and not follow and not intent["focus"]:
+    if kind != "offtopic" and not follow and not meta and not intent["focus"]:
         cache_add(book, lang, ev["id"], text, ai["reply"], ai["pages"], ai["outside"])
     yield ev
 
@@ -1078,3 +1164,129 @@ def faq(days: int = 30, user=Depends(need_admin)):
     groups.sort(key=lambda g: -g["count"])
     return {"items": [{**{k: v for k, v in g.items() if k != "norm"}, "printed": [p - offset for p in g["pages"]]}
                       for g in groups[:50]], "days": days}
+
+
+# ---- 관리자: 웰디 점검 (질문과 정답 쪽을 넣어 두고 실제 웰디로 한꺼번에 확인) ----
+# 교재가 대외비라 질문 목록은 저장소가 아니라 DB(tutor_checks)에 둔다.
+
+NOT_IN_BOOK_RE = re.compile(
+    r"교재에(?:는|선|서는)?\s*(?:없|나오지\s*않|안\s*나와|실려\s*있지\s*않)|not\s+in\s+the\s+textbook|isn'?t\s+in\s+the\s+textbook", re.I)
+CHECK_SEED = 20
+
+
+class CheckBody(BaseModel):
+    question: str
+    page_from: int               # 정답 쪽 (책에 인쇄된 쪽)
+    page_to: int | None = None
+    note: str = ""
+
+
+def _check_out(r, offset):
+    return {"id": r["id"], "question": r["question"], "page_from": r["page_from"], "page_to": r["page_to"],
+            "note": r.get("note") or "", "last_verdict": r.get("last_verdict") or "",
+            "last_pages": r.get("last_pages") or [], "last_found": r.get("last_found") or [],
+            "last_reply": r.get("last_reply") or "", "last_run_at": r.get("last_run_at")}
+
+
+@router.get("/admin/tutor/checks")
+def list_checks(user=Depends(need_admin)):
+    book = textbook.current_book()
+    if not book:
+        return {"items": [], "book": None}
+    rows = store.select("tutor_checks", {"book_id": f"eq.{book['id']}", "select": "*", "order": "created_at.asc"})
+    return {"items": [_check_out(r, book.get("page_offset") or 0) for r in rows], "book": book.get("title") or ""}
+
+
+@router.post("/admin/tutor/checks")
+def add_check(body: CheckBody, user=Depends(need_admin)):
+    book = textbook.current_book()
+    if not book:
+        _err(400, "tutor_noBook")
+    q = body.question.strip()[:300]
+    a = body.page_from
+    b = body.page_to if body.page_to is not None else a
+    if not q or a < 1 or b < a:
+        _err(400, "tutor_check_bad")
+    row = {"id": str(uuid.uuid4()), "book_id": book["id"], "question": q, "page_from": a, "page_to": b,
+           "note": body.note.strip()[:200], "created_at": _now()}
+    store.insert_rows("tutor_checks", row, returning=False)
+    return _check_out(row, book.get("page_offset") or 0)
+
+
+@router.delete("/admin/tutor/checks/{cid}")
+def delete_check(cid: str, user=Depends(need_admin)):
+    try:
+        uuid.UUID(cid)
+    except ValueError:
+        _err(404, "not_found")
+    store.delete("tutor_checks", {"id": f"eq.{cid}"})
+    return {"ok": True}
+
+
+@router.post("/admin/tutor/checks/seed")
+def seed_checks(user=Depends(need_admin)):
+    """예시 질문 만들기: 교재 목차의 장 제목으로 최대 20개 (정답 쪽 = 그 장의 쪽). 예시이니 관리자가 바꾼다."""
+    book = textbook.current_book()
+    if not book:
+        _err(400, "tutor_noBook")
+    offset = book.get("page_offset") or 0
+    have = {norm_q(r["question"]) for r in store.select("tutor_checks", {"book_id": f"eq.{book['id']}", "select": "question"})}
+    units = daily.book_units(book)
+    if not units:
+        _err(400, "dq_no_toc")
+    step = max(1, len(units) / CHECK_SEED)
+    picked = [units[int(i * step)] for i in range(min(CHECK_SEED, len(units)))]
+    rows = []
+    for key, title, s, e in picked:
+        name = re.sub(r"^\s*(?:제?\s*\d+\s*[편장절]\.?|chapter\s*\d+|part\s*\d+|\d+[\.\s])\s*", "", title.split("›")[-1], flags=re.I).strip()
+        if len(name) < 2:
+            continue
+        q = f"{name}에 대해 설명해 줘"
+        if norm_q(q) in have:
+            continue
+        rows.append({"id": str(uuid.uuid4()), "book_id": book["id"], "question": q[:300], "page_from": s - offset,
+                     "page_to": e - offset, "note": "예시 (목차로 자동)", "created_at": _now()})
+    if rows:
+        store.insert_rows("tutor_checks", rows, returning=False)
+    return {"added": len(rows)}
+
+
+def judge(pages, reply, a, b):
+    """점검 판정 (쪽은 인쇄 쪽): ok 맞음 / wrong_page 엉뚱한 쪽 / no_page 근거 쪽 없음 / said_missing '교재에 없다'고 함."""
+    if NOT_IN_BOOK_RE.search(reply or ""):
+        return "said_missing"
+    if not pages:
+        return "no_page"
+    return "ok" if any(a - 1 <= p <= b + 1 for p in pages) else "wrong_page"
+
+
+@router.post("/admin/tutor/checks/{cid}/run")
+def run_check(cid: str, user=Depends(need_admin)):
+    """질문 하나를 실제 웰디(앞 대화 없이)로 묻고 판정을 저장한다."""
+    try:
+        uuid.UUID(cid)
+    except ValueError:
+        _err(404, "not_found")
+    rows = store.select("tutor_checks", {"id": f"eq.{cid}", "select": "*"})
+    book = textbook.current_book()
+    if not rows or not book:
+        _err(404, "not_found")
+    r = rows[0]
+    offset = book.get("page_offset") or 0
+    ai = None
+    try:
+        for kind, v in ask_ai(book, r["question"], "ko", [], None):
+            if kind == "done":
+                ai = v
+    except Exception as e:  # noqa: BLE001
+        code, detail = _fail(e)
+        verdict, reply, pages, found = f"error_{code}", detail[:300], [], []
+    else:
+        pages = [p - offset for p in ai["pages"]]
+        found = [p - offset for p in ai["found"]]
+        reply = ai["reply"]
+        verdict = judge(pages, reply, r["page_from"], r["page_to"])
+    fields = {"last_verdict": verdict, "last_pages": pages, "last_found": found, "last_reply": reply[:800],
+              "last_run_at": _now()}
+    store.patch("tutor_checks", {"id": f"eq.{cid}"}, fields)
+    return _check_out({**r, **fields}, offset)
