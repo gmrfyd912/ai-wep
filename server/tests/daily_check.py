@@ -17,12 +17,20 @@ from tests.textbook_check import H, book_pdf
 def fake_ask(model, system, text, max_tokens, timeout=180):
     if system is daily.QUIZ_SYSTEM:
         page = 4 if "Basics" in text else 6
-        qs = [{"kind": "mc", "question": f"객관식 {i} {page}", "choices": ["가", "나", "다", "라"], "answer": i % 4,
-               "explanation": "해설", "page": page} for i in range(daily.MC_PER_UNIT)]
+        M = daily.PER_UNIT_MAX
+        qs = [{"kind": "ox", "question": f"OX {i} {page}", "answer": i % 2, "explanation": "해설", "page": page}
+              for i in range(M["ox"])]
+        qs += [{"kind": "mc", "question": f"객관식 {i} {page}", "choices": ["가", "나", "다", "라"], "answer": i % 4,
+                "explanation": "해설", "page": page} for i in range(M["mc"])]
+        qs += [{"kind": "word", "question": f"단답 {i} {page}", "model_answer": "티그 용접", "accept": ["GTAW"],
+                "explanation": "해설", "page": page} for i in range(M["word"])]
         qs += [{"kind": "short", "question": f"주관식 {i} {page}", "model_answer": "모범 답", "points": ["핵심"],
-                "explanation": "해설", "page": 999} for i in range(daily.SHORT_PER_UNIT)]
+                "explanation": "해설", "page": 999} for i in range(M["short"])]
+        qs.append({"kind": "ox", "question": "답이 2 (버림)", "answer": 2})
         qs.append({"kind": "mc", "question": "보기 3개 (버림)", "choices": ["a", "b", "c"], "answer": 0})
         return {"questions": qs}
+    if system.startswith("You check"):
+        return {"correct": "아크" in text.split("Trainee answer:")[1], "feedback": "단답 피드백"}
     if system.startswith("You grade"):
         return {"score": 8 if "좋은" in text else 3, "feedback": "Good" if "English" in system else "피드백"}
     if system.startswith("Translate"):
@@ -73,12 +81,34 @@ def main():
     assert r.status_code == 200, r.text
     info = c.get(f"/admin/textbooks/{bid}/quiz", headers=A).json()
     assert info["status"] == "ready" and info["done"] == 2 and info["total"] == 2, info
-    assert info["mc"] == 2 * daily.MC_PER_UNIT and info["short"] == 2 * daily.SHORT_PER_UNIT, info
+    D = daily.PER_UNIT_DEFAULT
+    assert all(info[k] == 2 * D[k] for k in daily.KINDS), info  # 장마다 기본 개수만큼 (넘치는 건 버림)
+    assert [u["counts"] for u in info["units"]] == [D, D] and info["units"][0]["printed_start"] == 4, info["units"]
     qs = db.TABLES["quiz_questions"]
     assert all(q["page"] in (4, 5, 6, 7, 8) for q in qs)  # 장 밖 쪽(999)은 장 첫 쪽으로
-    # 다시 누르면 이미 있는 장은 건너뜀
-    c.post(f"/admin/textbooks/{bid}/quiz", json={}, headers=A)
-    assert len(db.TABLES["quiz_questions"]) == len(qs)
+    word = next(q for q in qs if q["kind"] == "word")
+    assert word["model_answer"] == "티그 용접" and word["choices"] == ["GTAW"], word
+    # 범위 지정: 장 하나만, 종류별 개수 → 은행에 더함
+    k1 = info["units"][0]["key"]
+    n0 = len(qs)
+    assert c.post(f"/admin/textbooks/{bid}/quiz", json={"units": ["없는장"]}, headers=A).status_code == 400
+    assert c.post(f"/admin/textbooks/{bid}/quiz", json={"units": [k1], "counts": {"ox": 0}}, headers=A).status_code == 400
+    assert c.post(f"/admin/textbooks/{bid}/quiz", json={"units": [k1], "counts": {"ox": 11}}, headers=A).status_code == 400
+    r = c.post(f"/admin/textbooks/{bid}/quiz", json={"units": [k1], "counts": {"ox": 2, "word": 1}}, headers=A)
+    assert r.status_code == 200, r.text
+    assert len(db.TABLES["quiz_questions"]) == n0 + 3
+    # 쪽 범위 (인쇄 쪽 6~8 = 2장만) + 범위 지우고 다시
+    assert c.post(f"/admin/textbooks/{bid}/quiz", json={"page_from": 6}, headers=A).status_code == 400
+    assert c.post(f"/admin/textbooks/{bid}/quiz", json={"page_from": 50, "page_to": 60}, headers=A).status_code == 400
+    r = c.post(f"/admin/textbooks/{bid}/quiz", json={"page_from": 8, "page_to": 6, "counts": {"mc": 3}, "replace": True}, headers=A)
+    assert r.status_code == 200, r.text
+    u2 = c.get(f"/admin/textbooks/{bid}/quiz", headers=A).json()["units"]
+    assert u2[1]["counts"] == {"ox": 0, "mc": 3, "word": 0, "short": 0}, u2
+    assert u2[0]["counts"]["ox"] == D["ox"] + 2, u2  # 1장은 그대로
+    # 시험을 위해 처음 상태(장마다 기본 개수)로 다시
+    c.post(f"/admin/textbooks/{bid}/quiz", json={"replace": True}, headers=A)
+    qs = db.TABLES["quiz_questions"]
+    assert len(qs) == n0, len(qs)
 
     # 매일 문제: 본 장이 없으면 앞쪽 장, 객관식 2 + 주관식 1, 정답은 안 보임
     random.seed(1)
@@ -161,14 +191,35 @@ def main():
     assert c.get(f"/admin/textbooks/{bid}/questions?filter=hidden", headers=A).json()["items"][0]["id"] == qid
 
     # 관리자 설정: 개수
-    assert c.get("/admin/daily-settings", headers=A).json() == {"mc": 2, "short": 1}
+    assert c.get("/admin/daily-settings", headers=A).json() == {"ox": 0, "mc": 2, "word": 0, "short": 1}
     assert c.put("/admin/daily-settings", json={"mc": 0, "short": 0}, headers=A).status_code == 400
+    assert c.put("/admin/daily-settings", json={"ox": 5, "mc": 5}, headers=A).status_code == 400  # 합계 8 넘음
+    assert c.put("/admin/daily-settings", json={"short": 3}, headers=A).status_code == 400
     assert c.put("/admin/daily-settings", json={"mc": 3, "short": 2}, headers=T1).status_code == 403
-    assert c.put("/admin/daily-settings", json={"mc": 3, "short": 2}, headers=A).json() == {"mc": 3, "short": 2}
+    assert c.put("/admin/daily-settings", json={"mc": 3, "short": 2}, headers=A).json() == {"ox": 0, "mc": 3, "word": 0, "short": 2}
     daily.today = lambda now=None: yesterday + timedelta(days=2)
     d4 = c.get("/daily", headers=S2).json()
     assert [i["kind"] for i in d4["items"]] == ["mc", "mc", "mc", "short", "short"], d4
     assert qid not in [i["id"] for i in d4["items"]]  # 숨긴 문제는 안 나옴
+
+    # OX·단답형: 하루 OX 1 + 단답형 2
+    c.put("/admin/daily-settings", json={"ox": 1, "word": 2}, headers=A)
+    daily.today = lambda now=None: yesterday + timedelta(days=3)
+    d5 = c.get("/daily", headers=S1).json()
+    assert [i["kind"] for i in d5["items"]] == ["ox", "word", "word"] and d5["items"][0]["choices"] == [], d5
+    ox = d5["items"][0]
+    qox = next(x for x in db.TABLES["quiz_questions"] if x["id"] == ox["id"])
+    assert c.post("/daily/answer", json={"question_id": ox["id"], "answer": 2}, headers=S1).status_code == 400
+    r = c.post("/daily/answer", json={"question_id": ox["id"], "answer": qox["answer"]}, headers=S1).json()
+    assert r["result"]["correct"] and r["result"]["correct_choice"] == qox["answer"], r
+    w1, w2 = d5["items"][1], d5["items"][2]
+    r = c.post("/daily/answer", json={"question_id": w1["id"], "answer": " gtaw "}, headers=S1).json()  # 정답 목록과 같음
+    assert r["result"]["score"] == 10 and r["result"]["graded_by"] == "auto" and r["result"]["model_answer"] == "티그 용접", r
+    r = c.post("/daily/answer", json={"question_id": w2["id"], "answer": "산소"}, headers=S1).json()  # AI 가 틀림
+    assert r["result"]["score"] == 0 and r["result"]["graded_by"] == "ai" and r["result"]["feedback"] == "단답 피드백", r
+    assert c.put(f"/daily/student/{s1}/{daily.today().isoformat()}/{w2['id']}", json={"score": 10}, headers=T1).json() == {"ok": True}
+    assert c.put(f"/daily/student/{s1}/{daily.today().isoformat()}/{ox['id']}", json={"score": 10}, headers=T1).status_code == 404
+    assert c.get(f"/admin/textbooks/{bid}/questions?kind=word", headers=A).json()["items"][0]["kind"] == "word"
 
     # 문제 지우기
     assert c.delete(f"/admin/questions/{qid}", headers=A).json() == {"ok": True}
