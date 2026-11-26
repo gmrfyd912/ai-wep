@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AppButton, Card, SectionTitle } from "@/components/ui";
 import { getDailyBoard, getStudentDaily, setDailyScore, type DailyBoard, type DailyItem } from "@/lib/api";
+import { kindKey } from "@/screens/QuizBank";
 import { ProgressBar, textbookError } from "@/screens/TextbookParts";
 import { colors, radius, space } from "@/theme";
 
@@ -109,7 +110,7 @@ function AnswerRow({ item, index, userId, day, onSaved }: { item: DailyItem; ind
   return (
     <Card style={{ gap: 4 }}>
       <Text style={styles.small}>
-        {index + 1}. {item.kind === "mc" ? t("dq_mc") : t("dq_short")}
+        {index + 1}. {t(kindKey[item.kind])}
         {missed
           ? ` · ${t("dq_legendTodo")}`
           : r.graded_by === "pending"
@@ -122,7 +123,13 @@ function AnswerRow({ item, index, userId, day, onSaved }: { item: DailyItem; ind
           {t("dq_pickedOf", { picked: Number(r.answer) + 1, right: (r.correct_choice ?? 0) + 1 })}
         </Text>
       ) : null}
-      {!missed && item.kind === "short" ? (
+      {!missed && item.kind === "ox" ? (
+        <Text style={[styles.small, { color: r.correct ? colors.success : colors.danger }]}>
+          {t("dq_pickedOf", { picked: ["O", "X"][Number(r.answer)] ?? "?", right: ["O", "X"][r.correct_choice ?? 0] })}
+        </Text>
+      ) : null}
+      {!missed && item.kind === "word" ? <Text style={styles.small}>{t("dq_modelAnswer")}: {r.model_answer}</Text> : null}
+      {!missed && (item.kind === "short" || item.kind === "word") ? (
         <>
           <Text style={styles.body}>“{r.answer}”</Text>
           {r.feedback ? <Text style={styles.small}>{r.feedback}</Text> : null}

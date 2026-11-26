@@ -6,10 +6,12 @@ import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Screen, SectionTitle } from "@/components/ui";
 import { answerDaily, getDailyHistory, getMyDaily, reportQuestion, type DailyItem, type MyDaily } from "@/lib/api";
+import { kindKey } from "@/screens/QuizBank";
 import { textbookError } from "@/screens/TextbookParts";
 import { colors, radius, space } from "@/theme";
 
 const MARK = ["①", "②", "③", "④"];
+const OX = ["O", "X"];
 
 /** 오늘의 문제: 한 문제씩 풀고 바로 채점·해설, 근거 쪽으로 가기, 신고, 지난 문제 */
 export default function DailyScreen() {
@@ -217,7 +219,8 @@ function QuestionCard({
     }
   };
 
-  const picked = r?.answer != null && item.kind === "mc" ? Number(r.answer) : null;
+  const picked = r?.answer != null && (item.kind === "mc" || item.kind === "ox") ? Number(r.answer) : null;
+  const typed = item.kind === "word" || item.kind === "short";
   const expl = mine && r?.tr?.explanation ? r.tr.explanation : r?.explanation;
   const model = mine && r?.tr?.model_answer ? r.tr.model_answer : r?.model_answer;
 
@@ -225,7 +228,7 @@ function QuestionCard({
     <Card style={{ gap: space.md }}>
       <View style={styles.rowBetween}>
         <Text style={styles.tag}>
-          {index + 1}. {item.kind === "mc" ? t("dq_mc") : t("dq_short")}
+          {index + 1}. {t(kindKey[item.kind])}
         </Text>
         <Text style={styles.unit} numberOfLines={1}>
           {item.unit_title}
@@ -257,28 +260,53 @@ function QuestionCard({
           })
         : null}
 
-      {item.kind === "short" && !r ? (
+      {item.kind === "ox" ? (
+        <View style={styles.oxRow}>
+          {OX.map((m, i) => {
+            const isRight = r && r.correct_choice === i;
+            const isWrongPick = r && picked === i && !r.correct;
+            return (
+              <Pressable
+                key={m}
+                disabled={!!r || busy}
+                onPress={() => send(i)}
+                style={({ pressed }) => [
+                  styles.oxBtn,
+                  isRight && { borderColor: colors.success, backgroundColor: "rgba(34,197,94,0.15)" },
+                  isWrongPick && { borderColor: colors.danger, backgroundColor: "rgba(239,68,68,0.15)" },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Text style={[styles.oxMark, { color: i === 0 ? colors.success : colors.danger }]}>{m}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {typed && !r ? (
         <>
           <TextInput
             value={text}
             onChangeText={setText}
-            multiline
-            placeholder={t("dq_shortPh")}
+            multiline={item.kind === "short"}
+            placeholder={item.kind === "word" ? t("dq_wordPh") : t("dq_shortPh")}
             placeholderTextColor={colors.faint}
-            style={styles.input}
-            maxLength={1000}
+            style={[styles.input, item.kind === "word" && { minHeight: 0 }]}
+            maxLength={item.kind === "word" ? 200 : 1000}
             editable={!busy}
+            returnKeyType={item.kind === "word" ? "done" : "default"}
           />
           <Text style={styles.small}>{t("dq_micHint")}</Text>
           <AppButton label={busy ? t("dq_grading") : t("dq_submit")} icon="checkmark-outline" onPress={() => send(text)} disabled={busy || !text.trim()} />
         </>
       ) : null}
-      {busy && item.kind === "mc" ? <ActivityIndicator color={colors.primary} /> : null}
+      {busy && !typed ? <ActivityIndicator color={colors.primary} /> : null}
 
       {r ? (
         <View style={{ gap: space.sm }}>
           <ResultLine item={item} />
-          {item.kind === "short" ? (
+          {typed ? (
             <>
               <Text style={styles.label}>{t("dq_myAnswer")}</Text>
               <Text style={styles.body}>{r.answer}</Text>
@@ -342,10 +370,12 @@ function ResultLine({ item }: { item: DailyItem }) {
   const { t } = useTranslation();
   const r = item.result!;
   if (r.graded_by === "pending") return <Text style={[styles.result, { color: colors.warning }]}>{t("dq_pending")}</Text>;
-  if (item.kind === "mc") {
+  if (item.kind === "mc" || item.kind === "ox" || item.kind === "word") {
+    const answer = item.kind === "mc" ? MARK[r.correct_choice ?? 0] : item.kind === "ox" ? OX[r.correct_choice ?? 0] : r.model_answer;
     return (
       <Text style={[styles.result, { color: r.correct ? colors.success : colors.danger }]}>
-        {r.correct ? t("dq_right") : t("dq_wrong", { answer: MARK[r.correct_choice ?? 0] })}
+        {r.correct ? t("dq_right") : t("dq_wrong", { answer })}
+        {r.graded_by === "teacher" ? `  (${t("dq_byTeacher")})` : ""}
       </Text>
     );
   }
@@ -374,6 +404,18 @@ const styles = StyleSheet.create({
   question: { color: colors.text, fontSize: 17, lineHeight: 25, fontWeight: "600" },
   choice: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: space.md, backgroundColor: colors.cardAlt },
   choiceText: { color: colors.text, fontSize: 15, lineHeight: 22 },
+  oxRow: { flexDirection: "row", gap: space.md },
+  oxBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: space.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.cardAlt,
+  },
+  oxMark: { fontSize: 40, fontWeight: "800" },
   input: {
     color: colors.text,
     backgroundColor: colors.cardAlt,

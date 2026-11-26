@@ -17,7 +17,6 @@ import {
   type TocPart,
 } from "@/lib/api";
 import { confirm } from "@/screens/Comments";
-import { QuizBankSection } from "@/screens/QuizBank";
 import { BookStatus, bookKind, ProgressBar, StatusLegend, textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
@@ -217,6 +216,9 @@ export default function TextbookScreen() {
         />
       </Card>
 
+      <AppButton label={t("qb_openBank")} icon="help-circle-outline" variant="secondary" onPress={() => router.push(`/manage/quiz?book=${book.id}`)} />
+      <Text style={styles.small}>{t("qb_openBankHint")}</Text>
+
       <SectionTitle>{t("tb_toc")}</SectionTitle>
       <Card style={{ gap: space.md }}>
         <Field label={t("tb_tocPages")} value={tocPages} onChangeText={setTocPages} placeholder="5-8" />
@@ -236,7 +238,6 @@ export default function TextbookScreen() {
       <TocEditor toc={toc} onChange={editToc} />
       <AppButton label={t("tb_saveToc")} icon="save-outline" onPress={() => save({ toc }, "toc")} disabled={busy !== "" || !tocDirty} />
 
-      <QuizBankSection bookId={book.id} ready={ready} />
 
       <View style={styles.danger}>
         <SectionTitle>{t("tb_dangerZone")}</SectionTitle>

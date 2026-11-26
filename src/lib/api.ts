@@ -1048,12 +1048,17 @@ export async function uploadTextbook(
 
 // ---- T2(이론): 매일 문제 ----
 
+/** 문제 종류: ox(OX) / mc(객관식 4지선다) / word(단답형) / short(서술형) — 이 순서로 냄 */
+export type QuizKind = "ox" | "mc" | "word" | "short";
+export const QUIZ_KINDS: QuizKind[] = ["ox", "mc", "word", "short"];
+export type KindCounts = Record<QuizKind, number>;
+
 export type DailyResult = {
   answer: string | null;
   correct: boolean | null;
   score: number | null;
   feedback: string;
-  /** auto(객관식) / ai / teacher / pending(채점 대기) / missed(안 풂) */
+  /** auto(OX·객관식·단답형 정답 목록) / ai / teacher / pending(채점 대기) / missed(안 풂) */
   graded_by: "auto" | "ai" | "teacher" | "pending" | "missed";
   correct_choice: number | null;
   model_answer: string;
@@ -1062,7 +1067,7 @@ export type DailyResult = {
 };
 export type DailyItem = {
   id: string;
-  kind: "mc" | "short";
+  kind: QuizKind;
   unit_title: string;
   question: string;
   choices: string[];
@@ -1091,16 +1096,21 @@ export type QuizInfo = {
   total: number;
   error: string;
   running: boolean;
-  mc: number;
-  short: number;
   hidden: number;
   reported: number;
-};
+  /** 장마다 지금 있는 문제 수 (숨긴 문제 빼고) */
+  units: { key: string; title: string; start: number; end: number; printed_start: number; printed_end: number; counts: KindCounts }[];
+  offset: number;
+  per_unit_default: KindCounts;
+  per_unit_max: KindCounts;
+} & KindCounts;
+/** 만들 범위: 고른 장, 또는 쪽 범위(책에 인쇄된 쪽). counts = 장마다 종류별 개수 */
+export type QuizStartBody = { units?: string[]; page_from?: number; page_to?: number; counts: KindCounts; replace: boolean };
 export type BankQuestion = {
   id: string;
   unit_key: string;
   unit_title: string;
-  kind: "mc" | "short";
+  kind: QuizKind;
   question: string;
   choices: string[];
   answer: number | null;
@@ -1115,14 +1125,14 @@ export type QuestionEdit = Partial<Pick<BankQuestion, "question" | "choices" | "
   clear_reports?: boolean;
 };
 export const getQuizInfo = (bookId: string) => request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, {}, BOARD_TIMEOUT);
-export const startQuiz = (bookId: string, replace: boolean) =>
-  request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, json("POST", { replace }), BOARD_TIMEOUT);
-export const listBankQuestions = (bookId: string, filter: "all" | "reported" | "hidden") =>
-  request<{ items: BankQuestion[]; offset: number }>(`/admin/textbooks/${bookId}/questions?filter=${filter}`, {}, BOARD_TIMEOUT);
+export const startQuiz = (bookId: string, body: QuizStartBody) =>
+  request<QuizInfo>(`/admin/textbooks/${bookId}/quiz`, json("POST", body), BOARD_TIMEOUT);
+export const listBankQuestions = (bookId: string, filter: "all" | "reported" | "hidden", kind: QuizKind | "" = "") =>
+  request<{ items: BankQuestion[]; offset: number }>(`/admin/textbooks/${bookId}/questions?filter=${filter}&kind=${kind}`, {}, BOARD_TIMEOUT);
 export const editBankQuestion = (id: string, v: QuestionEdit) =>
   request<{ ok: boolean }>(`/admin/questions/${id}`, json("PUT", v), BOARD_TIMEOUT);
 export const deleteBankQuestion = (id: string) => request<{ ok: boolean }>(`/admin/questions/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
-export type DailySettings = { mc: number; short: number };
+export type DailySettings = KindCounts;
 export const getDailySettings = () => request<DailySettings>("/admin/daily-settings", {}, BOARD_TIMEOUT);
 export const saveDailySettings = (v: DailySettings) => request<DailySettings>("/admin/daily-settings", json("PUT", v), BOARD_TIMEOUT);
 

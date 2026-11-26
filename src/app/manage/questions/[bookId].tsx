@@ -4,14 +4,16 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Chips, Screen } from "@/components/ui";
-import { deleteBankQuestion, editBankQuestion, listBankQuestions, type BankQuestion } from "@/lib/api";
+import { QUIZ_KINDS, deleteBankQuestion, editBankQuestion, listBankQuestions, type BankQuestion, type QuizKind } from "@/lib/api";
 import { confirm } from "@/screens/Comments";
+import { kindKey } from "@/screens/QuizBank";
 import { textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
 type Filter = "all" | "reported" | "hidden";
 const MARK = ["①", "②", "③", "④"];
+const OX = ["O", "X"];
 
 /** 시스템관리자: 문제 은행 보기·고치기·숨기기·지우기 (신고된 문제 따로 보기) */
 export default function QuestionsScreen() {
@@ -19,6 +21,7 @@ export default function QuestionsScreen() {
   const { user } = useSession();
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
   const [filter, setFilter] = useState<Filter>("all");
+  const [kind, setKind] = useState<QuizKind | "">("");
   const [rows, setRows] = useState<BankQuestion[] | null>(null);
   const [offset, setOffset] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
@@ -26,13 +29,13 @@ export default function QuestionsScreen() {
 
   const load = useCallback(() => {
     setRows(null);
-    listBankQuestions(bookId, filter)
+    listBankQuestions(bookId, filter, kind)
       .then((r) => {
         setRows(r.items);
         setOffset(r.offset);
       })
       .catch((e) => setError(textbookError(t, e)));
-  }, [bookId, filter, t]);
+  }, [bookId, filter, kind, t]);
   useEffect(load, [load]);
 
   if (user?.role !== "admin") return <Redirect href="/" />;
@@ -48,6 +51,11 @@ export default function QuestionsScreen() {
         ]}
         value={filter}
         onChange={setFilter}
+      />
+      <Chips<QuizKind | "">
+        options={[{ value: "", label: t("qb_filterKindAll") }, ...QUIZ_KINDS.map((k) => ({ value: k, label: t(kindKey[k]) }))]}
+        value={kind}
+        onChange={setKind}
       />
       <Text style={styles.small}>{t("qb_listLegend")}</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -72,7 +80,7 @@ export default function QuestionsScreen() {
             ) : (
               <Card onPress={() => setOpen(q.id)} style={{ gap: 4, opacity: q.status === "hidden" ? 0.5 : 1 }}>
                 <View style={styles.row}>
-                  <Text style={styles.tag}>{q.kind === "mc" ? t("dq_mc") : t("dq_short")}</Text>
+                  <Text style={styles.tag}>{t(kindKey[q.kind])}</Text>
                   {q.report_count ? <Text style={styles.warn}>⚑ {q.report_count}</Text> : null}
                   {q.status === "hidden" ? <Text style={styles.small}>{t("qb_hiddenTag")}</Text> : null}
                   <View style={{ flex: 1 }} />
@@ -82,6 +90,16 @@ export default function QuestionsScreen() {
                 {q.kind === "mc" ? (
                   <Text style={styles.small}>
                     {t("qb_answerIs")} {MARK[q.answer ?? 0]} {q.choices[q.answer ?? 0]}
+                  </Text>
+                ) : null}
+                {q.kind === "ox" ? (
+                  <Text style={styles.small}>
+                    {t("qb_answerIs")} {OX[q.answer ?? 0]}
+                  </Text>
+                ) : null}
+                {q.kind === "word" ? (
+                  <Text style={styles.small}>
+                    {t("qb_answerIs")} {[q.model_answer, ...q.choices].join(" / ")}
                   </Text>
                 ) : null}
                 {q.reasons.length ? <Text style={styles.warn}>“{q.reasons.join("”, “")}”</Text> : null}
@@ -101,6 +119,7 @@ function Editor({ q, offset, onDone, onError }: { q: BankQuestion; offset: numbe
   const [choices, setChoices] = useState(q.kind === "mc" ? q.choices : []);
   const [answer, setAnswer] = useState(q.answer ?? 0);
   const [model, setModel] = useState(q.model_answer);
+  const [accept, setAccept] = useState(q.kind === "word" ? q.choices.join(", ") : "");
   const [expl, setExpl] = useState(q.explanation);
   const [busy, setBusy] = useState(false);
 
@@ -120,7 +139,13 @@ function Editor({ q, offset, onDone, onError }: { q: BankQuestion; offset: numbe
       editBankQuestion(q.id, {
         question,
         explanation: expl,
-        ...(q.kind === "mc" ? { choices, answer } : { model_answer: model }),
+        ...(q.kind === "mc"
+          ? { choices, answer }
+          : q.kind === "ox"
+            ? { answer }
+            : q.kind === "word"
+              ? { model_answer: model, choices: accept.split(/[,，]/).map((x) => x.trim()).filter(Boolean) }
+              : { model_answer: model }),
         clear_reports: true,
       }),
     );
@@ -146,6 +171,24 @@ function Editor({ q, offset, onDone, onError }: { q: BankQuestion; offset: numbe
             </View>
           ))}
         </>
+      ) : q.kind === "ox" ? (
+        <>
+          <Text style={styles.label}>{t("qb_oxAnswer")}</Text>
+          <View style={styles.row}>
+            {OX.map((m, i) => (
+              <Pressable key={m} onPress={() => setAnswer(i)} hitSlop={6} style={[styles.radio, answer === i && styles.radioOn]}>
+                <Text style={styles.radioText}>{m}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : q.kind === "word" ? (
+        <>
+          <Text style={styles.label}>{t("dq_modelAnswer")}</Text>
+          <TextInput value={model} onChangeText={setModel} style={styles.input} maxLength={100} />
+          <Text style={styles.label}>{t("qb_accept")}</Text>
+          <TextInput value={accept} onChangeText={setAccept} style={styles.input} maxLength={400} />
+        </>
       ) : (
         <>
           <Text style={styles.label}>{t("dq_modelAnswer")}</Text>
@@ -156,7 +199,7 @@ function Editor({ q, offset, onDone, onError }: { q: BankQuestion; offset: numbe
       <Text style={styles.label}>{t("dq_explanation")}</Text>
       <TextInput value={expl} onChangeText={setExpl} multiline style={styles.input} maxLength={600} />
       {q.page ? <Text style={styles.small}>{t("dq_pageShort", { page: q.page - offset })}</Text> : null}
-      <AppButton label={t("common_save")} icon="save-outline" onPress={save} disabled={busy || !question.trim()} />
+      <AppButton label={t("common_save")} icon="save-outline" onPress={save} disabled={busy || !question.trim() || (q.kind === "word" && !model.trim())} />
       <AppButton
         label={q.status === "hidden" ? t("qb_show") : t("qb_hide")}
         icon={q.status === "hidden" ? "eye-outline" : "eye-off-outline"}
