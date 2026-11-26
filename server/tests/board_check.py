@@ -161,14 +161,19 @@ def main():
         db.insert_rows("tutor_messages", {"user_id": uid, "book_id": bid, "lang": lang, "question": text,
                                           "answer": f"대답{i}", "pages": [4], "kind": "explain", "ai": True,
                                           "topic": None, "created_at": at(i)})
+    db.insert_rows("tutor_messages", {"user_id": s[3][0], "book_id": bid, "lang": "ko", "question": "언더컷 원인?",
+                                      "answer": "대답(저장된 답)", "pages": [4], "kind": "explain", "ai": False,
+                                      "cache_of": "x", "topic": None, "created_at": at(9)})  # 저장된 답으로 대답한 질문도 셈
+    db.insert_rows("tutor_answers", {"user_id": s[6][0], "book_id": bid, "question_id": q[3], "kind": "word",
+                                     "answer": "글", "correct": None, "created_at": at(0)})  # 채점 대기는 안 셈
     db.insert_rows("tutor_messages", {"user_id": s[1][0], "book_id": bid, "question": "날씨", "answer": "", "pages": [],
                                       "kind": "offtopic", "ai": True, "topic": None, "created_at": at(0)})
     b = c.get("/study-board", params={"lang": "en"}, headers=s[6][1]).json()
-    assert b["tagging"] == 5 and TAGS == [5], (b["tagging"], TAGS)  # 뒤에서 한 번에 붙임 (잡담은 안 셈)
+    assert b["tagging"] == 6 and TAGS == [6], (b["tagging"], TAGS)  # 뒤에서 한 번에 붙임 (잡담은 안 셈)
     b = c.get("/study-board", params={"lang": "en"}, headers=s[6][1]).json()
     assert b["tagging"] == 0, b["tagging"]
     tp = b["topics"]
-    assert tp[0]["topic"] == "언더컷 원인" and tp[0]["users"] == 3 and tp[0]["count"] == 3, tp  # 교사 질문은 안 셈
+    assert tp[0]["topic"] == "언더컷 원인" and tp[0]["users"] == 4 and tp[0]["count"] == 4, tp  # 교사 질문은 안 셈
     assert tp[0]["answer"] == "대답2" and tp[0]["pages"] == [{"page": 4, "printed": 4}], tp[0]  # 내 언어 대답 먼저
     assert tp[1]["topic"] == "보호 가스" and tp[1]["count"] == 1, tp
     assert "user_id" not in tp[0] and "name" not in tp[0]

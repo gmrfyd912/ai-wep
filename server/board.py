@@ -4,7 +4,7 @@
   문제 하나 10점 만점 (OX·객관식은 맞으면 10점, 단답형·서술형은 채점 점수 0~10).
   같은 문제를 기간 안에 여러 번 풀면 처음 한 번만 센다 (반복으로 순위 올리기 방지). 채점 대기 답은 아직 안 셈.
   순위에는 교육생만, 실명. 정렬: 많이 푼 순(기본) / 점수 순 / 정답률 순(10문제 이상 푼 사람만).
-- 많이 물어본 질문: 웰디 질문(tutor_messages, 설명·교재 밖)을 AI 가 붙인 '주제'(topic)로 묶어 센다. 이름 없음.
+- 많이 물어본 질문: 웰디 질문(tutor_messages, 설명·교재 밖, 저장된 답으로 대답한 것도 포함)을 AI 가 붙인 '주제'(topic)로 묶어 센다. 이름 없음.
   주제가 아직 없는 질문은 보드를 열 때 뒤에서 한 번에 40개씩 붙인다 (Claude Haiku, 비용 아주 적음).
 - 많이 틀린 문제: 5명 이상 푼 문제 중 틀린 비율 순. 가장 많이 고른 오답. 이름 없음.
 - 장별 정답률, 🔥 매일 문제 연속 일수, 내 위치(순위·정답률·약한 장).
@@ -86,7 +86,9 @@ def _gather(book, period):
     try:
         for r in select_all("tutor_answers", {"book_id": bid, **since,
                                               "select": "user_id,question_id,kind,answer,correct,created_at"}):
-            ok = bool(r.get("correct"))
+            if r.get("correct") is None:  # 채점 대기 (대화 중 단답형)
+                continue
+            ok = bool(r["correct"])
             attempts.append({"user_id": r["user_id"], "qid": r["question_id"], "src": "tutor", "kind": r.get("kind"),
                              "answer": None if r.get("answer") is None else str(r["answer"]),
                              "score": 10 if ok else 0, "correct": ok, "at": r.get("created_at") or ""})
@@ -100,10 +102,10 @@ def _gather(book, period):
         d = days.setdefault(r["user_id"], {})
         d[r["day"]] = d.get(r["day"], 0) + 1
     try:
-        msgs = select_all("tutor_messages", {"book_id": bid, "kind": f"in.({','.join(TOPIC_KINDS)})", "ai": "is.true",
+        msgs = select_all("tutor_messages", {"book_id": bid, "kind": f"in.({','.join(TOPIC_KINDS)})",
                                              **since, "select": "id,user_id,lang,question,answer,pages,topic,created_at",
                                              "order": "created_at.desc"})
-    except Exception as e:  # noqa: BLE001  (step10 SQL 전이면 topic 칸이 없다)
+    except Exception as e:  # noqa: BLE001  (step11 SQL 전이면 topic 칸이 없다)
         print("[board] 웰디 질문 못 읽음", str(e)[:160], flush=True)
         msgs = []
     qids = sorted({a["qid"] for a in attempts})
@@ -248,9 +250,9 @@ Reply with ONLY: {"topics":["label for 1","label for 2", ...]} with exactly one 
 def untagged(book_id, limit):
     try:
         return store.select("tutor_messages", {"book_id": f"eq.{book_id}", "kind": f"in.({','.join(TOPIC_KINDS)})",
-                                               "ai": "is.true", "topic": "is.null", "select": "id,question",
+                                               "topic": "is.null", "select": "id,question",
                                                "order": "created_at.desc", "limit": str(limit)})
-    except Exception:  # noqa: BLE001  (step10 SQL 전)
+    except Exception:  # noqa: BLE001  (step11 SQL 전)
         return []
 
 
