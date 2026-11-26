@@ -127,5 +127,5 @@ A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기�
 - 문제 풀이: 매일 문제(`daily_answers`) + 웰디 대화 중 문제(`tutor_answers`) 합산. 문제 하나 10점 만점, 같은 문제는 기간 안 처음 푼 것만, 채점 대기는 채점 뒤에. 정답률 순은 10문제 이상만.
 - 많이 물어본 질문: `tutor_messages.topic` (AI 가 붙인 짧은 한국어 주제)로 묶음. 주제가 없는 질문은 보드를 열 때 뒤에서 40개씩 붙임(기본 `claude-haiku-5-5`). 이름은 안 보냄.
 - 많이 틀린 문제: 5명 이상 푼 문제, 틀린 비율 순, 가장 많이 고른 오답. 이름은 안 보냄.
-- 계산 결과는 1분 동안 같이 씀. Supabase 준비: `supabase/step11-board.sql`.
+- 계산 결과는 1분 동안 같이 씀. Supabase 준비: `supabase/step12-board.sql`.
 - 흐름 시험: `python -m tests.board_check`

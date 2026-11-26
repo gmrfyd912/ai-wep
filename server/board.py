@@ -105,7 +105,7 @@ def _gather(book, period):
         msgs = select_all("tutor_messages", {"book_id": bid, "kind": f"in.({','.join(TOPIC_KINDS)})",
                                              **since, "select": "id,user_id,lang,question,answer,pages,topic,created_at",
                                              "order": "created_at.desc"})
-    except Exception as e:  # noqa: BLE001  (step11 SQL 전이면 topic 칸이 없다)
+    except Exception as e:  # noqa: BLE001  (step12 SQL 전이면 topic 칸이 없다)
         print("[board] 웰디 질문 못 읽음", str(e)[:160], flush=True)
         msgs = []
     qids = sorted({a["qid"] for a in attempts})
@@ -252,7 +252,7 @@ def untagged(book_id, limit):
         return store.select("tutor_messages", {"book_id": f"eq.{book_id}", "kind": f"in.({','.join(TOPIC_KINDS)})",
                                                "topic": "is.null", "select": "id,question",
                                                "order": "created_at.desc", "limit": str(limit)})
-    except Exception:  # noqa: BLE001  (step11 SQL 전)
+    except Exception:  # noqa: BLE001  (step12 SQL 전)
         return []
 
 
