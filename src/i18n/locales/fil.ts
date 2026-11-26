@@ -908,7 +908,7 @@ const fil: Translation = {
   qb_remakeConfirm: "Buburahin at gagawing muli ang lahat ng tanong sa bangko. Mawawala ang mga in-edit mo.",
   qb_hint: "Ayusin muna ang nilalaman. Gagawa ng tanong para sa bawat kabanata sa nilalaman.",
   qb_settings: "Bilang ng araw-araw na tanong",
-  qb_settingsHint: "Tanong bawat trainee bawat araw (ngayon {{n}}, lahat 1–8). Magkakabisa simula sa mga tanong bukas.",
+  qb_settingsHint: "Tanong bawat trainee bawat araw (ngayon {{n}}, lahat 1–8). Agad na magkakabisa sa mga tanong ngayon (mananatili ang nasagot na).",
   qb_filterAll: "Lahat",
   qb_filterReported: "Na-report",
   qb_filterHidden: "Nakatago",

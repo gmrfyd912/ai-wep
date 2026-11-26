@@ -908,7 +908,7 @@ const id: Translation = {
   qb_remakeConfirm: "Semua soal di bank akan dihapus dan dibuat ulang. Hasil editanmu akan hilang.",
   qb_hint: "Rapikan daftar isi dulu. Soal dibuat untuk setiap bab di daftar isi.",
   qb_settings: "Jumlah soal harian",
-  qb_settingsHint: "Soal per peserta per hari (sekarang {{n}}, total 1–8). Perubahan berlaku mulai soal besok.",
+  qb_settingsHint: "Soal per peserta per hari (sekarang {{n}}, total 1–8). Perubahan langsung berlaku untuk soal hari ini (yang sudah dijawab tetap).",
   qb_filterAll: "Semua",
   qb_filterReported: "Dilaporkan",
   qb_filterHidden: "Disembunyikan",

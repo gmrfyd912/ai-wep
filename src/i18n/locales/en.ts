@@ -908,7 +908,7 @@ const en: Translation = {
   qb_remakeConfirm: "All questions in the bank will be deleted and created again. Your edits will be lost.",
   qb_hint: "Fix the contents first. Questions are made for each chapter in the contents.",
   qb_settings: "Daily question count",
-  qb_settingsHint: "Questions per trainee per day (now {{n}}, total 1–8). Changes apply from tomorrow's questions.",
+  qb_settingsHint: "Questions per trainee per day (now {{n}}, total 1–8). Changes apply to today's questions right away (answered ones stay).",
   qb_filterAll: "All",
   qb_filterReported: "Reported",
   qb_filterHidden: "Hidden",

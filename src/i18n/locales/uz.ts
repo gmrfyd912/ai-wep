@@ -908,7 +908,7 @@ const uz: Translation = {
   qb_remakeConfirm: "Bankdagi barcha savollar o‘chirilib, qayta yaratiladi. Tahrirlaringiz yo‘qoladi.",
   qb_hint: "Avval mundarijani to‘g‘rilang. Savollar mundarijadagi har bir bob uchun yaratiladi.",
   qb_settings: "Kunlik savollar soni",
-  qb_settingsHint: "Har bir o‘quvchiga kuniga savollar (hozir {{n}} ta, jami 1–8). O‘zgarish ertangi savollardan kuchga kiradi.",
+  qb_settingsHint: "Har bir o‘quvchiga kuniga savollar (hozir {{n}} ta, jami 1–8). O‘zgarish bugungi savollarga darhol qo‘llanadi (javob berilganlari qoladi).",
   qb_filterAll: "Hammasi",
   qb_filterReported: "Xabar berilgan",
   qb_filterHidden: "Yashirilgan",

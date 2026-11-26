@@ -908,7 +908,7 @@ const es: Translation = {
   qb_remakeConfirm: "Se borrarán todas las preguntas del banco y se crearán de nuevo. Se perderán tus cambios.",
   qb_hint: "Corrige primero el índice. Las preguntas se crean para cada capítulo del índice.",
   qb_settings: "Preguntas diarias",
-  qb_settingsHint: "Preguntas por alumno al día (ahora {{n}}, total 1–8). Los cambios se aplican desde las preguntas de mañana.",
+  qb_settingsHint: "Preguntas por alumno al día (ahora {{n}}, total 1–8). Los cambios se aplican enseguida a las preguntas de hoy (las respondidas se mantienen).",
   qb_filterAll: "Todas",
   qb_filterReported: "Reportadas",
   qb_filterHidden: "Ocultas",

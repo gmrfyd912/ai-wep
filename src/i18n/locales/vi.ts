@@ -908,7 +908,7 @@ const vi: Translation = {
   qb_remakeConfirm: "Toàn bộ câu hỏi sẽ bị xóa và tạo lại. Các chỉnh sửa cũng mất.",
   qb_hint: "Hãy sửa mục lục trước. Câu hỏi được tạo cho từng chương trong mục lục.",
   qb_settings: "Số câu hỏi mỗi ngày",
-  qb_settingsHint: "Số câu mỗi học viên mỗi ngày (hiện {{n}} câu, tổng 1–8). Thay đổi áp dụng từ câu hỏi ngày mai.",
+  qb_settingsHint: "Số câu mỗi học viên mỗi ngày (hiện {{n}} câu, tổng 1–8). Thay đổi áp dụng ngay cho câu hỏi hôm nay (câu đã làm giữ nguyên).",
   qb_filterAll: "Tất cả",
   qb_filterReported: "Bị báo cáo",
   qb_filterHidden: "Đã ẩn",

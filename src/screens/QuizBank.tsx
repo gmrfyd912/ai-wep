@@ -125,6 +125,12 @@ export function QuizBankSection({ bookId, ready }: { bookId: string; ready: bool
           <Text style={styles.small}>{t("qb_noUnits")}</Text>
         ) : (
           <>
+            {!info.running ? (
+              <AppButton label={t("qb_makeBtn")} icon="sparkles-outline" onPress={() => start(false)} disabled={!canMake} />
+            ) : null}
+            <Text style={styles.small}>{t("qb_estimate", { units: nUnits, per, total: nUnits * per })}</Text>
+            {nUnits === 0 && !info.running ? <Text style={styles.small}>{t("qb_needRange")}</Text> : null}
+            {!ready ? <Text style={styles.small}>{t("tb_notReadyHint")}</Text> : null}
             <Chips<Mode>
               options={[
                 { value: "units", label: t("qb_modeUnits") },
@@ -178,12 +184,6 @@ export function QuizBankSection({ bookId, ready }: { bookId: string; ready: bool
             {QUIZ_KINDS.map((k) => (
               <Stepper key={k} label={t(kindKey[k])} value={counts[k]} min={0} max={info.per_unit_max[k]} onChange={(v) => setCounts({ ...counts, [k]: v })} />
             ))}
-            <Text style={styles.small}>{t("qb_estimate", { units: nUnits, per, total: nUnits * per })}</Text>
-            {!info.running ? (
-              <AppButton label={t("qb_makeBtn")} icon="sparkles-outline" onPress={() => start(false)} disabled={!canMake} />
-            ) : null}
-            {nUnits === 0 && !info.running ? <Text style={styles.small}>{t("qb_needRange")}</Text> : null}
-            {!ready ? <Text style={styles.small}>{t("tb_notReadyHint")}</Text> : null}
             {!info.running && canMake ? (
               <Pressable
                 onPress={() => confirm(t("qb_replaceTitle"), t("qb_replaceConfirm"), t("qb_replaceBtn"), t("common_cancel"), () => start(true))}
