@@ -16,7 +16,7 @@ const FRAMES = [
 ];
 const SOUND_KEY = "buddy_sound";
 /** 앱 언어 → 휴대폰 음성 언어 */
-const VOICE: Record<string, string> = {
+export const VOICE: Record<string, string> = {
   ko: "ko-KR",
   en: "en-US",
   vi: "vi-VN",
@@ -159,7 +159,12 @@ export function StudyBuddy({
 
   return (
     <View style={styles.wrap}>
-      <Pressable onPress={onPress ?? (() => say(!!sound))} accessibilityLabel={t("buddy_name")}>
+      <Pressable
+        onPress={onPress ?? (() => say(!!sound))}
+        accessibilityLabel={t("buddy_name")}
+        hitSlop={8}
+        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.96 : 1 }] })}
+      >
         <View style={{ width: size, height: H }}>
           {FRAMES.map((src, i) => (
             <Image key={i} source={src} style={[styles.img, { width: size, height: H, opacity: frame === i ? 1 : 0 }]} resizeMode="contain" />

@@ -969,11 +969,11 @@ const es: Translation = {
   tutor_tapToTalk: "Tócame para hacer una pregunta",
   tutor_talk: "Preguntar a Weldy",
   tutor_askHere: "Preguntar a Weldy",
-  tutor_hello: "¡{{name}}, pregúntame lo que quieras! Toca el micrófono del teclado y habla.",
+  tutor_hello: "¡{{name}}, pregúntame con tu voz!",
   tutor_examples: "Prueba a decir: \"¿Qué es la soldadura TIG?\" · \"Muestra el capítulo 3\" · \"Abre la página 120\" · \"Hazme una pregunta\"",
-  tutor_tapHint: "Tócame para empezar a escuchar, o para que deje de hablar",
+  tutor_tapHint: "Tócame para empezar a escuchar (o para que deje de hablar)",
   tutor_ph: "Di o escribe tu pregunta",
-  tutor_micHint: "Toca 🎤 en el teclado y habla. Se envía solo cuando pausas 1,5 segundos. Di \"listo\" al final para enviarlo enseguida.",
+  tutor_micHint: "Toca 🎤 (dictado) en el teclado y habla. Se envía solo al pausar 1,5 segundos. ¿No ves 🎤? Activa Ajustes › General › Teclado › Activar dictado.",
   tutor_send: "Enviar",
   tutor_listen: "Escuchando",
   tutor_thinking: "Weldy está buscando en el libro…",
@@ -1008,6 +1008,10 @@ const es: Translation = {
   crit_tutorLimit: "Preguntas a Weldy por día (alumnos)",
   crit_tutorHint: "Cuántas explicaciones con IA puede recibir un alumno de Weldy al día (valor de ejemplo, pon el tuyo). Profesores y administradores no tienen límite, y \"Muestra el capítulo 3\" o \"Hazme una pregunta\" no cuentan. 0 = explicaciones con IA desactivadas para alumnos.",
   auth_err_tutor_empty: "Escribe lo que quieres preguntar.",
+  tutor_micHintAndroid: "Toca 🎤 o a Weldy y habla. Se envía en cuanto dejas de hablar. Tras cada respuesta, la ventana de escucha se abre otra vez.",
+  tutor_noVoice: "Este teléfono no puede abrir la entrada de voz. Usa 🎤 del teclado o escribe.",
+  tutor_voicePrompt: "Habla con Weldy",
+  tutor_mic: "Hablar",
 };
 
 export default es;
