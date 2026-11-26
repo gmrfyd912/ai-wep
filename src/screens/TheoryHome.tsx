@@ -89,6 +89,10 @@ export function TheoryHome() {
         </Card>
       ) : null}
 
+      {data?.book ? (
+        <AppButton label={t("sb_title")} icon="podium-outline" variant="secondary" onPress={() => router.push("/study-board")} />
+      ) : null}
+
       {data && !data.book ? <Body muted>{t("theory_noBook")}</Body> : null}
       {book && !book.can_view ? <Body muted>{t("theory_hidden")}</Body> : null}
 

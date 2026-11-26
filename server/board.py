@@ -1,0 +1,403 @@
+"""T4(이론): 학습 보드 — 모든 사용자(교육생·교사·행정·관리자)가 보는 순위·통계.
+
+- 문제 풀이 순위: 매일 문제(daily_answers) + 웰디 대화 중 문제(tutor_answers) (+ 나중에 게임)를 합친다.
+  문제 하나 10점 만점 (OX·객관식은 맞으면 10점, 단답형·서술형은 채점 점수 0~10).
+  같은 문제를 기간 안에 여러 번 풀면 처음 한 번만 센다 (반복으로 순위 올리기 방지). 채점 대기 답은 아직 안 셈.
+  순위에는 교육생만, 실명. 정렬: 많이 푼 순(기본) / 점수 순 / 정답률 순(10문제 이상 푼 사람만).
+- 많이 물어본 질문: 웰디 질문(tutor_messages, 설명·교재 밖)을 AI 가 붙인 '주제'(topic)로 묶어 센다. 이름 없음.
+  주제가 아직 없는 질문은 보드를 열 때 뒤에서 한 번에 40개씩 붙인다 (Claude Haiku, 비용 아주 적음).
+- 많이 틀린 문제: 5명 이상 푼 문제 중 틀린 비율 순. 가장 많이 고른 오답. 이름 없음.
+- 장별 정답률, 🔥 매일 문제 연속 일수, 내 위치(순위·정답률·약한 장).
+- 지금 쓰는 교재만. 과정(course=all|과정 id)·기간(day/week/month/all, 한국 시간) 선택.
+"""
+import threading
+import time
+import uuid
+from datetime import timedelta
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
+import accounts
+import daily
+import media
+import social
+import store
+import textbook
+
+router = APIRouter()
+PAGE = 1000               # Supabase 한 번에 주는 최대 행 수
+MIN_RATE_SOLVED = 10      # 정답률 순위에 들어가는 최소 문제 수
+MIN_WRONG_USERS = 5       # 많이 틀린 문제에 들어가는 최소 인원
+MIN_WEAK = 3              # 약한 장으로 보는 최소 풀이 수
+TOP_ROWS = 100
+TOP_TOPICS = 20
+TOP_WRONG = 20
+CACHE_SEC = 60
+STREAK_DAYS = 60
+TOPIC_KINDS = ("explain", "outside")
+TAG_BATCH = 40
+TAG_ROUNDS = 5
+SORTS = ("solved", "score", "rate")
+
+_cache_lock = threading.Lock()
+_cache = {}               # (book_id, period) → (시각, 모은 자료)
+_tag_lock = threading.Lock()
+
+
+def _err(status, code):
+    raise HTTPException(status, {"code": code})
+
+
+def select_all(table, params, cap=100000):
+    """1000행씩 나눠 끝까지 읽는다."""
+    out, off = [], 0
+    while True:
+        rows = store.select(table, {**params, "limit": str(PAGE), "offset": str(off)})
+        out += rows
+        if len(rows) < PAGE or len(out) >= cap:
+            return out
+        off += PAGE
+
+
+def clear_cache():
+    with _cache_lock:
+        _cache.clear()
+
+
+# ---- 자료 모으기 (교재·기간마다 1분 동안 같이 씀) ----
+
+def _gather(book, period):
+    key = (book["id"], period)
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and time.time() - hit[0] < CACHE_SEC:
+            return hit[1]
+    start = social.period_start(period)
+    since = {"created_at": f"gte.{start}"} if start else {}
+    bid = f"eq.{book['id']}"
+    attempts = []
+    for r in select_all("daily_answers", {"book_id": bid, **since,
+                                          "select": "user_id,question_id,kind,answer,score,correct,created_at"}):
+        if r.get("score") is None:  # 채점 대기
+            continue
+        attempts.append({"user_id": r["user_id"], "qid": r["question_id"], "src": "daily", "kind": r.get("kind"),
+                         "answer": r.get("answer"), "score": int(r["score"]),
+                         "correct": int(r["score"]) >= daily.PASS_SCORE, "at": r.get("created_at") or ""})
+    try:
+        for r in select_all("tutor_answers", {"book_id": bid, **since,
+                                              "select": "user_id,question_id,kind,answer,correct,created_at"}):
+            ok = bool(r.get("correct"))
+            attempts.append({"user_id": r["user_id"], "qid": r["question_id"], "src": "tutor", "kind": r.get("kind"),
+                             "answer": None if r.get("answer") is None else str(r["answer"]),
+                             "score": 10 if ok else 0, "correct": ok, "at": r.get("created_at") or ""})
+    except Exception as e:  # noqa: BLE001  (step9 SQL 전)
+        print("[board] 웰디 문제 기록 못 읽음", str(e)[:160], flush=True)
+    attempts.sort(key=lambda a: a["at"])
+    # 🔥 연속 일수용: 최근 60일 매일 문제 푼 날 (교재 상관없이, daily.streak_of 와 같은 기준)
+    day0 = (daily.today() - timedelta(days=STREAK_DAYS)).isoformat()
+    days = {}
+    for r in select_all("daily_answers", {"day": f"gte.{day0}", "select": "user_id,day"}):
+        d = days.setdefault(r["user_id"], {})
+        d[r["day"]] = d.get(r["day"], 0) + 1
+    try:
+        msgs = select_all("tutor_messages", {"book_id": bid, "kind": f"in.({','.join(TOPIC_KINDS)})", "ai": "is.true",
+                                             **since, "select": "id,user_id,lang,question,answer,pages,topic,created_at",
+                                             "order": "created_at.desc"})
+    except Exception as e:  # noqa: BLE001  (step10 SQL 전이면 topic 칸이 없다)
+        print("[board] 웰디 질문 못 읽음", str(e)[:160], flush=True)
+        msgs = []
+    qids = sorted({a["qid"] for a in attempts})
+    qinfo = {}
+    for i in range(0, len(qids), 150):  # 주소가 너무 길어지지 않게 나눠서
+        part = qids[i:i + 150]
+        for q in store.select("quiz_questions", {"id": f"in.({','.join(part)})", "select": "id,unit_key,kind"}):
+            qinfo[q["id"]] = q
+    data = {"attempts": attempts, "days": days, "msgs": msgs, "qinfo": qinfo}
+    with _cache_lock:
+        _cache[key] = (time.time(), data)
+    return data
+
+
+def _students():
+    return {u["id"]: u for u in select_all("users", {"role": "eq.student", "status": "eq.active",
+                                                      "select": "id,name,avatar_path"})}
+
+
+def _scope(course):
+    """과정 사람 id 모음 (all 이면 None = 모두)."""
+    if course == "all":
+        return None
+    try:
+        cid = str(uuid.UUID(course))
+    except ValueError:
+        _err(404, "not_found")
+    return {r["user_id"] for r in store.select("user_courses", {"course_id": f"eq.{cid}", "select": "user_id"})}
+
+
+def first_attempts(attempts, who):
+    """사람·문제마다 처음 푼 것만 (attempts 는 시간 순)."""
+    seen = set()
+    out = []
+    for a in attempts:
+        if a["user_id"] not in who:
+            continue
+        k = (a["user_id"], a["qid"])
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(a)
+    return out
+
+
+def streak(days_of_user, need, today):
+    full = {d for d, n in (days_of_user or {}).items() if n >= need}
+    n, d = 0, today
+    if d.isoformat() not in full:
+        d -= timedelta(days=1)
+    while d.isoformat() in full:
+        n += 1
+        d -= timedelta(days=1)
+    return n
+
+
+def rank_rows(stats, sort):
+    """정렬 → 순위가 붙은 목록. 정답률 순은 MIN_RATE_SOLVED 문제 이상 푼 사람만."""
+    rows = list(stats.values())
+    if sort == "rate":
+        rows = [r for r in rows if r["solved"] >= MIN_RATE_SOLVED]
+        key = lambda r: (-r["rate"], -r["solved"], -r["score"], r["name"])
+    elif sort == "score":
+        key = lambda r: (-r["score"], -r["solved"], r["name"])
+    else:
+        key = lambda r: (-r["solved"], -r["score"], r["name"])
+    rows.sort(key=key)
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+    return rows
+
+
+def unit_stats(firsts, qinfo, units):
+    by = {}
+    for a in firsts:
+        q = qinfo.get(a["qid"])
+        if not q:
+            continue
+        u = by.setdefault(q["unit_key"], [0, 0])
+        u[0] += 1
+        u[1] += 1 if a["correct"] else 0
+    return [{"unit_key": k, "title": title, "attempts": by[k][0], "correct": by[k][1],
+             "rate": round(by[k][1] * 100 / by[k][0])} for k, title, _, _ in units if k in by]
+
+
+def wrong_stats(firsts, qinfo):
+    """문제마다 [푼 사람, 틀린 사람, {오답 보기: 수}] → 많이 틀린 순."""
+    by = {}
+    for a in firsts:
+        if a["qid"] not in qinfo:  # 지워진 문제
+            continue
+        s = by.setdefault(a["qid"], {"attempts": 0, "wrong": 0, "picks": {}})
+        s["attempts"] += 1
+        if not a["correct"]:
+            s["wrong"] += 1
+            if a["kind"] in daily.CHOICE_KINDS and a["answer"] not in (None, ""):
+                s["picks"][a["answer"]] = s["picks"].get(a["answer"], 0) + 1
+    out = []
+    for qid, s in by.items():
+        if s["attempts"] < MIN_WRONG_USERS or not s["wrong"]:
+            continue
+        top = max(s["picks"].items(), key=lambda kv: kv[1]) if s["picks"] else None
+        out.append({"qid": qid, "attempts": s["attempts"], "wrong": s["wrong"],
+                    "rate": round((s["attempts"] - s["wrong"]) * 100 / s["attempts"]),
+                    "top_wrong": int(top[0]) if top and str(top[0]).isdigit() else None,
+                    "top_wrong_n": top[1] if top else 0})
+    out.sort(key=lambda x: (x["rate"], -x["attempts"]))
+    return out[:TOP_WRONG]
+
+
+def topic_stats(msgs, who, lang, offset):
+    by = {}
+    for m in msgs:  # 최근 → 오래된
+        t = (m.get("topic") or "").strip()
+        if not t or m.get("user_id") not in who:
+            continue
+        s = by.setdefault(t, {"topic": t, "count": 0, "users": set(), "sample": None})
+        s["count"] += 1
+        s["users"].add(m["user_id"])
+        if not (m.get("answer") or "").startswith("error") and (
+                s["sample"] is None or (m.get("lang") == lang and s["sample"].get("lang") != lang)):
+            s["sample"] = m
+    out = []
+    for s in sorted(by.values(), key=lambda s: (-len(s["users"]), -s["count"], s["topic"]))[:TOP_TOPICS]:
+        m = s["sample"] or {}
+        out.append({"topic": s["topic"], "count": s["count"], "users": len(s["users"]),
+                    "question": m.get("question") or "", "answer": m.get("answer") or "",
+                    "pages": [{"page": p, "printed": p - offset} for p in (m.get("pages") or [])]})
+    return out
+
+
+# ---- 질문 주제 붙이기 (뒤에서) ----
+
+TOPIC_SYSTEM = """You group welding trainees' questions to a study assistant by topic, for a "most asked questions" board.
+For each numbered question (any language), write a short KOREAN topic label of 2 to 6 words naming the concept asked,
+for example: 언더컷 원인, GTAW 보호 가스 종류, 예열 온도.
+Questions asking the same thing in different words or languages must get exactly the same label.
+Reuse a label from EXISTING LABELS whenever it fits. No quotes, no numbers, no punctuation at the end.
+Reply with ONLY: {"topics":["label for 1","label for 2", ...]} with exactly one label per question, in order."""
+
+
+def untagged(book_id, limit):
+    try:
+        return store.select("tutor_messages", {"book_id": f"eq.{book_id}", "kind": f"in.({','.join(TOPIC_KINDS)})",
+                                               "ai": "is.true", "topic": "is.null", "select": "id,question",
+                                               "order": "created_at.desc", "limit": str(limit)})
+    except Exception:  # noqa: BLE001  (step10 SQL 전)
+        return []
+
+
+def tag_topics(book_id):
+    """주제가 없는 웰디 질문에 주제를 붙인다. 한 번에 하나만 돈다."""
+    import report
+    if not report.configured() or not _tag_lock.acquire(blocking=False):
+        return
+    try:
+        for _ in range(TAG_ROUNDS):
+            rows = untagged(book_id, TAG_BATCH)
+            if not rows:
+                break
+            known = {}
+            for m in store.select("tutor_messages", {"book_id": f"eq.{book_id}", "topic": "not.is.null",
+                                                     "select": "topic", "order": "created_at.desc", "limit": "1000"}):
+                known[m["topic"]] = known.get(m["topic"], 0) + 1
+            labels = [t for t, _ in sorted(known.items(), key=lambda kv: -kv[1])[:80]]
+            text = ("EXISTING LABELS:\n" + ("\n".join(labels) or "(none)") + "\n\nQUESTIONS:\n"
+                    + "\n".join(f"{i + 1}. {(r['question'] or '')[:200]}" for i, r in enumerate(rows)))
+            try:
+                out = daily._ask(report.model_name(), TOPIC_SYSTEM, text, 1500, timeout=60)
+            except Exception as e:  # noqa: BLE001
+                print("[board] 주제 붙이기 실패", str(e)[:160], flush=True)
+                break
+            topics = out.get("topics") if isinstance(out.get("topics"), list) else []
+            if len(topics) != len(rows):
+                print("[board] 주제 수가 안 맞음", len(topics), len(rows), flush=True)
+                break
+            for r, t in zip(rows, topics):
+                t = str(t or "").strip().strip("\"'.。")[:40] or "기타"
+                store.patch("tutor_messages", {"id": f"eq.{r['id']}"}, {"topic": t})
+        clear_cache()
+    finally:
+        _tag_lock.release()
+
+
+# ---- API ----
+
+@router.get("/study-board")
+def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", sort: str = "solved",
+                lang: str = "ko", user=Depends(accounts.current_user)):
+    if period not in social.PERIODS:
+        _err(400, "bad_period")
+    if sort not in SORTS:
+        _err(400, "bad_sort")
+    lang = daily._lang(lang)
+    book = textbook.current_book()
+    base = {"book": None, "period": period, "course": course, "sort": sort, "rows": [], "me": None, "total": 0,
+            "topics": [], "tagging": 0, "wrong": [], "units": [], "min_rate_solved": MIN_RATE_SOLVED,
+            "min_wrong_users": MIN_WRONG_USERS}
+    if not book:
+        return base
+    if not textbook.can_view(user, book):  # 교육생에게 숨긴 교재
+        return {**base, "book": {"id": book["id"], "title": book.get("title") or ""}, "hidden": True}
+    offset = book.get("page_offset") or 0
+    students = _students()
+    members = _scope(course)
+    who = set(students) if members is None else set(students) & members
+    data = _gather(book, period)
+    firsts = first_attempts(data["attempts"], who)
+
+    # 문제 풀이 순위
+    today = daily.today()
+    need = daily.daily_total()
+    stats = {}
+    for a in firsts:
+        u = students[a["user_id"]]
+        s = stats.setdefault(a["user_id"], {"user_id": a["user_id"], "name": u["name"], "solved": 0, "correct": 0,
+                                            "score": 0, "daily": 0, "tutor": 0})
+        s["solved"] += 1
+        s["correct"] += 1 if a["correct"] else 0
+        s["score"] += a["score"]
+        s[a["src"]] += 1
+    for s in stats.values():
+        s["rate"] = round(s["correct"] * 100 / s["solved"])
+        s["streak"] = streak(data["days"].get(s["user_id"]), need, today)
+    ordered = rank_rows(stats, sort)
+    top = ordered[:TOP_ROWS]
+    me = stats.get(user["id"])
+    shown = top + ([me] if me and me not in top else [])
+    courses = social._courses_of([x["user_id"] for x in shown])
+    avatars = media.avatars_of([students[x["user_id"]] for x in shown])
+    rows = [{**x, **(avatars.get(x["user_id"]) or {}), "rank": x.get("rank"),
+             "courses": courses.get(x["user_id"], [])}
+            for x in shown]
+
+    # 장별 정답률·내 약한 장
+    units = daily.book_units(book)
+    all_units = unit_stats(firsts, data["qinfo"], units)
+    if me is not None:
+        mine = unit_stats([a for a in firsts if a["user_id"] == user["id"]], data["qinfo"], units)
+        weak = sorted([u for u in mine if u["attempts"] >= MIN_WEAK and u["rate"] < 100], key=lambda u: (u["rate"], -u["attempts"]))
+        me_row = next(r for r in rows if r["user_id"] == user["id"])
+        me_row["weak_unit"] = weak[0] if weak else None
+        if me_row["rank"] is None:
+            me_row["rank_note"] = "need_more"  # 정답률 순인데 아직 문제 수가 모자람
+    elif user["role"] == "student" and user["id"] in who:
+        st = streak(data["days"].get(user["id"]), need, today)
+        rows.append({"user_id": user["id"], "name": user.get("name") or "", "solved": 0, "correct": 0, "score": 0,
+                     "daily": 0, "tutor": 0, "rate": 0, "streak": st, "rank": None, "courses": [], "weak_unit": None})
+
+    # 많이 틀린 문제
+    wrong = wrong_stats(firsts, data["qinfo"])
+    if wrong:
+        qs = daily._questions([w["qid"] for w in wrong])
+        daily.ensure_translations([qs[w["qid"]] for w in wrong if w["qid"] in qs], lang)
+        shown_wrong = []
+        for w in wrong:
+            q = qs.get(w["qid"])
+            if not q:
+                continue
+            item = daily._public(q, {"answer": None, "correct": None, "score": None, "graded_by": "board"}, lang, offset)
+            item["result"] = None  # 답·해설은 '풀어 보기' 뒤에만 앱이 보여 준다
+            item["reveal"] = {"correct_choice": q.get("answer") if q["kind"] in daily.CHOICE_KINDS else None,
+                              "model_answer": q.get("model_answer") or "", "explanation": q.get("explanation") or "",
+                              "tr": ({"model_answer": (q.get("translations") or {}).get(lang, {}).get("model_answer") or "",
+                                      "explanation": (q.get("translations") or {}).get(lang, {}).get("explanation") or ""}
+                                     if lang != "ko" and (q.get("translations") or {}).get(lang) else None)}
+            shown_wrong.append({**w, "item": item})
+        wrong = shown_wrong
+
+    # 많이 물어본 질문 (주제 없는 질문은 뒤에서 붙인다)
+    topics = topic_stats(data["msgs"], who, lang, offset)
+    waiting = len([m for m in data["msgs"] if not m.get("topic")])
+    if waiting:
+        bg.add_task(tag_topics, book["id"])
+
+    me_out = next((r for r in rows if r["user_id"] == user["id"]), None)
+    return {**base, "book": {"id": book["id"], "title": book.get("title") or ""},
+            "rows": rows[:len(top)],
+            "me": me_out, "total": len(ordered), "topics": topics, "tagging": waiting,
+            "wrong": wrong, "units": all_units}
+
+
+@router.get("/study-board/user/{uid}")
+def user_units(uid: str, period: str = "week", user=Depends(accounts.current_user)):
+    """순위에서 사람을 누르면: 그 사람의 장별 정답률 (같은 기간)."""
+    if period not in social.PERIODS:
+        _err(400, "bad_period")
+    try:
+        uid = str(uuid.UUID(uid))
+    except ValueError:
+        _err(404, "not_found")
+    book = textbook.current_book()
+    if not book or not textbook.can_view(user, book):
+        return {"units": []}
+    data = _gather(book, period)
+    firsts = first_attempts(data["attempts"], {uid})
+    return {"units": unit_stats(firsts, data["qinfo"], daily.book_units(book))}

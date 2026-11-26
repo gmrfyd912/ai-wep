@@ -48,7 +48,7 @@ def _match(row, col, cond):
 
 def _filter(table, params):
     rows = TABLES.setdefault(table, [])
-    special = {"select", "order", "limit", "on_conflict", "or", "and"}
+    special = {"select", "order", "limit", "offset", "on_conflict", "or", "and"}
     out = [r for r in rows if all(_match(r, k, v) for k, v in params.items() if k not in special)]
     if "and" in params:  # and=(열.조건,열.조건)
         conds = [c.split(".", 1) for c in params["and"].strip("()").split(",")]
@@ -85,8 +85,11 @@ def select(table, params):
         for key in reversed(params["order"].split(",")):
             col, _, direction = key.partition(".")
             rows = sorted(rows, key=lambda r: (r.get(col) is None, r.get(col)), reverse=direction == "desc")
+    off = int(params.get("offset", 0))
     if "limit" in params:
-        rows = rows[: int(params["limit"])]
+        rows = rows[off: off + int(params["limit"])]
+    elif off:
+        rows = rows[off:]
     return [_project(table, r, params.get("select", "*")) for r in rows]
 
 
