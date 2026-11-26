@@ -21,7 +21,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 
 import { StudyBuddy, VOICE } from "@/components/StudyBuddy";
-import { answerTutorQuiz, askTutor, reportTutor, type DailyItem, type TutorReply, type TutorTurn } from "@/lib/api";
+import {
+  answerTutorQuiz,
+  askTutorStream,
+  reportQuestion,
+  reportTutor,
+  type DailyItem,
+  type TutorReply,
+  type TutorTurn,
+} from "@/lib/api";
 import { textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
@@ -37,6 +45,8 @@ const OX = ["O", "X"];
 /** 말 끝에 붙이면 바로 보내는 말 */
 const END_RE = /\s*(끝|다\s*했어요?|다했어요?|이상입니다|over|done|that'?s all|selesai|xong|tamom|listo|tapos na|เสร็จแล้ว)[.!?。\s]*$/i;
 /** 이 말만 하면 대화를 끝낸다 */
+/** 문장 끝 (여기까지 오면 웰디가 먼저 말한다) */
+const SENT_RE = /^[\s\S]*?(?:[.!?。！？…]+(?=\s)|\n)/;
 const CLOSE_RE =
   /^\s*(고마워요?|고맙습니다|감사합니다|감사해요|그만(해|할게|하자)?|됐어요?|thanks?( you)?|thank you|bye|stop|cảm ơn|terima kasih|rahmat|gracias|salamat|ขอบคุณ(ครับ|ค่ะ)?)[.!?\s]*$/i;
 
@@ -47,6 +57,7 @@ type Msg = {
   res?: TutorReply;
   quiz?: DailyItem;
   reported?: boolean;
+  quizReported?: boolean;
 };
 type Phase = "ready" | "thinking" | "speaking" | "follow" | "closed";
 
@@ -69,6 +80,7 @@ export default function TutorScreen() {
   const [countdown, setCountdown] = useState(0);
   const [kb, setKb] = useState(0);
   const [noVoice, setNoVoice] = useState(false); // 안드로이드인데 음성 입력 창을 못 여는 휴대폰
+  const [making, setMaking] = useState(false); // 새 문제를 만드는 중
 
   const input = useRef<TextInputInstance | null>(null);
   const list = useRef<ScrollViewInstance | null>(null);
@@ -81,6 +93,14 @@ export default function TutorScreen() {
   const textRef = useRef("");
   const focused = useRef(true);
   const voiceOpen = useRef(false);
+  // 대답을 쓰는 대로 받아 문장마다 바로 말한다
+  const queue = useRef<string[]>([]); // 아직 안 한 문장
+  const pending = useRef(""); // 아직 문장이 안 끝난 글자
+  const ended = useRef(true); // 대답을 다 받았나
+  const waiting = useRef(false); // 말을 다 하고 다음 문장을 기다리는 중
+  const silent = useRef(false); // 웰디를 눌러 멈췄으면 남은 대답은 말하지 않고 글자로만
+  const finalThen = useRef<null | (() => void)>(null); // 마지막 문장까지 말한 뒤 할 일
+  const speaking = useRef(false); // 웰디가 지금 말하는 중
 
   useFocusEffect(
     useCallback(() => {
@@ -115,6 +135,7 @@ export default function TutorScreen() {
   };
 
   const say = useCallback((s: string, then?: () => void) => {
+    speaking.current = true;
     afterSpeak.current = then ?? null;
     setLine(s);
     setNonce((n) => n + 1);
@@ -132,7 +153,7 @@ export default function TutorScreen() {
   /** 안드로이드: 구글 음성 입력 창으로 듣고, 받아쓴 말을 바로 보낸다. 말이 없거나 취소하면 대화 끝 */
   const voice = async (followUp = false) => {
     if (!focused.current || voiceOpen.current) return;
-    Speech.stop();
+    hush();
     stopTimers();
     Keyboard.dismiss();
     setPhase(followUp ? "follow" : "ready");
@@ -167,11 +188,63 @@ export default function TutorScreen() {
     input.current?.focus();
   };
 
-  /** 대답을 다 말한 뒤: 이어 듣기가 켜져 있으면 8초 동안 기다린다 */
+  /** 말 하나가 끝났을 때 */
   const onSpoken = () => {
+    speaking.current = false;
     const then = afterSpeak.current;
     afterSpeak.current = null;
     if (then) return then();
+    afterAnswer();
+  };
+
+  /** 다음 문장을 말한다. 다 말했으면 마지막 할 일 (대답을 아직 받는 중이면 기다린다) */
+  const pump = () => {
+    if (silent.current) return;
+    const next = queue.current.shift();
+    if (next) {
+      waiting.current = false;
+      say(next, pump);
+      return;
+    }
+    if (!ended.current) {
+      waiting.current = true;
+      return;
+    }
+    waiting.current = false;
+    const fin = finalThen.current;
+    finalThen.current = null;
+    if (fin) fin();
+    else afterAnswer();
+  };
+
+  /** 받은 글자에서 끝난 문장을 꺼내 말할 차례에 넣는다 */
+  const takeSentences = (flush: boolean) => {
+    let m: RegExpExecArray | null;
+    while ((m = SENT_RE.exec(pending.current))) {
+      const one = m[0].trim();
+      pending.current = pending.current.slice(m[0].length);
+      if (one) queue.current.push(one);
+    }
+    if (flush && pending.current.trim()) {
+      queue.current.push(pending.current.trim());
+      pending.current = "";
+    }
+    if (waiting.current && queue.current.length) pump();
+  };
+
+  /** 지금 하는 말과 남은 문장을 멈춘다 (대답 글자는 계속 받는다) */
+  const hush = () => {
+    Speech.stop();
+    afterSpeak.current = null;
+    silent.current = true;
+    speaking.current = false;
+    queue.current = [];
+    waiting.current = false;
+    finalThen.current = null;
+  };
+
+  /** 대답을 다 말한 뒤: 이어 듣기가 켜져 있으면 8초 동안 기다린다 */
+  const afterAnswer = () => {
     if (!follow) {
       setPhase("closed");
       Keyboard.dismiss();
@@ -202,7 +275,18 @@ export default function TutorScreen() {
       const a = msgs[i + 1];
       if (msgs[i].who === "me" && a.who === "buddy" && a.res?.reply) out.push({ q: msgs[i].text, a: a.res.reply });
     }
-    return out.slice(-3);
+    return out.slice(-5);
+  };
+
+  /** 바로 전 웰디 대답의 교재 쪽 ("그 페이지 펼쳐줘") */
+  const lastPages = (): number[] => {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const r = msgs[i].res;
+      if (msgs[i].who !== "buddy" || !r) continue;
+      const out = [...(r.open ? [r.open.page] : []), ...r.pages.map((p) => p.page), ...(r.quiz?.page ? [r.quiz.page] : [])];
+      if (out.length) return [...new Set(out)];
+    }
+    return [];
   };
 
   const replyText = (r: TutorReply) => r.reply || t(r.key ?? "tutor_aiFailed", r.params);
@@ -222,16 +306,59 @@ export default function TutorScreen() {
       return;
     }
     Speech.stop();
+    speaking.current = false;
+    afterSpeak.current = null;
     Keyboard.dismiss();
     setPhase("thinking");
+    silent.current = false;
+    queue.current = [];
+    pending.current = "";
+    ended.current = false;
+    waiting.current = false;
+    finalThen.current = null;
+    let live: number | null = null; // 흘려 받는 중인 웰디 말풍선
+    let streamed = "";
     try {
-      const r = await askTutor(q, lang, history(), ctxPage);
+      const r = await askTutorStream(q, lang, history(), ctxPage, lastPages(), (ev) => {
+        if (ev.t === "status") {
+          setMaking(ev.key === "tutor_making");
+          return;
+        }
+        streamed += ev.text;
+        if (live === null) live = push({ who: "buddy", text: streamed });
+        else {
+          const n = live;
+          const now = streamed;
+          setMsgs((cur) => cur.map((x) => (x.n === n ? { ...x, text: now } : x)));
+          setTimeout(() => list.current?.scrollToEnd({ animated: true }), 30);
+        }
+        if (silent.current) return;
+        pending.current += ev.text;
+        takeSentences(false);
+        if (!speaking.current && queue.current.length) pump(); // 첫 문장이 오면 바로 말하기 시작
+      });
+      setMaking(false);
       if (r.left !== null) setLeft(r.left);
       const s = replyText(r);
+      if (live !== null) {
+        // 흘려 받은 대답: 남은 글자를 말하고, 문제가 있으면 문제도 읽는다
+        const n = live;
+        setMsgs((cur) => cur.map((x) => (x.n === n ? { ...x, text: s, res: r, quiz: r.quiz ?? undefined } : x)));
+        ended.current = true;
+        if (silent.current) return;
+        takeSentences(true);
+        if (r.quiz) {
+          queue.current.push(quizText(r.quiz, lang));
+          finalThen.current = () => setPhase("closed"); // 문제는 보기를 누르는 동안 기다린다
+        }
+        if (waiting.current || !speaking.current) pump();
+        return;
+      }
+      ended.current = true;
       push({ who: "buddy", text: s, res: r, quiz: r.quiz ?? undefined });
       const spoken = r.quiz ? `${s} ${quizText(r.quiz, lang)}` : s;
       if (r.open && !r.reply && r.book_id) {
-        // "3장 보여줘" → 말하고 바로 교재를 연다
+        // "3장 보여줘", "그 페이지 펼쳐줘" → 말하고 바로 교재를 연다
         const bookId = r.book_id;
         const page = r.open.page;
         say(s, () => {
@@ -244,7 +371,16 @@ export default function TutorScreen() {
         say(spoken);
       }
     } catch (e) {
+      setMaking(false);
+      ended.current = true;
       const s = textbookError(t, e);
+      if (live !== null && streamed.trim()) {
+        if (!silent.current) {
+          takeSentences(true);
+          if (waiting.current || !speaking.current) pump();
+        }
+        return; // 받은 데까지 보여 준다
+      }
       push({ who: "buddy", text: s });
       say(s);
     }
@@ -253,8 +389,7 @@ export default function TutorScreen() {
   const onChange = (v: string) => {
     if (phase === "speaking") {
       // 웰디가 말하는 중에 말하기 시작하면 웰디 목소리를 멈춘다 (받아쓰기에 섞이지 않게)
-      Speech.stop();
-      afterSpeak.current = null;
+      hush();
     }
     const added = v.length - textRef.current.length;
     if (added >= 2) dictating.current = true; // 받아쓰기는 낱말째 들어온다
@@ -278,8 +413,7 @@ export default function TutorScreen() {
   /** 캐릭터 누르기: 말하는 중이면 멈추고, 쓴 말이 있으면 바로 보내고, 아니면 듣기 시작 */
   const tapBuddy = () => {
     if (phase === "speaking") {
-      Speech.stop();
-      afterSpeak.current = null;
+      hush();
       listen();
       return;
     }
@@ -293,20 +427,41 @@ export default function TutorScreen() {
     AsyncStorage.setItem(key, v ? "on" : "off");
   };
 
-  const pick = async (m: Msg, choice: number) => {
+  const pick = async (m: Msg, choice: number | string) => {
     if (!m.quiz || m.quiz.result) return;
+    hush();
     try {
       const r = await answerTutorQuiz(m.quiz.id, choice, lang);
       setMsgs((cur) => cur.map((x) => (x.n === m.n ? { ...x, quiz: r } : x)));
       const res = r.result!;
       const mine = lang !== "ko" && res.tr ? res.tr.explanation : res.explanation;
       const right = res.correct_choice ?? 0;
-      const head = res.correct
-        ? t("dq_right")
-        : t("dq_wrong", { answer: r.kind === "ox" ? OX[right] : `${MARK[right]} ${choicesOf(r, lang)[right] ?? ""}` });
-      say(`${head} ${mine}`.trim());
+      const model = lang !== "ko" && res.tr?.model_answer ? res.tr.model_answer : res.model_answer;
+      const head =
+        r.kind === "word"
+          ? res.correct === null
+            ? t("dq_pending")
+            : res.correct
+              ? t("dq_right")
+              : t("tutor_wordWrong", { answer: model })
+          : res.correct
+            ? t("dq_right")
+            : t("dq_wrong", { answer: r.kind === "ox" ? OX[right] : `${MARK[right]} ${choicesOf(r, lang)[right] ?? ""}` });
+      silent.current = false;
+      say(`${head} ${res.feedback || mine}`.trim());
     } catch (e) {
       say(textbookError(t, e));
+    }
+  };
+
+  /** 웰디가 만든 문제·은행 문제가 이상하면 신고 (웰디가 만든 문제는 바로 숨김) */
+  const reportQuiz = async (m: Msg) => {
+    if (!m.quiz || m.quizReported) return;
+    try {
+      await reportQuestion(m.quiz.id, "");
+      setMsgs((cur) => cur.map((x) => (x.n === m.n ? { ...x, quizReported: true } : x)));
+    } catch {
+      // 신고가 안 되면 그대로 둔다
     }
   };
 
@@ -322,14 +477,14 @@ export default function TutorScreen() {
 
   const openPage = (bookId: string | null, page: number) => {
     if (!bookId) return;
-    Speech.stop();
+    hush();
     stopTimers();
     router.push(`/book?id=${bookId}&page=${page}`);
   };
 
   const status =
     phase === "thinking"
-      ? t("tutor_thinking")
+      ? t(making ? "tutor_making" : "tutor_thinking")
       : phase === "follow" && countdown > 0
         ? t("tutor_follow", { n: countdown })
         : phase === "closed"
@@ -355,7 +510,17 @@ export default function TutorScreen() {
             <View key={m.n} style={styles.buddyBox}>
               <Text style={styles.buddyText}>{m.text}</Text>
               {m.res?.outside ? <Text style={styles.outside}>{t("tutor_outside")}</Text> : null}
-              {m.quiz ? <QuizCard item={m.quiz} lang={lang} onPick={(c) => pick(m, c)} /> : null}
+              {m.res?.cached ? <Text style={styles.tag}>{t("tutor_cachedTag")}</Text> : null}
+              {m.quiz ? (
+                <QuizCard
+                  item={m.quiz}
+                  lang={lang}
+                  made={!!m.res?.made}
+                  reported={!!m.quizReported}
+                  onPick={(c) => pick(m, c)}
+                  onReport={() => reportQuiz(m)}
+                />
+              ) : null}
               <View style={styles.chipRow}>
                 {(m.res?.pages ?? []).map((p) => (
                   <Pressable key={p.page} style={styles.chip} onPress={() => openPage(m.res!.book_id, p.page)}>
@@ -409,8 +574,7 @@ export default function TutorScreen() {
           {ANDROID && !noVoice && !text.trim() ? (
             <Pressable
               onPress={() => {
-                Speech.stop();
-                afterSpeak.current = null;
+                hush();
                 voice();
               }}
               disabled={phase === "thinking"}
@@ -457,15 +621,33 @@ const questionOf = (q: DailyItem, lang: string) => (lang !== "ko" && q.tr ? q.tr
 const choicesOf = (q: DailyItem, lang: string) => (lang !== "ko" && q.tr?.choices?.length ? q.tr.choices : q.choices);
 const quizText = (q: DailyItem, lang: string) => questionOf(q, lang);
 
-function QuizCard({ item, lang, onPick }: { item: DailyItem; lang: string; onPick: (c: number) => void }) {
+function QuizCard({
+  item,
+  lang,
+  made,
+  reported,
+  onPick,
+  onReport,
+}: {
+  item: DailyItem;
+  lang: string;
+  made: boolean;
+  reported: boolean;
+  onPick: (c: number | string) => void;
+  onReport: () => void;
+}) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
+  const [word, setWord] = useState("");
   const res = item.result;
-  const choose = (c: number) => {
+  const choose = (c: number | string) => {
     if (busy || res) return;
     setBusy(true);
     onPick(c);
   };
+  useEffect(() => {
+    if (res) setBusy(false);
+  }, [res]);
   const tone = (i: number) => {
     if (!res) return null;
     if (i === res.correct_choice) return styles.optRight;
@@ -473,11 +655,15 @@ function QuizCard({ item, lang, onPick }: { item: DailyItem; lang: string; onPic
     return null;
   };
   const explanation = res ? (lang !== "ko" && res.tr ? res.tr.explanation : res.explanation) : "";
+  const model = res ? (lang !== "ko" && res.tr?.model_answer ? res.tr.model_answer : res.model_answer) : "";
+  const kindLabel = item.kind === "ox" ? t("dq_ox") : item.kind === "word" ? t("dq_word") : t("dq_mc");
   return (
     <View style={styles.quiz}>
       <Text style={styles.quizKind}>
-        {item.kind === "ox" ? t("dq_ox") : t("dq_mc")} · {t("tutor_practice")}
+        {kindLabel} · {t("tutor_practice")}
+        {item.printed_page ? ` · ${t("dq_pageShort", { page: item.printed_page })}` : ""}
       </Text>
+      {made ? <Text style={styles.tag}>{t("tutor_madeTag")}</Text> : null}
       <Text style={styles.quizQ}>{questionOf(item, lang)}</Text>
       {item.kind === "ox" ? (
         <View style={styles.oxRow}>
@@ -487,6 +673,32 @@ function QuizCard({ item, lang, onPick }: { item: DailyItem; lang: string; onPic
             </Pressable>
           ))}
         </View>
+      ) : item.kind === "word" ? (
+        res ? (
+          <Text style={styles.optText}>
+            {t("dq_myAnswer")}: {res.answer}
+          </Text>
+        ) : (
+          <View style={styles.wordRow}>
+            <TextInput
+              value={word}
+              onChangeText={setWord}
+              placeholder={t("dq_wordPh")}
+              placeholderTextColor={colors.faint}
+              style={styles.wordInput}
+              onSubmitEditing={() => word.trim() && choose(word.trim())}
+              returnKeyType="send"
+            />
+            <Pressable
+              style={[styles.sendBtn, (!word.trim() || busy) && { opacity: 0.4 }]}
+              onPress={() => word.trim() && choose(word.trim())}
+              disabled={!word.trim() || busy}
+              accessibilityLabel={t("dq_submit")}
+            >
+              <Ionicons name="arrow-up" size={20} color={colors.text} />
+            </Pressable>
+          </View>
+        )
       ) : (
         choicesOf(item, lang).map((c, i) => (
           <Pressable key={i} style={[styles.opt, tone(i)]} onPress={() => choose(i)} disabled={!!res}>
@@ -497,13 +709,25 @@ function QuizCard({ item, lang, onPick }: { item: DailyItem; lang: string; onPic
         ))
       )}
       {res ? (
-        <Text style={[styles.quizRes, { color: res.correct ? colors.success : colors.danger }]}>
-          {res.correct ? t("dq_right") : t("dq_legendWrong")}
-          {explanation ? ` · ${explanation}` : ""}
+        <Text
+          style={[
+            styles.quizRes,
+            { color: res.correct === null ? colors.warning : res.correct ? colors.success : colors.danger },
+          ]}
+        >
+          {res.correct === null ? t("dq_legendPending") : res.correct ? t("dq_right") : t("dq_legendWrong")}
+          {item.kind === "word" && model ? ` · ${t("dq_modelAnswer")}: ${model}` : ""}
+          {res.feedback ? ` · ${res.feedback}` : explanation ? ` · ${explanation}` : ""}
         </Text>
       ) : busy ? (
         <ActivityIndicator color={colors.primary} />
       ) : null}
+      <Pressable style={styles.flag} onPress={onReport} hitSlop={8} disabled={reported}>
+        <Ionicons name={reported ? "flag" : "flag-outline"} size={13} color={reported ? colors.warning : colors.faint} />
+        <Text style={[styles.flagText, reported && { color: colors.warning }]}>
+          {reported ? t("dq_reported") : t("dq_report")}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -548,4 +772,7 @@ const styles = StyleSheet.create({
   optRight: { borderColor: colors.success, backgroundColor: "#12301F" },
   optWrong: { borderColor: colors.danger, backgroundColor: "#3A1414" },
   quizRes: { fontSize: 13, lineHeight: 19 },
+  tag: { color: colors.primary, fontSize: 12 },
+  wordRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  wordInput: { flex: 1, color: colors.text, backgroundColor: colors.card, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, paddingHorizontal: space.md, paddingVertical: 8, fontSize: 15 },
 });

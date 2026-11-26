@@ -691,7 +691,13 @@ def report_question(body: ReportBody, user=Depends(accounts.current_user)):
     store.insert_rows("question_reports", {"question_id": q["id"], "user_id": user["id"], "reason": body.reason.strip()[:300]},
                       returning=False)
     n = len(store.select("question_reports", {"question_id": f"eq.{q['id']}", "select": "id"}))
-    store.patch("quiz_questions", {"id": f"eq.{q['id']}"}, {"report_count": n})
+    fields = {"report_count": n}
+    try:  # 웰디가 교육생 요청으로 만든 문제는 신고되면 바로 숨긴다 (관리자가 문제 은행 '신고됨'에서 살리거나 지움)
+        if (store.select("quiz_questions", {"id": f"eq.{q['id']}", "select": "source"}) or [{}])[0].get("source") == "tutor":
+            fields["status"] = "hidden"
+    except Exception:  # noqa: BLE001  (step10 SQL 전)
+        pass
+    store.patch("quiz_questions", {"id": f"eq.{q['id']}"}, fields)
     return {"ok": True}
 
 
@@ -799,14 +805,22 @@ def admin_quiz_start(book_id: str, body: QuizStart, user=Depends(need_admin)):
 @router.get("/admin/textbooks/{book_id}/questions")
 def admin_questions(book_id: str, filter: str = "all", kind: str = "", user=Depends(need_admin)):
     book = textbook._get(book_id)
-    params = {"book_id": f"eq.{book_id}", "select": QSEL + ",report_count,created_at", "order": "unit_key.asc,created_at.asc"}
+    params = {"book_id": f"eq.{book_id}", "select": QSEL + ",report_count,created_at,source", "order": "unit_key.asc,created_at.asc"}
+    if filter == "tutor":  # 웰디(교육생 요청)로 만든 문제
+        params["source"] = "eq.tutor"
     if filter == "reported":
         params["report_count"] = "gt.0"
     elif filter == "hidden":
         params["status"] = "neq.active"
     if kind in KINDS:
         params["kind"] = f"eq.{kind}"
-    rows = store.select("quiz_questions", params)
+    try:
+        rows = store.select("quiz_questions", params)
+    except Exception:  # noqa: BLE001  (step10 SQL 전: 만든 사람 칸이 없음)
+        if filter == "tutor":
+            return {"items": [], "offset": book.get("page_offset") or 0}
+        params["select"] = QSEL + ",report_count,created_at"
+        rows = store.select("quiz_questions", params)
     order = {k: i for i, (k, *_) in enumerate(book_units(book))}
     rows.sort(key=lambda r: (order.get(r["unit_key"], 999), KINDS.index(r["kind"]) if r["kind"] in KINDS else 9))
     reasons = {}
@@ -818,6 +832,7 @@ def admin_questions(book_id: str, filter: str = "all", kind: str = "", user=Depe
     for r in rows:
         r.pop("translations", None)
         r["reasons"] = reasons.get(r["id"], [])
+        r["source"] = r.get("source") or "admin"
     return {"items": rows, "offset": book.get("page_offset") or 0}
 
 

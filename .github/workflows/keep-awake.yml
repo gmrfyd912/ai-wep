@@ -1,0 +1,21 @@
+# 수업 시간에 무료 서버(Render)가 잠들지 않게 10분마다 살짝 두드린다.
+# 시간은 예시이니 본인 값으로: 평일 08:30~18:00 (한국 시간). GitHub 시간은 UTC 라서 한국 시간 - 9시간.
+# 끄려면 GitHub › Actions › keep-awake › ··· › Disable workflow.
+name: keep-awake
+
+on:
+  schedule:
+    - cron: "30-59/10 23 * * 0-4"   # 한국 평일 08:30~08:50
+    - cron: "*/10 0-8 * * 1-5"      # 한국 평일 09:00~17:50
+    - cron: "0 9 * * 1-5"           # 한국 평일 18:00
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 서버 깨우기
+        run: curl -fsS --max-time 120 https://ai-wep-server.onrender.com/health || true
