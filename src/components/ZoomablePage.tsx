@@ -87,8 +87,10 @@ export function ZoomablePage({
       sy.value = ty.value;
     },
   });
+  // 손가락이 거의 움직이지 않은 짧은 누름만 톡으로 친다 (밀어서 쪽을 넘길 때 톡으로 잘못 알지 않게)
   const doubleTap = useTapGesture({
     numberOfTaps: 2,
+    maxDistance: 10,
     onActivate: () => {
       "worklet";
       if (scale.value > 1) {
@@ -109,6 +111,8 @@ export function ZoomablePage({
   const tap = () => onTap?.();
   const singleTap = useTapGesture({
     numberOfTaps: 1,
+    maxDistance: 10,
+    maxDuration: 250,
     onActivate: () => {
       "worklet";
       runOnJS(tap)();
@@ -125,7 +129,7 @@ export function ZoomablePage({
   const body = (
     <GestureDetector gesture={gesture}>
       <Animated.View style={[{ width, height: imgH }, style]}>
-        <Image source={{ uri, cacheKey }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" transition={100} />
+        <Image source={{ uri, cacheKey }} style={StyleSheet.absoluteFill} contentFit="contain" allowDownscaling={false} cachePolicy="memory-disk" transition={100} />
       </Animated.View>
     </GestureDetector>
   );
