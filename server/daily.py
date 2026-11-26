@@ -3,6 +3,7 @@
 - 문제 종류 4가지: ox(OX), mc(객관식 4지선다), word(주관식 단답형), short(주관식 서술형 — 예전 '주관식').
 - 문제 은행: 관리자가 범위(장 고르기 또는 쪽 범위)와 종류별 개수를 정해 누르면 AI 가 장마다 글자를 읽고 만들어 은행에 더한다 (뒤에서).
 - 매일 문제: 교육생마다 하루 종류별 개수 (기본 객관식 2 + 서술형 1, 관리자 설정). 본 장 위주, 전에 틀린 장 먼저, 30일 안에 낸 문제는 다시 안 냄.
+  관리자가 개수를 바꾸면 오늘 문제에도 바로 맞춘다 (이미 푼 문제는 그대로).
 - 채점: OX·객관식은 바로, 단답형은 정답 목록과 맞춰 보고 애매하면 AI, 서술형은 AI(0~10점, 해설).
   AI 가 안 되면 '채점 대기'로 두고 교사가 점수를 넣는다.
 - 번역: 문제는 한국어로 만들고, 교육생 앱 언어로 한 번 번역해 저장해 둔다.
@@ -431,10 +432,12 @@ def _wrong_units(user_id, book_id=None):
     return out
 
 
-def pick_questions(user_id, book, day, rng=random):
-    """오늘 문제 고르기 → 문제 id 목록 (OX → 객관식 → 단답형 → 서술형 순)."""
-    st = settings()
+def pick_questions(user_id, book, day, rng=random, counts=None, exclude=()):
+    """오늘 문제 고르기 → 문제 id 목록 (OX → 객관식 → 단답형 → 서술형 순). counts 가 없으면 관리자 설정 개수."""
+    st = counts or settings()
+    exclude = set(exclude)
     pool = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "status": "eq.active", "select": "id,unit_key,kind"})
+    pool = [q for q in pool if q["id"] not in exclude]
     if not pool:
         return []
     units = book_units(book)
@@ -449,7 +452,7 @@ def pick_questions(user_id, book, day, rng=random):
     recent = _recent_ids(user_id, day)
     picked = []
     for kind in KINDS:
-        n = st[kind]
+        n = st.get(kind, 0)
         if not n:
             continue
         cands = [q for q in pool if q["kind"] == kind and q["id"] not in recent and q["unit_key"] in read]
@@ -472,10 +475,39 @@ def pick_questions(user_id, book, day, rng=random):
     return picked
 
 
+def fit_set(user, book, day, row):
+    """관리자가 매일 문제 개수를 바꾸면 오늘 문제에도 바로 맞춘다: 이미 푼 문제는 그대로 두고,
+    안 푼 문제를 종류별 새 개수에 맞게 빼거나 새로 골라 더한다."""
+    ids = list(row.get("question_ids") or [])
+    kinds = {q["id"]: q["kind"] for q in store.select("quiz_questions", {"id": f"in.({','.join(ids)})", "select": "id,kind"})} if ids else {}
+    st = settings()
+    have = {k: [i for i in ids if kinds.get(i) == k] for k in KINDS}
+    if all(len(have[k]) == st[k] for k in KINDS) and len(kinds) == len(ids):
+        return row
+    answered = set(_answers(user["id"], day))
+    keep, need = {}, {}
+    for k in KINDS:
+        done = [i for i in have[k] if i in answered]
+        left = [i for i in have[k] if i not in answered]
+        n = max(st[k] - len(done), 0)
+        keep[k] = done + left[:n]
+        need[k] = n - len(left[:n])
+    extra = pick_questions(user["id"], book, day, counts=need, exclude=ids) if any(need.values()) else []
+    extra_kinds = {q["id"]: q["kind"] for q in store.select("quiz_questions", {"id": f"in.({','.join(extra)})", "select": "id,kind"})} if extra else {}
+    new = []
+    for k in KINDS:
+        new += keep[k] + [i for i in extra if extra_kinds.get(i) == k]
+    new += [i for i in ids if i in answered and i not in new]  # 지워진 문제라도 이미 푼 것은 남김
+    if not new or new == ids:
+        return row
+    store.patch("daily_sets", {"user_id": f"eq.{user['id']}", "day": f"eq.{day.isoformat()}"}, {"question_ids": new})
+    return {**row, "question_ids": new}
+
+
 def get_or_make_set(user, book, day):
     rows = store.select("daily_sets", {"user_id": f"eq.{user['id']}", "day": f"eq.{day.isoformat()}", "select": "*"})
     if rows:
-        return rows[0]
+        return fit_set(user, book, day, rows[0])
     ids = pick_questions(user["id"], book, day)
     if not ids:
         return None

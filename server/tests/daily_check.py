@@ -202,6 +202,17 @@ def main():
     assert [i["kind"] for i in d4["items"]] == ["mc", "mc", "mc", "short", "short"], d4
     assert qid not in [i["id"] for i in d4["items"]]  # 숨긴 문제는 안 나옴
 
+    # 개수를 바꾸면 오늘 문제에 바로 맞춤: 푼 문제는 그대로, 안 푼 문제만 빼거나 더함
+    d4b = c.get("/daily", headers=S2).json()
+    first = d4b["items"][0]
+    qf = next(x for x in db.TABLES["quiz_questions"] if x["id"] == first["id"])
+    c.post("/daily/answer", json={"question_id": first["id"], "answer": qf["answer"]}, headers=S2)  # 객관식 1개 풂
+    c.put("/admin/daily-settings", json={"ox": 2, "mc": 0, "short": 1}, headers=A)
+    d4c = c.get("/daily", headers=S2).json()
+    assert [i["kind"] for i in d4c["items"]] == ["ox", "ox", "mc", "short"], d4c  # 푼 객관식은 남음
+    assert d4c["items"][2]["id"] == first["id"] and d4c["items"][2]["result"], d4c
+    assert d4c["items"][3]["id"] == d4b["items"][3]["id"]  # 안 푼 서술형 하나는 그대로
+
     # OX·단답형: 하루 OX 1 + 단답형 2
     c.put("/admin/daily-settings", json={"ox": 1, "word": 2}, headers=A)
     daily.today = lambda now=None: yesterday + timedelta(days=3)

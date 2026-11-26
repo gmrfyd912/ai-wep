@@ -924,7 +924,7 @@ const ko = {
   qb_remakeConfirm: "지금 문제 은행의 문제가 모두 지워지고 새로 만들어요. 고친 문제도 사라져요.",
   qb_hint: "목차를 고친 뒤에 만들어 주세요. 목차의 장마다 문제가 만들어져요.",
   qb_settings: "매일 문제 개수",
-  qb_settingsHint: "교육생 한 명이 하루에 푸는 문제 수 (지금 {{n}}문제, 합계 1~8). 바꾸면 내일 문제부터 적용돼요.",
+  qb_settingsHint: "교육생 한 명이 하루에 푸는 문제 수 (지금 {{n}}문제, 합계 1~8). 바꾸면 오늘 문제에도 바로 적용돼요 (이미 푼 문제는 그대로).",
   qb_filterAll: "전체",
   qb_filterReported: "신고됨",
   qb_filterHidden: "숨김",
