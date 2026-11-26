@@ -10,6 +10,7 @@
 import random
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -244,6 +245,7 @@ TUTOR_SYSTEM = """You are Weldy (웰디), a friendly study buddy inside a weldin
 Trainees and teachers talk to you by voice; your reply is read aloud by a phone voice and shown as a subtitle.
 Rules:
 - Reply in {lang}. 2 to 4 short spoken sentences. No markdown, no lists, no emoji, no URLs.
+  Inside the "reply" text never use the double-quote character; use 「 」 or ' ' instead.
 - Base the answer on the TEXTBOOK EXCERPTS (scanned text, may be noisy). Each excerpt starts with its printed page like [p.123].
   Put the printed page numbers you actually used in "pages".
 - If the excerpts do not cover it but it is about welding or the trainee's study, answer briefly from general welding knowledge,
@@ -271,20 +273,95 @@ def korean_query(text):
         return text
 
 
-def ask_ai(book, text, lang, history, near):
+class TutorError(Exception):
+    """대답을 못 만든 이유 (앱이 이유를 말해 준다): key busy timeout network pages refusal config other"""
+
+    def __init__(self, code, detail=""):
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+FAIL_CODES = ("key", "busy", "timeout", "network", "pages", "refusal", "config", "other")
+
+
+def call_ai(system, prompt, max_tokens, timeout=45):
+    """Claude 에게 묻고 글자를 돌려받는다. 잠깐 바쁘거나 끊기면 한 번 더 해 본다."""
     import report
+    if not report.configured():
+        raise TutorError("config")
+    anthropic, client = daily._client(timeout)
+    last = "other"
+    for attempt in range(2):
+        try:
+            resp = client.beta.messages.create(
+                model=report.model_name(),
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            break
+        except anthropic.AuthenticationError as e:
+            raise TutorError("key", str(e)[:160])
+        except anthropic.RateLimitError:
+            last = "busy"
+        except anthropic.APITimeoutError:
+            last = "timeout"
+        except anthropic.APIConnectionError:
+            last = "network"
+        except anthropic.APIStatusError as e:
+            if e.status_code in (500, 502, 503, 504, 529):
+                last = "busy"
+            else:
+                raise TutorError("other", f"{e.status_code} {str(e)[:160]}")
+        if attempt == 0:
+            time.sleep(1.5)
+    else:
+        raise TutorError(last)
+    if resp.stop_reason == "refusal":
+        raise TutorError("refusal")
+    return "".join(b.text for b in resp.content if b.type == "text").strip()
+
+
+def read_reply(text):
+    """AI 대답 → dict. JSON 모양이 아니거나 중간에 끊겨도 글자가 있으면 그 글자를 대답으로 쓴다."""
+    out = daily.parse_json(text)
+    if out is not None and str(out.get("reply") or "").strip():
+        return out
+    # JSON 이 깨졌으면 (대답 안에 따옴표가 그대로 있거나 중간에 끊김) "reply": "…" 부분만 꺼낸다
+    m = re.search(r'"reply"\s*:\s*"(.*?)"\s*(?:,\s*"(?:pages|outside|offtopic|open_page|quiz)"|}\s*$)', text or "", re.S)
+    v = m.group(1) if m else None
+    if v is None:
+        m = re.search(r'"reply"\s*:\s*"(.*)', text or "", re.S)  # 끊긴 경우
+        v = m.group(1).rstrip('"} \n') if m else None
+    if v is not None:
+        pm = re.search(r'"pages"\s*:\s*\[([\d,\s]*)\]', text or "")
+        pages = [int(x) for x in re.findall(r"\d+", pm.group(1))] if pm else []
+        return {"reply": v.replace('\\"', '"').replace("\\n", " "), "pages": pages}
+    plain = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", (text or "").strip())
+    plain = re.sub(r"[{}]", "", plain).strip() if plain.startswith("{") else plain
+    return {"reply": plain}
+
+
+def ask_ai(book, text, lang, history, near):
     offset = book.get("page_offset") or 0
-    texts, _ = _index(book)
+    try:
+        texts, _ = _index(book)
+    except Exception as e:  # noqa: BLE001
+        raise TutorError("pages", str(e)[:160])
     pages = find_pages(book, korean_query(text), near)
     excerpts = "\n\n".join(f"[p.{p - offset}]\n{texts.get(p, '')[:PAGE_CHARS]}" for p in pages) or "(no matching pages)"
     hist = "\n".join(f"Trainee: {h.q}\nWeldy: {h.a}" for h in history[-HISTORY:] if h.q or h.a)
     prompt = (f"TEXTBOOK EXCERPTS:\n{excerpts}\n\n"
               + (f"RECENT CONVERSATION:\n{hist}\n\n" if hist else "")
               + f"TRAINEE NOW SAYS:\n{text}")
-    out = daily._ask(report.model_name(), TUTOR_SYSTEM.format(lang=daily.LANG_NAMES.get(lang, "Korean")), prompt, 700, timeout=60)
+    raw = call_ai(TUTOR_SYSTEM.format(lang=daily.LANG_NAMES.get(lang, "Korean")), prompt, 1200)
+    out = read_reply(raw)
     reply = re.sub(r"[*#`>]+", "", str(out.get("reply") or "")).strip()[:800]
     if not reply:
-        raise RuntimeError("dq_ai_failed: empty")
+        raise TutorError("other", "empty reply")
     used = []
     for v in out.get("pages") or []:
         try:
@@ -391,7 +468,8 @@ def ask(body: AskBody, user=Depends(accounts.current_user)):
     if not book.get("use_for_ai", True):
         return done({**base, "key": "tutor_aiOff"}, "blocked")
     if not report.configured():
-        return done({**base, "key": "tutor_aiFailed"}, "failed")
+        row["answer"] = "error: config"
+        return done({**base, "key": "tutor_fail_config"}, "failed")
     limit = daily_limit()
     left = None
     if user["role"] == "student":
@@ -401,9 +479,17 @@ def ask(body: AskBody, user=Depends(accounts.current_user)):
         left = limit - used - 1
     try:
         ai = ask_ai(book, text, lang, body.history, near)
+    except TutorError as e:
+        code, detail = e.code, e.detail
     except Exception as e:  # noqa: BLE001
-        print("[tutor] AI 실패", str(e)[:200], flush=True)
-        return done({**base, "key": "tutor_aiFailed", "left": None if left is None else left + 1}, "failed")
+        code, detail = "other", f"{type(e).__name__} {str(e)[:160]}"
+    else:
+        code = None
+    if code:
+        print("[tutor] AI 실패", code, detail, flush=True)
+        row["answer"] = f"error: {code} {detail}"[:500]
+        return done({**base, "key": f"tutor_fail_{code}", "params": {"code": (detail or code)[:80]},
+                     "left": None if left is None else left + 1}, "failed")
     row.update(answer=ai["reply"], pages=ai["pages"], ai=True)
     out = {**base, "reply": ai["reply"], "pages": _pages_out(ai["pages"], offset), "outside": ai["outside"], "left": left}
     if ai["open"]:

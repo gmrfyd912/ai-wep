@@ -1012,6 +1012,14 @@ const id: Translation = {
   tutor_noVoice: "Ponsel ini tidak bisa membuka input suara. Pakai 🎤 di papan ketik atau ketik saja.",
   tutor_voicePrompt: "Bicara ke Weldy",
   tutor_mic: "Bicara",
+  tutor_fail_key: "Ada masalah dengan kunci AI, jadi aku tidak bisa menjawab. Beri tahu admin.",
+  tutor_fail_busy: "AI sedang sibuk. Coba tanya lagi sekitar 10 detik lagi.",
+  tutor_fail_timeout: "Membuat jawaban terlalu lama. Tanyakan lebih singkat lalu coba lagi.",
+  tutor_fail_network: "Tidak bisa terhubung ke server AI. Coba tanya lagi sebentar lagi.",
+  tutor_fail_pages: "Teks buku ajar tidak bisa dimuat. Coba tanya lagi sebentar lagi.",
+  tutor_fail_refusal: "Aku tidak bisa menjawab pertanyaan ini. Coba tanya dengan cara lain.",
+  tutor_fail_config: "AI belum diatur. Beri tahu admin.",
+  tutor_fail_other: "Tidak bisa menjawab karena kesalahan tak dikenal. Beri tahu admin: {{code}}",
 };
 
 export default id;

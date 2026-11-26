@@ -1012,6 +1012,14 @@ const uz: Translation = {
   tutor_noVoice: "Bu telefonda ovozli kiritishni ochib bo'lmaydi. Klaviaturadagi 🎤 dan foydalaning yoki yozing.",
   tutor_voicePrompt: "Weldyga gapiring",
   tutor_mic: "Gapirish",
+  tutor_fail_key: "AI kalitida muammo bor, javob bera olmayman. Administratorga ayting.",
+  tutor_fail_busy: "Hozir AI band. Taxminan 10 soniyadan keyin qayta so'rang.",
+  tutor_fail_timeout: "Javob tayyorlash juda uzoq davom etdi. Qisqaroq so'rab qayta urinib ko'ring.",
+  tutor_fail_network: "AI serveriga ulanib bo'lmadi. Birozdan keyin qayta so'rang.",
+  tutor_fail_pages: "Darslik matnini yuklab bo'lmadi. Birozdan keyin qayta so'rang.",
+  tutor_fail_refusal: "Bu savolga javob bera olmayman. Boshqacha so'rang.",
+  tutor_fail_config: "AI hali sozlanmagan. Administratorga ayting.",
+  tutor_fail_other: "Noma'lum xato tufayli javob bera olmadim. Administratorga buni ayting: {{code}}",
 };
 
 export default uz;

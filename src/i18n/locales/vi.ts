@@ -1012,6 +1012,14 @@ const vi: Translation = {
   tutor_noVoice: "Điện thoại này không mở được nhập giọng nói. Hãy dùng 🎤 trên bàn phím hoặc gõ chữ.",
   tutor_voicePrompt: "Hãy nói với Weldy",
   tutor_mic: "Nói",
+  tutor_fail_key: "Khóa AI có vấn đề nên tôi không trả lời được. Hãy báo quản trị viên.",
+  tutor_fail_busy: "AI đang bận. Hãy hỏi lại sau khoảng 10 giây.",
+  tutor_fail_timeout: "Tạo câu trả lời mất quá lâu. Hãy hỏi ngắn hơn rồi thử lại.",
+  tutor_fail_network: "Không kết nối được máy chủ AI. Hãy hỏi lại sau ít phút.",
+  tutor_fail_pages: "Không tải được nội dung giáo trình. Hãy hỏi lại sau ít phút.",
+  tutor_fail_refusal: "Tôi không thể trả lời câu này. Hãy hỏi theo cách khác.",
+  tutor_fail_config: "AI chưa được cài đặt. Hãy báo quản trị viên.",
+  tutor_fail_other: "Không trả lời được do lỗi không rõ. Hãy báo quản trị viên nội dung này: {{code}}",
 };
 
 export default vi;
