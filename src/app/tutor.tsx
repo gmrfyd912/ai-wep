@@ -347,7 +347,12 @@ export default function TutorScreen() {
         ended.current = true;
         if (silent.current) return;
         takeSentences(true);
-        if (r.quiz) {
+        if (r.open && r.book_id) {
+          // "그 페이지 보여줘" 를 AI 가 알아들었으면: 다 말한 뒤 이어 듣기 대신 교재를 연다
+          const bookId = r.book_id;
+          const page = r.open.page;
+          finalThen.current = () => openBook(bookId, page);
+        } else if (r.quiz) {
           queue.current.push(quizText(r.quiz, lang));
           finalThen.current = () => setPhase("closed"); // 문제는 보기를 누르는 동안 기다린다
         }
@@ -357,14 +362,11 @@ export default function TutorScreen() {
       ended.current = true;
       push({ who: "buddy", text: s, res: r, quiz: r.quiz ?? undefined });
       const spoken = r.quiz ? `${s} ${quizText(r.quiz, lang)}` : s;
-      if (r.open && !r.reply && r.book_id) {
-        // "3장 보여줘", "그 페이지 펼쳐줘" → 말하고 바로 교재를 연다
+      if (r.open && r.book_id) {
+        // "3장 보여줘", "그 페이지 펼쳐줘" → 말하고 바로 교재를 연다 (이어 듣기 안 함)
         const bookId = r.book_id;
         const page = r.open.page;
-        say(s, () => {
-          setPhase("closed");
-          router.push(`/book?id=${bookId}&page=${page}`);
-        });
+        say(s, () => openBook(bookId, page));
       } else if (r.quiz) {
         say(spoken, () => setPhase("closed")); // 문제는 보기를 누르는 동안 기다린다
       } else {
@@ -473,6 +475,13 @@ export default function TutorScreen() {
     } catch {
       // 신고가 안 되면 그대로 둔다
     }
+  };
+
+  /** 말을 마친 뒤 교재 쪽 열기 (대화는 끝, 돌아오면 웰디를 눌러 다시 이야기) */
+  const openBook = (bookId: string, page: number) => {
+    stopTimers();
+    setPhase("closed");
+    if (focused.current) router.push(`/book?id=${bookId}&page=${page}`);
   };
 
   const openPage = (bookId: string | null, page: number) => {
