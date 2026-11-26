@@ -104,8 +104,8 @@ def _index(book):
     return texts, idx
 
 
-def find_pages(book, query, near=None, k=PICK_PAGES):
-    """질문과 낱말이 많이 겹치는 쪽 → [PDF 쪽]. near=(시작, 끝) 이면 그 장 쪽을 조금 더 쳐준다."""
+def find_pages(book, query, near=None, k=PICK_PAGES, ranked=False):
+    """질문과 낱말이 많이 겹치는 쪽 → [PDF 쪽]. near=(시작, 끝) 이면 그 장 쪽을 조금 더 쳐준다. ranked 면 잘 맞는 순."""
     texts, idx = _index(book)
     q = set(terms(query))
     if not q:
@@ -126,7 +126,8 @@ def find_pages(book, query, near=None, k=PICK_PAGES):
     if not scores:
         return []
     best = scores[0][0]
-    return sorted(p for s, p in scores[:k] if s >= best * 0.35)
+    top = [p for s, p in scores[:k] if s >= best * 0.35]
+    return top if ranked else sorted(top)
 
 
 # ---- 같은 질문 알아보기 ----
@@ -260,10 +261,16 @@ NEW_RE = re.compile(
     r"|\bnew\b|another|one\s+more|baru|lagi|mới|khác|nueva|nuevo|otra|otro|bago|iba|yangi|boshqa|ใหม่|อีก", re.I)
 # "그 페이지", "거기" — 쪽 번호 대신 가리키는 말
 THAT_RE = re.compile(
-    r"그\s*(?:페이지|쪽|장|부분|면|내용|곳)|이\s*(?:페이지|쪽|장|부분|곳)|거기|여기|해당\s*(?:페이지|쪽|부분)|방금|아까"
+    r"그\s*(?:페이지|쪽|장|부분|면|내용|곳|거|것)|이\s*(?:페이지|쪽|장|부분|곳|내용)|거기|여기|해당\s*(?:페이지|쪽|부분|내용)|방금|아까|관련\s*(?:페이지|쪽)|그거|그것"
     r"|that\s+(?:page|part|chapter|one)|this\s+page|\bit\b|\bthere\b|halaman\s+itu|trang\s+đó|esa\s+página|pahinang\s+iyon|o['‘’]?sha\s+bet|หน้านั้น", re.I)
 ORD_RE = re.compile(r"(첫|두|세|네|[1-4])\s*번째|\b(first|second|third|fourth)\b", re.I)
 ORD_N = {"첫": 0, "두": 1, "세": 2, "네": 3, "1": 0, "2": 1, "3": 2, "4": 3, "first": 0, "second": 1, "third": 2, "fourth": 3}
+# 쪽 번호 없이 "페이지"·"쪽"만 말함 ("TIG 나오는 페이지 열어줘", "페이지 열어봐")
+PAGEWORD_RE = re.compile(r"페이지|쪽|page|halaman|trang|página|pagina|pahina|หน้า|\bbet\b|sahifa", re.I)
+# 쪽 찾기에서 뺄 군말
+FILLER_RE = re.compile(
+    r"내용|들어\s*(?:가|있)\S*|있는|나오는|나온|나와\s*있는|설명\S*|관련\S*|대한|대해|좀|줘|주세요|줄래|봐|보여|열어|펼쳐|펴|띄워|보자|볼래|볼까"
+    r"|\b(?:the|a|an|with|about|on|of|please|me)\b", re.I)
 NEXT_RE = re.compile(r"다음\s*(?:쪽|페이지|장)|next\s+page|trang\s+sau|siguiente\s+página|halaman\s+berikut", re.I)
 
 
@@ -296,10 +303,10 @@ def find_part(toc, n):
 def parse(text, toc, offset, pages):
     """→ {"page": PDF 쪽|None, "title", "range": (시작, 끝)|None, "focus": 쪽 하나를 말했으면 그 쪽,
           "open": bool, "quiz": bool, "kind": 문제 종류|None, "new": 새 문제, "that": '그 페이지'처럼 가리킴,
-          "ord": 몇 번째 쪽|None, "next": 다음 쪽}"""
+          "ord": 몇 번째 쪽|None, "next": 다음 쪽, "topic": 쪽을 찾을 낱말 ("TIG 나오는 페이지 열어줘")}"""
     t = text.strip()
     out = {"page": None, "title": "", "range": None, "focus": None, "open": False, "quiz": bool(QUIZ_RE.search(t)),
-           "kind": None, "new": False, "that": False, "ord": None, "next": False}
+           "kind": None, "new": False, "that": False, "ord": None, "next": False, "topic": ""}
     if out["quiz"]:
         out["kind"] = next((k for k, r in KIND_RE.items() if r.search(t)), None)
         out["new"] = bool(NEW_RE.search(t))
@@ -351,7 +358,12 @@ def parse(text, toc, offset, pages):
         if not out["quiz"] and OPEN_RE.search(t):
             # "그 페이지 펼쳐줘", "거기 보여줘", "펼쳐 줘" → 바로 전 대답의 쪽을 연다
             bare = re.sub(r"[\s\W_]|요$|좀|줘|주세요|줄래|봐", "", OPEN_RE.sub("", THAT_RE.sub("", t)))
-            out["open"] = out["that"] or len(bare) <= 1
+            out["open"] = out["that"] or len(bare) <= 1 or bool(PAGEWORD_RE.search(t))
+            if out["open"] and not out["that"]:
+                topic = FILLER_RE.sub(" ", PAGEWORD_RE.sub(" ", OPEN_RE.sub(" ", t)))
+                topic = re.sub(r"(?<=[가-힣])(?:이|가|을|를|은|는|에서|에|의|로|으로|이랑|랑)(?=\s|$)", "", topic)
+                topic = re.sub(r"[^\w\s]", " ", topic)
+                out["topic"] = " ".join(w for w in topic.split() if len(w) >= 2)
     return out
 
 
@@ -785,8 +797,15 @@ def run(body: AskBody, user):
     follow = is_follow(text, body.history)
     prev = last_pages(user, book, body.last_pages) if intent["that"] or intent["open"] or follow else []
 
-    # 1) 쪽·장 열기 ("그 페이지 펼쳐줘" 는 바로 전 대답의 쪽)
+    # 1) 쪽·장 열기 ("그 페이지 펼쳐줘" 는 바로 전 대답의 쪽, "TIG 나오는 페이지 열어줘" 는 찾은 쪽)
     if intent["open"] and not intent["page"]:
+        if intent["topic"]:
+            try:
+                found = find_pages(book, korean_query(intent["topic"]), near, k=3, ranked=True)
+            except Exception:  # noqa: BLE001
+                found = []
+            if found:
+                prev = found
         if not prev:
             yield done({**base, "key": "tutor_whichPage"}, "open")
             return
