@@ -1067,6 +1067,16 @@ const en: Translation = {
   tc_addHint: "Pages are printed page numbers. The numbers in the boxes are examples; enter your own.",
   tc_add: "Add",
   auth_err_tutor_check_bad: "Check the question and the answer pages.",
+  tc_hint_weldy_right: "Textbook check: the content is on p.{{page}} that Weldy chose, not on the answer page. The answer page may be wrong.",
+  tc_hint_both: "Textbook check: the content is on both the answer page and p.{{page}} that Weldy chose. Both may be right.",
+  tc_hint_weldy_wrong: "Textbook check: the content is on the answer page. Weldy was wrong. Please send a screenshot of this card.",
+  tc_hint_elsewhere: "Textbook check: not on the answer page, but on p.{{page}}. The answer page may be wrong.",
+  tc_hint_unclear: "Textbook check: hard to tell from the text alone. Please look at the textbook.",
+  tc_useHint: "Change answer to p.{{page}}",
+  tc_editTitle: "Fix answer pages",
+  tc_edit: "Fix",
+  tc_share: "Send results (copy)",
+  tc_shareHead: "Weldy check results: {{ok}} / {{total}} correct",
 
 };
 

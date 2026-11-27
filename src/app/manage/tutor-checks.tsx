@@ -1,12 +1,13 @@
 import { Redirect, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Field, Screen, SectionTitle } from "@/components/ui";
 import {
   addTutorCheck,
   deleteTutorCheck,
+  editTutorCheck,
   listTutorChecks,
   runTutorCheck,
   seedTutorChecks,
@@ -37,6 +38,8 @@ export default function TutorChecksScreen() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [editFrom, setEditFrom] = useState("");
+  const [editTo, setEditTo] = useState("");
 
   const load = useCallback(() => {
     listTutorChecks()
@@ -105,6 +108,50 @@ export default function TutorChecksScreen() {
     }
   };
 
+  const toggle = (c: TutorCheck) => {
+    const open = openId === c.id;
+    setOpenId(open ? null : c.id);
+    if (!open) {
+      setEditFrom(String(c.page_from));
+      setEditTo(String(c.page_to));
+    }
+  };
+
+  /** 정답 쪽 고치기 — 서버가 지난 대답으로 판정만 다시 한다 (AI 안 부름) */
+  const setPages = async (c: TutorCheck, a: number, b: number) => {
+    if (!a || !b || b < a) {
+      setError(t("tc_bad"));
+      return;
+    }
+    try {
+      const n = await editTutorCheck(c.id, a, b);
+      put(n);
+      setEditFrom(String(n.page_from));
+      setEditTo(String(n.page_to));
+      setError("");
+    } catch (e) {
+      setError(textbookError(t, e));
+    }
+  };
+
+  /** 결과 보내기: 공유 창에서 복사하거나 카톡으로 보낸다 */
+  const share = () => {
+    const lines = (items ?? []).map((c, i) => {
+      const m = MARK[c.last_verdict];
+      const hint = c.hint ? `\n   ${t(`tc_hint_${c.hint.kind}`, { page: c.hint.page ?? "" })}` : "";
+      return (
+        `${i + 1}. ${m?.sign ?? "·"} ${c.question}\n` +
+        `   ${t("tc_expect", { from: c.page_from, to: c.page_to })} · ` +
+        `${c.last_verdict ? (m ? t(m.key) : c.last_verdict) : t("tc_notRun")} · ` +
+        `${t("tc_got", { pages: c.last_pages.map((p) => `p.${p}`).join(", ") || "-" })} · ` +
+        `${t("tc_found", { pages: c.last_found.map((p) => `p.${p}`).join(", ") || "-" })}` +
+        hint +
+        (c.last_reply ? `\n   "${c.last_reply.replace(/\s+/g, " ").slice(0, 200)}"` : "")
+      );
+    });
+    Share.share({ message: [t("tc_shareHead", { ok, total: ran.length }), ...lines].join("\n\n") }).catch(() => {});
+  };
+
   const remove = (c: TutorCheck) =>
     confirm(t("tc_deleteTitle"), c.question, t("tc_delete"), t("common_cancel"), async () => {
       try {
@@ -139,6 +186,7 @@ export default function TutorChecksScreen() {
             onPress={runAll}
             disabled={!items.length || !!busy}
           />
+          {ran.length ? <AppButton label={t("tc_share")} icon="share-outline" variant="secondary" onPress={share} /> : null}
           {items.length === 0 ? <AppButton label={t("tc_seed")} icon="sparkles-outline" variant="secondary" onPress={seed} /> : null}
         </View>
       ) : null}
@@ -147,7 +195,7 @@ export default function TutorChecksScreen() {
         const m = MARK[c.last_verdict];
         const open = openId === c.id;
         return (
-          <Card key={c.id} onPress={() => setOpenId(open ? null : c.id)} style={{ gap: 4 }}>
+          <Card key={c.id} onPress={() => toggle(c)} style={{ gap: 4 }}>
             <View style={styles.row}>
               <Text style={[styles.sign, { color: m?.color ?? colors.faint }]}>{m?.sign ?? (c.last_verdict ? "!" : "·")}</Text>
               <Text style={[styles.q, { flex: 1 }]}>{c.question}</Text>
@@ -163,10 +211,38 @@ export default function TutorChecksScreen() {
                 {t("tc_found", { pages: c.last_found.map((p) => `p.${p}`).join(", ") || "-" })}
               </Text>
             ) : null}
+            {c.hint ? (
+              <Text style={[styles.hint, { color: c.hint.kind === "weldy_wrong" ? colors.danger : colors.primary }]}>
+                {t(`tc_hint_${c.hint.kind}`, { page: c.hint.page ?? "" })}
+              </Text>
+            ) : null}
+            {c.hint?.page && c.hint.kind !== "weldy_wrong" ? (
+              <AppButton
+                label={t("tc_useHint", { page: c.hint.page })}
+                icon="swap-horizontal-outline"
+                onPress={() => setPages(c, c.hint!.page!, c.hint!.page!)}
+                disabled={!!busy}
+              />
+            ) : null}
             {open ? (
               <View style={{ gap: space.sm, marginTop: space.xs }}>
                 {c.last_reply ? <Text style={styles.reply}>{c.last_reply}</Text> : null}
                 {c.note ? <Text style={styles.small}>{c.note}</Text> : null}
+                <Text style={styles.small}>{t("tc_editTitle")}</Text>
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Field label={t("tc_from")} value={editFrom} onChangeText={setEditFrom} keyboardType="number-pad" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field label={t("tc_to")} value={editTo} onChangeText={setEditTo} keyboardType="number-pad" />
+                  </View>
+                </View>
+                <AppButton
+                  label={t("tc_edit")}
+                  icon="create-outline"
+                  variant="secondary"
+                  onPress={() => setPages(c, Number(editFrom), editTo.trim() ? Number(editTo) : Number(editFrom))}
+                />
                 <AppButton label={t("tc_runOne")} icon="play-outline" variant="secondary" onPress={() => runOne(c)} disabled={!!busy} />
                 <Pressable onPress={() => remove(c)} hitSlop={8} style={{ alignSelf: "center", padding: space.sm }}>
                   <Text style={styles.danger}>{t("tc_delete")}</Text>
@@ -202,6 +278,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: space.sm },
   sign: { fontSize: 18, fontWeight: "800", minWidth: 20 },
   q: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  hint: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
   reply: { color: colors.text, fontSize: 13, lineHeight: 19 },
   danger: { color: colors.danger, fontSize: 13 },
 });
