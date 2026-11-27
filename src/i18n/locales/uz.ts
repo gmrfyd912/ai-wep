@@ -1390,6 +1390,8 @@ const uz: Translation = {
   gm_err_dock: "Dok darajasi yetarli emas.",
   gm_err_not_busy: "Allaqachon tugagan.",
   gm_err_network: "Serverga ulanib bo'lmadi. Birozdan keyin qayta urinib ko'ring.",
+  gm_err_old_server: "Server hali yangilanmagan. Joylash tugagach (5–10 daqiqa) qayta yuklang.",
+  gm_err_need_sql: "Administrator: Supabase'da step15-game.sql ni ishga tushiring.",
   gm_err_other: "Xatolik yuz berdi. Qayta urinib ko'ring.",
   gm_setTitle: "O'yin sozlamalari",
   gm_setDesc: "Weldyning kemasozlik zavodini yoqish/o'chirish, o'quv mukofotlari, bob mezoni",

@@ -664,7 +664,14 @@ def _seen(uid, now):
 
 @router.get("/game/state")
 def game_state(lang: str = "ko", user=Depends(need_player)):
-    s = load(user)
+    try:
+        s = load(user)
+    except RuntimeError as e:
+        m = str(e)
+        print("[game] state 실패", m[:300], flush=True)
+        if "game_" in m and ("PGRST205" in m or "42P01" in m or "does not exist" in m or "schema cache" in m):
+            _err(503, "need_sql")  # step15-game.sql 을 아직 안 돌림
+        raise
     out = view(s, lang)
     _seen(s["uid"], s["now"])
     return out

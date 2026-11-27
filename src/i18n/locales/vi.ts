@@ -1390,6 +1390,8 @@ const vi: Translation = {
   gm_err_dock: "Cấp ụ tàu chưa đủ.",
   gm_err_not_busy: "Đã xong rồi.",
   gm_err_network: "Không kết nối được máy chủ. Hãy thử lại sau.",
+  gm_err_old_server: "Máy chủ chưa được cập nhật. Hãy tải lại sau khi triển khai xong (5–10 phút).",
+  gm_err_need_sql: "Quản trị viên: hãy chạy step15-game.sql trong Supabase.",
   gm_err_other: "Có lỗi xảy ra. Vui lòng thử lại.",
   gm_setTitle: "Cài đặt trò chơi",
   gm_setDesc: "Bật/tắt Xưởng đóng tàu của Weldy, phần thưởng học tập, tiêu chí xong chương",

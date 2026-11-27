@@ -1390,6 +1390,8 @@ const es: Translation = {
   gm_err_dock: "El nivel del dique es bajo.",
   gm_err_not_busy: "Ya terminó.",
   gm_err_network: "No se pudo conectar al servidor. Inténtalo de nuevo en un momento.",
+  gm_err_old_server: "El servidor aún no está actualizado. Recarga cuando termine el despliegue (5–10 min).",
+  gm_err_need_sql: "Admin: ejecuta step15-game.sql en Supabase.",
   gm_err_other: "Algo salió mal. Inténtalo de nuevo.",
   gm_setTitle: "Ajustes del juego",
   gm_setDesc: "Activar/desactivar El astillero de Weldy, recompensas de estudio, regla de capítulo",

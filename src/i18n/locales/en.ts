@@ -1390,6 +1390,8 @@ const en: Translation = {
   gm_err_dock: "Dock level is too low.",
   gm_err_not_busy: "Already finished.",
   gm_err_network: "Couldn't reach the server. Try again shortly.",
+  gm_err_old_server: "The server isn't updated yet. Reload after the deploy finishes (5–10 min).",
+  gm_err_need_sql: "Admin: run step15-game.sql in Supabase.",
   gm_err_other: "Something went wrong. Please try again.",
   gm_setTitle: "Game settings",
   gm_setDesc: "Turn Weldy's Shipyard on/off, study rewards, chapter rule",
