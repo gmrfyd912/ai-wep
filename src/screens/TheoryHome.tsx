@@ -101,6 +101,16 @@ export function TheoryHome() {
         <AppButton label={t("lo_teacherTitle")} icon="flash-outline" onPress={() => router.push("/live-ox")} />
       ) : null}
 
+      {user && user.role === "student" ? (
+        <Card onPress={() => router.push("/game")} style={{ gap: space.xs }}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.bookTitle}>{t("gm_title")}</Text>
+            <Ionicons name="boat-outline" size={22} color={colors.primary} />
+          </View>
+          <Text style={styles.small}>{t("gm_entryDesc")}</Text>
+        </Card>
+      ) : null}
+
       {data?.book ? (
         <AppButton label={t("sb_title")} icon="podium-outline" variant="secondary" onPress={() => router.push("/study-board")} />
       ) : null}
