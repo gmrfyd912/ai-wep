@@ -1083,6 +1083,16 @@ const ko = {
   tc_addHint: "쪽은 책에 인쇄된 쪽 번호예요. 칸 안의 숫자는 예시이니 본인 값으로 넣어 주세요.",
   tc_add: "넣기",
   auth_err_tutor_check_bad: "질문과 정답 쪽을 확인해 주세요.",
+  tc_hint_weldy_right: "교재 확인: 웰디가 고른 p.{{page}}에 내용이 있고 정답 쪽에는 없어요. 정답 쪽이 틀렸을 수 있어요.",
+  tc_hint_both: "교재 확인: 정답 쪽과 웰디가 고른 p.{{page}} 모두에 내용이 있어요. 둘 다 맞을 수 있어요.",
+  tc_hint_weldy_wrong: "교재 확인: 정답 쪽에 내용이 있어요. 웰디가 틀렸어요. 이 카드를 찍어 보내 주세요.",
+  tc_hint_elsewhere: "교재 확인: 정답 쪽에는 없고 p.{{page}}에 내용이 있어요. 정답 쪽이 틀렸을 수 있어요.",
+  tc_hint_unclear: "교재 확인: 글만으로는 판단하기 어려워요. 교재를 직접 봐 주세요.",
+  tc_useHint: "정답을 p.{{page}}로 바꾸기",
+  tc_editTitle: "정답 쪽 고치기",
+  tc_edit: "고치기",
+  tc_share: "결과 보내기 (복사·카톡)",
+  tc_shareHead: "웰디 점검 결과: 맞음 {{ok}} / {{total}}개",
 } as const;
 
 export default ko;

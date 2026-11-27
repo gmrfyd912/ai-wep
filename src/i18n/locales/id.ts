@@ -1067,6 +1067,16 @@ const id: Translation = {
   tc_addHint: "Halaman adalah nomor tercetak di buku. Angka di kotak hanya contoh; isi dengan nilai Anda.",
   tc_add: "Tambah",
   auth_err_tutor_check_bad: "Periksa pertanyaan dan halaman jawaban.",
+  tc_hint_weldy_right: "Cek buku: isinya ada di hal. {{page}} yang dipilih Weldy, tidak di halaman jawaban. Halaman jawaban mungkin salah.",
+  tc_hint_both: "Cek buku: isinya ada di halaman jawaban dan hal. {{page}} pilihan Weldy. Keduanya mungkin benar.",
+  tc_hint_weldy_wrong: "Cek buku: isinya ada di halaman jawaban. Weldy salah. Kirim tangkapan layar kartu ini.",
+  tc_hint_elsewhere: "Cek buku: tidak ada di halaman jawaban, tapi ada di hal. {{page}}. Halaman jawaban mungkin salah.",
+  tc_hint_unclear: "Cek buku: sulit dinilai dari teks saja. Silakan lihat bukunya.",
+  tc_useHint: "Ubah jawaban ke hal. {{page}}",
+  tc_editTitle: "Perbaiki halaman jawaban",
+  tc_edit: "Perbaiki",
+  tc_share: "Kirim hasil (salin)",
+  tc_shareHead: "Hasil cek Weldy: benar {{ok}} / {{total}}",
 
 };
 

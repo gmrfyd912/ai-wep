@@ -1067,6 +1067,16 @@ const vi: Translation = {
   tc_addHint: "Số trang là số in trong sách. Số trong ô là ví dụ, hãy nhập số của bạn.",
   tc_add: "Thêm",
   auth_err_tutor_check_bad: "Kiểm tra lại câu hỏi và trang đáp án.",
+  tc_hint_weldy_right: "Kiểm tra giáo trình: nội dung có ở trang {{page}} Weldy chọn, không có ở trang đáp án. Trang đáp án có thể sai.",
+  tc_hint_both: "Kiểm tra giáo trình: nội dung có ở cả trang đáp án và trang {{page}} Weldy chọn. Có thể cả hai đều đúng.",
+  tc_hint_weldy_wrong: "Kiểm tra giáo trình: nội dung có ở trang đáp án. Weldy sai. Hãy chụp thẻ này gửi lại.",
+  tc_hint_elsewhere: "Kiểm tra giáo trình: không có ở trang đáp án mà có ở trang {{page}}. Trang đáp án có thể sai.",
+  tc_hint_unclear: "Kiểm tra giáo trình: khó xác định chỉ bằng chữ. Hãy xem giáo trình.",
+  tc_useHint: "Đổi đáp án thành trang {{page}}",
+  tc_editTitle: "Sửa trang đáp án",
+  tc_edit: "Sửa",
+  tc_share: "Gửi kết quả (sao chép)",
+  tc_shareHead: "Kết quả kiểm tra Weldy: đúng {{ok}} / {{total}}",
 
 };
 

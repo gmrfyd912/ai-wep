@@ -445,6 +445,21 @@ def main():
     assert tutor.judge([], "그 내용은 교재에는 없어요.", 6, 6) == "said_missing" and tutor.judge([], "음", 6, 6) == "no_page"
     items = c.get("/admin/tutor/checks", headers=A).json()["items"]
     assert len(items) == 4 and items[0]["note"].startswith("예시"), items
+    # 서버 자동 확인: 웰디가 고른 p.6 에 내용이 있고 정답 쪽(2~3)엔 없다 → 정답 쪽을 고치자고 알려 준다
+    hint = next(i for i in items if i["id"] == bad["id"])["hint"]
+    assert hint == {"kind": "weldy_right", "page": 6}, hint
+    assert next(i for i in items if i["id"] == good["id"])["hint"] is None
+    assert tutor.check_hint(tutor.textbook.current_book(), {"question": "예열 온도에 대해 설명해 줘", "page_from": 2, "page_to": 2,
+                                                        "last_verdict": "no_page"}, 0) == {"kind": "elsewhere", "page": 7}
+    assert tutor.check_hint(tutor.textbook.current_book(), {"question": "예열 온도", "page_from": 7, "page_to": 7,
+                                                        "last_verdict": "wrong_page", "last_pages": [2]}, 0)["kind"] == "weldy_wrong"
+    # 정답 쪽 고치기 → AI 다시 안 부르고 판정만 다시
+    n = len(CALLS)
+    fixed = c.patch(f"/admin/tutor/checks/{bad['id']}", json={"page_from": 6}, headers=A).json()
+    assert fixed["page_from"] == 6 and fixed["page_to"] == 6 and fixed["last_verdict"] == "ok" and fixed["hint"] is None, fixed
+    assert len(CALLS) == n
+    assert c.patch(f"/admin/tutor/checks/{bad['id']}", json={"page_from": 5, "page_to": 3}, headers=A).status_code == 400
+    assert c.patch(f"/admin/tutor/checks/{bad['id']}", json={"page_from": 5}, headers=S1).status_code == 403
     assert c.delete(f"/admin/tutor/checks/{bad['id']}", headers=A).json()["ok"]
     assert len(c.get("/admin/tutor/checks", headers=A).json()["items"]) == 3
 

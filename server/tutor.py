@@ -1181,11 +1181,55 @@ class CheckBody(BaseModel):
     note: str = ""
 
 
-def _check_out(r, offset):
+ASK_TAIL_RE = re.compile(r"(?:에\s*대해(?:서)?|이?란|가|이|은|는)?\s*(?:자세히\s*)?(?:설명|알려|가르쳐)\S*\s*(?:줘|주세요|줄래)?\s*[?.!]*\s*$")
+
+
+def _share(book, page, words):
+    """그 쪽(PDF 쪽)에 질문 낱말이 몇 할 들어 있나."""
+    _, idx = _index(book)
+    tf = idx["tf"].get(page) or {}
+    return sum(1 for w in words if w in tf) / len(words) if words else 0.0
+
+
+def check_hint(book, r, offset):
+    """엉뚱한 쪽·근거 쪽 없음일 때 서버가 교재 글로 다시 본다 (AI 안 씀, 바로 끝남).
+    weldy_right 웰디 쪽에 내용이 있고 정답 쪽엔 없음 → 정답 쪽을 고치자 / both 둘 다 있음 /
+    weldy_wrong 정답 쪽에만 있음 → 웰디 잘못 / elsewhere 근거 쪽은 없지만 교재 다른 쪽에 있음 / unclear 글로는 판단 어려움."""
+    verdict = r.get("last_verdict") or ""
+    if verdict not in ("wrong_page", "no_page"):
+        return None
+    try:
+        words = key_terms(book, ASK_TAIL_RE.sub("", r["question"]).strip() or r["question"], 8)
+        if not words:
+            return {"kind": "unclear", "page": None}
+        texts, _ = _index(book)
+        a, b = r["page_from"], r["page_to"]
+        exp = max((_share(book, p + offset, words) for p in range(a, b + 1) if p + offset in texts), default=0.0)
+        if verdict == "wrong_page":
+            got = sorted(((_share(book, p + offset, words), p) for p in r.get("last_pages") or []), reverse=True)
+            best, page = got[0] if got else (0.0, None)
+            if best >= 0.5 and exp >= 0.5:
+                return {"kind": "both", "page": page}
+            if best >= 0.5:
+                return {"kind": "weldy_right", "page": page}
+            if exp >= 0.5:
+                return {"kind": "weldy_wrong", "page": None}
+            return {"kind": "unclear", "page": None}
+        if exp >= 0.5:
+            return {"kind": "weldy_wrong", "page": None}
+        other = [p - offset for p in mentions(book, r["question"]) if not a <= p - offset <= b]
+        return {"kind": "elsewhere", "page": other[0]} if other else {"kind": "unclear", "page": None}
+    except Exception as e:  # noqa: BLE001 — 힌트는 덤이라 실패해도 목록은 보여 준다
+        print("[tutor] 점검 힌트 실패", type(e).__name__, e)
+        return None
+
+
+def _check_out(r, offset, book=None):
     return {"id": r["id"], "question": r["question"], "page_from": r["page_from"], "page_to": r["page_to"],
             "note": r.get("note") or "", "last_verdict": r.get("last_verdict") or "",
             "last_pages": r.get("last_pages") or [], "last_found": r.get("last_found") or [],
-            "last_reply": r.get("last_reply") or "", "last_run_at": r.get("last_run_at")}
+            "last_reply": r.get("last_reply") or "", "last_run_at": r.get("last_run_at"),
+            "hint": check_hint(book, r, offset) if book else None}
 
 
 @router.get("/admin/tutor/checks")
@@ -1194,7 +1238,7 @@ def list_checks(user=Depends(need_admin)):
     if not book:
         return {"items": [], "book": None}
     rows = store.select("tutor_checks", {"book_id": f"eq.{book['id']}", "select": "*", "order": "created_at.asc"})
-    return {"items": [_check_out(r, book.get("page_offset") or 0) for r in rows], "book": book.get("title") or ""}
+    return {"items": [_check_out(r, book.get("page_offset") or 0, book) for r in rows], "book": book.get("title") or ""}
 
 
 @router.post("/admin/tutor/checks")
@@ -1210,7 +1254,35 @@ def add_check(body: CheckBody, user=Depends(need_admin)):
     row = {"id": str(uuid.uuid4()), "book_id": book["id"], "question": q, "page_from": a, "page_to": b,
            "note": body.note.strip()[:200], "created_at": _now()}
     store.insert_rows("tutor_checks", row, returning=False)
-    return _check_out(row, book.get("page_offset") or 0)
+    return _check_out(row, book.get("page_offset") or 0, book)
+
+
+class CheckPagesBody(BaseModel):
+    page_from: int
+    page_to: int | None = None
+
+
+@router.patch("/admin/tutor/checks/{cid}")
+def edit_check(cid: str, body: CheckPagesBody, user=Depends(need_admin)):
+    """정답 쪽 고치기. 지난 점검 결과가 있으면 AI 다시 안 부르고 새 정답 쪽으로 판정만 다시 한다."""
+    try:
+        uuid.UUID(cid)
+    except ValueError:
+        _err(404, "not_found")
+    rows = store.select("tutor_checks", {"id": f"eq.{cid}", "select": "*"})
+    book = textbook.current_book()
+    if not rows or not book:
+        _err(404, "not_found")
+    a = body.page_from
+    b = body.page_to if body.page_to is not None else a
+    if a < 1 or b < a:
+        _err(400, "tutor_check_bad")
+    r = rows[0]
+    fields = {"page_from": a, "page_to": b}
+    if r.get("last_verdict") in ("ok", "wrong_page", "no_page", "said_missing"):
+        fields["last_verdict"] = judge(r.get("last_pages") or [], r.get("last_reply") or "", a, b)
+    store.patch("tutor_checks", {"id": f"eq.{cid}"}, fields)
+    return _check_out({**r, **fields}, book.get("page_offset") or 0, book)
 
 
 @router.delete("/admin/tutor/checks/{cid}")
@@ -1289,4 +1361,4 @@ def run_check(cid: str, user=Depends(need_admin)):
     fields = {"last_verdict": verdict, "last_pages": pages, "last_found": found, "last_reply": reply[:800],
               "last_run_at": _now()}
     store.patch("tutor_checks", {"id": f"eq.{cid}"}, fields)
-    return _check_out({**r, **fields}, offset)
+    return _check_out({**r, **fields}, offset, book)
