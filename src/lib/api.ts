@@ -1420,6 +1420,30 @@ export type StudyBoard = {
   units: BoardUnit[];
   min_rate_solved: number;
   min_wrong_users: number;
+  /** 이번 주 성장왕 (이번 주 vs 지난주 정답률) */
+  growth: BoardGrowth[];
+  min_growth: number;
+  /** 과정 대항전 */
+  courses: BoardCourse[];
+  /** 교사·행정·관리자에게만 */
+  staff: BoardStaff | null;
+};
+export type BoardGrowth = { user_id: string; name: string; last_rate: number; this_rate: number; delta: number; solved: number } & AvatarFields;
+export type BoardCourse = {
+  course_id: string;
+  name: string;
+  students: number;
+  active: number;
+  participation: number;
+  avg_solved: number;
+  avg_rate: number;
+  avg_score: number;
+};
+export type BoardStaff = {
+  idle: { user_id: string; name: string; last_day: string | null }[];
+  weak: { course_id: string; name: string; units: BoardUnit[] }[];
+  tutor_reports: { id: string; question: string; answer: string; report_note: string; reported_at: string }[];
+  question_reports: { question_id: string; question: string; book_id: string | null; reason: string; created_at: string }[];
 };
 export const getStudyBoard = (q: { course: string; period: RankPeriod; sort: BoardSort; lang: string }) =>
   request<StudyBoard>(`/study-board?${new URLSearchParams(q).toString()}`, {}, BOARD_TIMEOUT);
