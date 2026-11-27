@@ -9,6 +9,7 @@ export default function AdminHome() {
     <Screen>
       <ListRow icon="images-outline" title={t("tab_gallery")} desc={t("admin_galleryDesc")} onPress={() => router.push("/gallery")} />
       <ListRow icon="trophy-outline" title={t("tab_ranking")} desc={t("admin_rankingDesc")} onPress={() => router.push("/ranking")} />
+      <ListRow icon="flash-outline" title={t("lo_teacherTitle")} desc={t("lo_adminDesc")} onPress={() => router.push("/live-ox")} />
       <ListRow icon="podium-outline" title={t("sb_title")} desc={t("sb_desc")} onPress={() => router.push("/study-board")} />
       <ListRow icon="grid-outline" title={t("admin_boards")} desc={t("admin_boardsDesc")} onPress={() => router.push("/boards")} />
       <ListRow icon="library-outline" title={t("admin_courses")} desc={t("admin_coursesDesc")} onPress={() => router.push("/manage/courses")} />

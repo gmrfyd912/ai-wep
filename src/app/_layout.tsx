@@ -8,6 +8,7 @@ import { ActivityIndicator, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useTranslation } from "react-i18next";
 
+import { LiveOxPopup } from "@/components/LiveOxPopup";
 import { headerOptions } from "@/components/ui";
 import { loadSavedLanguage } from "@/i18n";
 import { SessionProvider, useSession } from "@/state/session";
@@ -54,6 +55,7 @@ function RootStack() {
     );
   }
   return (
+    <>
     <Stack screenOptions={{ ...headerOptions, headerBackButtonDisplayMode: "minimal" }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="language" options={{ title: t("language_title") }} />
@@ -83,6 +85,10 @@ function RootStack() {
       <Stack.Screen name="settings/profile" options={{ title: t("profile_title") }} />
       <Stack.Screen name="settings/privacy" options={{ title: t("privacy_title") }} />
       <Stack.Screen name="settings/delete-account" options={{ title: t("delete_title") }} />
+      <Stack.Screen name="live-ox" options={{ title: t("lo_teacherTitle") }} />
     </Stack>
+    {/* 수업 중 돌발 OX: 교육생은 어느 화면에서든 문제가 뜬다 */}
+    <LiveOxPopup />
+    </>
   );
 }

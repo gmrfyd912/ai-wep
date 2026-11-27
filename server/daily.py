@@ -727,7 +727,7 @@ def quiz_info(book_id, book=None):
         "status": r.get("quiz_status") or "", "done": r.get("quiz_done") or 0, "total": r.get("quiz_total") or 0,
         "error": r.get("quiz_error") or "", "running": _quiz_job["book_id"] == book_id,
         **{kind: sum(1 for q in active if q["kind"] == kind) for kind in KINDS},
-        "hidden": sum(1 for q in qs if q["status"] != "active"),
+        "hidden": sum(1 for q in qs if q["status"] == "hidden"),
         "reported": sum(1 for q in active if (q.get("report_count") or 0) > 0),
         "units": units, "offset": offset, "per_unit_default": PER_UNIT_DEFAULT, "per_unit_max": PER_UNIT_MAX,
     }
@@ -811,7 +811,9 @@ def admin_questions(book_id: str, filter: str = "all", kind: str = "", user=Depe
     if filter == "reported":
         params["report_count"] = "gt.0"
     elif filter == "hidden":
-        params["status"] = "neq.active"
+        params["status"] = "eq.hidden"
+    else:  # 교사가 돌발 OX 에서 직접 친 문제(status=live)는 문제 은행 목록에 안 보임
+        params["status"] = "neq.live"
     if kind in KINDS:
         params["kind"] = f"eq.{kind}"
     try:
