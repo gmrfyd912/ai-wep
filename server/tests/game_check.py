@@ -56,6 +56,14 @@ def main():
     assert d["tutorial"]["step"] == 0 and not d["tutorial"]["done"]
     assert d["rewards"]["steel"] == 500
 
+    # 처음 따라 하기: 받을 생산분이 없어도 '생산분 받기'에서 막히지 않게 첫 생산분 선물 (한 번만)
+    s9, S9 = user("s9", "student")
+    out = c.post("/game/collect", headers=S9).json()
+    assert out["collect_gift"] is True and out["collected"] == {"steel": 100, "rods": 50}, out
+    assert out["tutorial"]["steps"][2]["ok"] is True
+    out = c.post("/game/collect", headers=S9).json()
+    assert out["collect_gift"] is False and out["collected"] == {"steel": 0, "rods": 0}
+
     # 공부 안 한 날: 공장이 안 돈다
     tick(3600)
     d = c.get("/game/state", headers=S1).json()
@@ -160,8 +168,20 @@ def main():
     for sec in game.STAGE_SECONDS:
         tick(sec)
         out = c.post("/game/ship/next", headers=S1).json()
-    assert out["delivered_now"] == {"kind": "barge", "fame": 10}, out.get("delivered_now")
+    dn = out["delivered_now"]
+    assert dn["kind"] == "barge" and dn["fame"] == 10 and dn["first"] is True and dn["count"] == 1, dn
+    assert dn["got"] == {"fame": 10, "steel": 350, "rods": 180, "tech": 5, "passes": 1}, dn
     assert out["resources"]["fame"] == 10 and out["ship"] is None and out["delivered"] == ["barge"]
+    assert next(x for x in out["ships"] if x["kind"] == "barge")["first_bonus"] == 0
+    passes_before = out["resources"]["passes"]
+    # 두 번째 바지선: 대금은 또 받지만 첫 인도 완료권은 없음
+    c.post("/game/ship/start", headers=S1, json={"kind": "barge"})
+    for sec in game.STAGE_SECONDS:
+        tick(sec)
+        out = c.post("/game/ship/next", headers=S1).json()
+    dn = out["delivered_now"]
+    assert dn["first"] is False and "passes" not in dn["got"] and dn["count"] == 2, dn
+    assert out["resources"]["passes"] == passes_before
 
     # 실습: 92점(높은 점수·첫 합격) → 완료권 하루 최대 2장 + 강판 200
     def sub(score_parts, when, pos="1G", width=8.0):
@@ -180,7 +200,7 @@ def main():
     out = c.post("/game/build", headers=S1, json={"type": "welding", "x": 0, "y": 6}).json()
     wel = next(b for b in out["buildings"] if b["type"] == "welding")
     out = c.post("/game/speedup", headers=S1, json={"target": wel["id"], "using": "pass"}).json()
-    assert out["resources"]["passes"] == 1
+    assert out["resources"]["passes"] == 2  # 실습 2장 + 첫 바지선 1장 − 1장
     d = c.get("/game/state", headers=S1).json()
     assert next(b for b in d["buildings"] if b["type"] == "welding")["level"] == 1
 

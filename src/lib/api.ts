@@ -1624,7 +1624,7 @@ export type GameState = {
   grid: number;
   buildings: GameBuilding[];
   catalog: { type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number }[];
-  ships: { kind: GameShipKind; cost: GameCost; fame: number; dock: number; units: number; lock: "dock" | "units" | null; seconds: number }[];
+  ships: { kind: GameShipKind; cost: GameCost; fame: number; pay: { steel: number; rods: number; tech: number }; first_bonus: number; dock: number; units: number; lock: "dock" | "units" | null; seconds: number }[];
   ship: { id: string; kind: GameShipKind; stage: number; left: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
   delivered: GameShipKind[];
   units: {
@@ -1640,7 +1640,10 @@ export type GameState = {
   earn: Record<string, number>;
   tips: GameTip[];
   collected?: { steel: number; rods: number };
-  delivered_now?: { kind: GameShipKind; fame: number };
+  /** 처음 따라 하기 첫 '생산분 받기' 선물이면 true */
+  collect_gift?: boolean;
+  /** 방금 진수식(인도)한 배: 받은 것 전부 */
+  delivered_now?: { kind: GameShipKind; fame: number; first: boolean; count: number; got: { fame: number; steel: number; rods: number; tech: number; passes?: number } };
 };
 const GAME_TIMEOUT = 90000;
 export const getGame = (lang: string) => request<GameState>(`/game/state?lang=${lang}`, {}, GAME_TIMEOUT);

@@ -42,6 +42,7 @@ export function StudyBuddy({
   onDone,
   hint,
   size = W,
+  compact = false,
 }: {
   text: string;
   nonce?: number;
@@ -49,6 +50,8 @@ export function StudyBuddy({
   onDone?: () => void;
   hint?: string;
   size?: number;
+  /** 게임 화면처럼 작게: 이름·안내 줄 없이 얼굴 + 말풍선 + 소리 버튼만 */
+  compact?: boolean;
 }) {
   const H = Math.round(size * ratio);
   const doneRef = useRef(onDone);
@@ -171,6 +174,14 @@ export function StudyBuddy({
           ))}
         </View>
       </Pressable>
+      {compact ? (
+        <View style={[styles.bubble, styles.bubbleSmall]}>
+          <Text style={styles.textSmall}>{shown || " "}</Text>
+          <Pressable onPress={toggleSound} hitSlop={10} style={styles.soundSmall} accessibilityLabel={sound ? t("buddy_soundOn") : t("buddy_soundOff")}>
+            <Ionicons name={sound ? "volume-high-outline" : "volume-mute-outline"} size={15} color={colors.muted} />
+          </Pressable>
+        </View>
+      ) : (
       <View style={{ flex: 1, gap: space.xs }}>
         <View style={styles.head}>
           <Text style={styles.name}>{t("buddy_name")}</Text>
@@ -184,6 +195,7 @@ export function StudyBuddy({
         </View>
         <Text style={styles.hint}>{hint ?? t("buddy_tapHint")}</Text>
       </View>
+      )}
     </View>
   );
 }
@@ -191,6 +203,9 @@ export function StudyBuddy({
 const styles = StyleSheet.create({
   wrap: { flexDirection: "row", alignItems: "flex-end", gap: space.sm },
   img: { position: "absolute" },
+  bubbleSmall: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 6, paddingVertical: 6, paddingHorizontal: 10, minHeight: 0 },
+  textSmall: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 18 },
+  soundSmall: { paddingTop: 1 },
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   name: { color: colors.primary, fontSize: 13, fontWeight: "700" },
   soundBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
