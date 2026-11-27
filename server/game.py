@@ -55,13 +55,21 @@ BUILDINGS = {
 }
 START = [("hq", 6, 6, 1), ("cutting", 2, 2, 1), ("dock", 12, 1, 1)]
 # 배: 도크 레벨·장 완료 수·비용·공정 5개 시간 배수·인도 명성
+# 진수식(인도) 보상 "pay": 선주가 주는 대금 = 강판·용접봉·기술 포인트 (만든 비용보다 많이). 숫자는 예시.
 SHIPS = {
-    "barge":     {"dock": 1, "units": 0, "steel": 200, "rods": 100, "mult": 1, "fame": 10},
-    "bulk":      {"dock": 2, "units": 1, "steel": 800, "rods": 400, "mult": 6, "fame": 25},
-    "container": {"dock": 3, "units": 3, "steel": 2000, "rods": 1000, "mult": 15, "fame": 50},
-    "lng":       {"dock": 4, "units": 5, "steel": 4500, "rods": 2500, "mult": 30, "fame": 90},
-    "offshore":  {"dock": 5, "units": 7, "steel": 8000, "rods": 4500, "mult": 50, "fame": 150},
+    "barge":     {"dock": 1, "units": 0, "steel": 200, "rods": 100, "mult": 1, "fame": 10,
+                  "pay": {"steel": 350, "rods": 180, "tech": 5}},
+    "bulk":      {"dock": 2, "units": 1, "steel": 800, "rods": 400, "mult": 6, "fame": 25,
+                  "pay": {"steel": 1300, "rods": 650, "tech": 15}},
+    "container": {"dock": 3, "units": 3, "steel": 2000, "rods": 1000, "mult": 15, "fame": 50,
+                  "pay": {"steel": 3200, "rods": 1600, "tech": 30}},
+    "lng":       {"dock": 4, "units": 5, "steel": 4500, "rods": 2500, "mult": 30, "fame": 90,
+                  "pay": {"steel": 7000, "rods": 3800, "tech": 60}},
+    "offshore":  {"dock": 5, "units": 7, "steel": 8000, "rods": 4500, "mult": 50, "fame": 150,
+                  "pay": {"steel": 12500, "rods": 7000, "tech": 100}},
 }
+FIRST_SHIP_PASSES = 1        # 그 종류 배를 처음 인도하면 즉시 완료권 1장 (종류마다 한 번)
+TUTORIAL_COLLECT = {"steel": 100, "rods": 50}   # 처음 따라 하기 '생산분 받기'에 받을 게 없으면 첫 생산분 선물
 STAGE_SECONDS = [60, 120, 180, 120, 60]          # 블록 제작 → 대조립 → 도크 탑재 → 진수 → 인도
 STAGES = ("block", "assembly", "erection", "launch", "delivery")
 DEFAULTS = {
@@ -546,6 +554,9 @@ def view(s, lang="ko"):
                         "locked": hq_lv < spec["unlock"], "w": spec["size"][0], "h": spec["size"][1]})
     ship = s["ship"]
     dock = _dock(buildings)
+    delivered = store.select("game_ships", {"user_id": f"eq.{s['uid']}", "delivered_at": "not.is.null",
+                                            "select": "kind", "limit": "500"})
+    delivered_kinds = {d["kind"] for d in delivered}
     ships = []
     for k, sp in SHIPS.items():
         lock = None
@@ -553,7 +564,8 @@ def view(s, lang="ko"):
             lock = "dock"
         elif done_n < min(sp["units"], len(units) if units else sp["units"]):
             lock = "units"
-        ships.append({"kind": k, "cost": {"steel": sp["steel"], "rods": sp["rods"]}, "fame": sp["fame"],
+        ships.append({"kind": k, "cost": {"steel": sp["steel"], "rods": sp["rods"]}, "fame": sp["fame"], "pay": sp["pay"],
+                      "first_bonus": FIRST_SHIP_PASSES if k not in delivered_kinds else 0,
                       "dock": sp["dock"], "units": sp["units"], "lock": lock,
                       "seconds": sum(ship_stage_seconds(k, i) for i in range(len(STAGES)))})
     ship_out = None
@@ -563,8 +575,6 @@ def view(s, lang="ko"):
         ship_out = {"id": ship["id"], "kind": ship["kind"], "stage": ship["stage"], "left": left, "ready": left == 0,
                     "stage_seconds": ship_stage_seconds(ship["kind"], ship["stage"]),
                     "speed": {"tech": math.ceil(left / TECH_SECONDS), "passes": 1}}
-    delivered = store.select("game_ships", {"user_id": f"eq.{s['uid']}", "delivered_at": "not.is.null",
-                                            "select": "kind", "limit": "500"})
     rewards = summarize(s["new_rows"])
     tut = tutorial(s, buildings, ship, delivered)
     data = {
@@ -816,8 +826,19 @@ def collect(user=Depends(need_player)):
             if b["type"] in ("cutting", "welding") and b["level"] >= 1 and not b.get("busy_until"):
                 kind, amt = _collect_one(uid, b, buildings, now, run_days, bal, cap)
                 got[kind] += amt
+        gift = False
+        if got["steel"] + got["rods"] == 0:
+            # 처음 따라 하기 중 첫 '생산분 받기'인데 받을 게 없으면 (막 지은 공장·공부 안 한 날) 첫 생산분을 선물로 준다.
+            # 안내가 여기서 끊기지 않게 하려는 것. 한 사람당 한 번.
+            base, _ = _base(uid)
+            keys = {r["key"].split(":")[0] for r in ledger(uid)}
+            if not base.get("tutorial_done") and "collect" not in keys:
+                _add(uid, [{"key": "collect:tutorial", **TUTORIAL_COLLECT, "note": "collect_first"}])
+                got = dict(TUTORIAL_COLLECT)
+                gift = True
     out = _fresh(user)
     out["collected"] = got
+    out["collect_gift"] = gift
     return out
 
 
@@ -909,7 +930,15 @@ def ship_next(user=Depends(need_player)):
         stage = ship["stage"] + 1
         if stage >= len(STAGES):
             store.patch("game_ships", {"id": f"eq.{ship['id']}"}, {"delivered_at": _iso(now), "stage_until": None})
-            _add(uid, [{"key": f"deliver:{ship['id']}", "fame": SHIPS[ship["kind"]]["fame"], "note": ship["kind"]}])
+            sp = SHIPS[ship["kind"]]
+            keys = {r["key"] for r in ledger(uid)}
+            first = f"first_ship:{ship['kind']}" not in keys
+            got = {"fame": sp["fame"], **sp["pay"]}
+            rows = [{"key": f"deliver:{ship['id']}", **got, "note": ship["kind"]}]
+            if first and FIRST_SHIP_PASSES:
+                rows.append({"key": f"first_ship:{ship['kind']}", "passes": FIRST_SHIP_PASSES, "note": "first_ship"})
+                got["passes"] = FIRST_SHIP_PASSES
+            _add(uid, rows)
             delivered = True
         else:
             store.patch("game_ships", {"id": f"eq.{ship['id']}"},
@@ -917,7 +946,8 @@ def ship_next(user=Depends(need_player)):
             delivered = False
     out = _fresh(user)
     if delivered:
-        out["delivered_now"] = {"kind": ship["kind"], "fame": SHIPS[ship["kind"]]["fame"]}
+        out["delivered_now"] = {"kind": ship["kind"], "fame": got["fame"], "first": first, "got": got,
+                                "count": len(out["delivered"])}
     return out
 
 

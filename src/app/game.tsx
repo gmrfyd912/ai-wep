@@ -1,12 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { StatusBar } from "expo-status-bar";
+import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
 import { StudyBuddy } from "@/components/StudyBuddy";
-import { AppButton, Body, Card, Screen } from "@/components/ui";
+import { AppButton, Body, Card } from "@/components/ui";
 import {
   gameBuild,
   gameCollect,
@@ -59,7 +62,9 @@ function gameError(t: TFunction, e: unknown) {
 /** G1 웰디의 조선소: 내 조선소 (공부로 받은 자원으로 짓고 올리고 배를 만든다) */
 export default function GameScreen() {
   const { t, i18n } = useTranslation();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const [party, setParty] = useState<GameState["delivered_now"] | null>(null);
   const [data, setData] = useState<GameState | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -87,7 +92,6 @@ export default function GameScreen() {
       .then((d) => {
         apply(d);
         if (d.rewards) setRewards(d.rewards);
-        if (d.delivered_now) setMsg(t("gm_delivered", { ship: t(`gm_ship_${d.delivered_now.kind}`), fame: d.delivered_now.fame }));
       })
       .catch((e) => setError(gameError(t, e)))
       .finally(() => {
@@ -100,6 +104,28 @@ export default function GameScreen() {
       load();
     }, [load]),
   );
+
+  // 게임 화면은 가로로 (나가면 다시 세로)
+  useFocusEffect(
+    useCallback(() => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => null);
+      return () => {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => null);
+      };
+    }, []),
+  );
+
+  // 알림은 5초 뒤 저절로 사라짐
+  useEffect(() => {
+    if (!msg) return;
+    const id = setTimeout(() => setMsg(""), 5000);
+    return () => clearTimeout(id);
+  }, [msg]);
+  useEffect(() => {
+    if (!rewards) return;
+    const id = setTimeout(() => setRewards(null), 7000);
+    return () => clearTimeout(id);
+  }, [rewards]);
 
   // 1초마다 남은 시간 다시 그림, 끝난 공사가 있으면 서버에서 다시 받기
   useEffect(() => {
@@ -139,23 +165,28 @@ export default function GameScreen() {
 
   if (!data) {
     return (
-      <Screen>
+      <View style={[styles.full, styles.center]}>
+        <StatusBar hidden />
+        <Pressable onPress={() => router.back()} style={[styles.round, { position: "absolute", top: 12 + insets.top, left: 12 + insets.left }]} hitSlop={8}>
+          <Ionicons name="arrow-back" size={20} color="#fff" />
+        </Pressable>
         {error ? (
-          <>
+          <View style={{ gap: space.md, alignItems: "center", maxWidth: 420, padding: space.lg }}>
             <Body>{error}</Body>
             <AppButton label={t("gm_retry")} icon="refresh-outline" onPress={load} />
-          </>
+          </View>
         ) : (
-          <View style={{ paddingVertical: 40, gap: space.md, alignItems: "center" }}>
+          <View style={{ gap: space.md, alignItems: "center" }}>
             <ActivityIndicator color={colors.primary} />
             <Body muted>{t("gm_loading")}</Body>
           </View>
         )}
-      </Screen>
+      </View>
     );
   }
 
-  const W = Math.max(22, Math.floor(((width - 2 * space.lg) / (data.grid + 2.6)) * (zoom ? 1.8 : 1)));
+  const fitW = Math.floor(Math.min(width / (data.grid + 2.6), height / (data.grid / 2 + 3.6)));
+  const W = Math.max(18, Math.floor(fitW * (zoom ? 1.7 : 1)));
   const sel = data.buildings.find((b) => b.id === selected) ?? null;
   const res = data.resources;
   const tut = data.tutorial;
@@ -198,12 +229,15 @@ export default function GameScreen() {
   const doCollect = () =>
     run(gameCollect, (d) => {
       const c = d.collected;
-      if (c) setMsg(c.steel + c.rods > 0 ? t("gm_collected", { steel: c.steel, rods: c.rods }) : t("gm_collectedNone"));
+      if (!c) return;
+      if (d.collect_gift) setMsg(t("gm_collectGift", { steel: c.steel, rods: c.rods }));
+      else if (c.steel + c.rods > 0) setMsg(t("gm_collected", { steel: c.steel, rods: c.rods }));
+      else setMsg(d.run_today ? t("gm_collectedNoneRun") : t("gm_collectedNoneOff"));
     });
 
   const shipNext = () =>
     run(gameShipNext, (d) => {
-      if (d.delivered_now) setMsg(t("gm_delivered", { ship: t(`gm_ship_${d.delivered_now.kind}`), fame: d.delivered_now.fame }));
+      if (d.delivered_now) setParty(d.delivered_now);
     });
 
   // 웰디가 하는 말 (처음 따라 하기 중이면 그 단계, 아니면 오늘의 할 일)
@@ -223,11 +257,12 @@ export default function GameScreen() {
       case "study":
         return { label: t("gm_goDaily"), onPress: () => router.push("/daily") };
       case "ship_ready":
-        return { label: t("gm_shipNext"), onPress: shipNext };
+        return { label: data.ship && data.ship.stage >= STAGES - 1 ? t("gm_shipDeliver") : t("gm_shipNext"), onPress: shipNext };
       case "collect":
         return { label: t("gm_collectAll"), onPress: doCollect };
       case "units":
         return data.book_id ? { label: t("gm_openBook"), onPress: () => router.push(`/book?id=${data.book_id}&page=${x.pdf_page}`) } : null;
+      case "built":
       case "idle": {
         const b = data.buildings.find((k) => k.type === x.type);
         return b
@@ -236,6 +271,10 @@ export default function GameScreen() {
       }
       case "ship_idle":
         return { label: t("gm_ships"), onPress: () => setMode("ship") };
+      case "pass": {
+        const b = data.buildings.find((k) => k.busy_until);
+        return b ? { label: t("gm_seeBuilding", { name: name(b.type) }), onPress: () => { setSelected(b.id); setMode("home"); } } : null;
+      }
       default:
         return null;
     }
@@ -249,192 +288,308 @@ export default function GameScreen() {
       case "collect":
         return { label: t("gm_collectAll"), onPress: doCollect };
       case "ship":
-        return { label: t("gm_ships"), onPress: () => setMode("ship") };
+        return data.ship
+          ? { label: t("gm_ships"), onPress: () => setMode("ship") }
+          : { label: t("gm_shipStartBarge"), onPress: () => setMode("ship") };
       case "hq": {
         const hq = data.buildings.find((b) => b.type === "hq");
-        return hq ? { label: t("gm_seeBuilding", { name: name("hq") }), onPress: () => setSelected(hq.id) } : null;
+        return hq ? { label: t("gm_seeBuilding", { name: name("hq") }), onPress: () => { setSelected(hq.id); setMode("home"); } } : null;
       }
       default:
         return null;
     }
   };
   const action = tutStep ? tutAction() : tipAction(tip);
+  const panelOpen = mode !== "home" || !!sel;
+  const sheetW = Math.min(380, Math.max(280, width * 0.42));
+  const pendingN = data.pending.steel + data.pending.rods;
 
   return (
-    <Screen>
-      {/* 자원 */}
-      <View style={styles.resRow}>
-        <ResChip color={RES_COLOR.steel} label={t("gm_steel")} value={`${res.steel}`} sub={`/ ${data.caps.steel}`} />
-        <ResChip color={RES_COLOR.rods} label={t("gm_rods")} value={`${res.rods}`} sub={`/ ${data.caps.rods}`} />
-        <ResChip color={RES_COLOR.tech} label={t("gm_tech")} value={`${res.tech}`} />
-        <ResChip color={RES_COLOR.passes} label={t("gm_passes")} value={`${res.passes}`} />
-        <ResChip color={RES_COLOR.fame} label={t("gm_fame")} value={`${res.fame}`} />
-      </View>
-      <View style={styles.rowWrap}>
-        <Text style={[styles.badge, { backgroundColor: data.run_today ? colors.success : colors.cardAlt }]}>
-          {data.run_today ? t("gm_runOn") : t("gm_runOff")}
-        </Text>
-        <Text style={[styles.badge, { backgroundColor: colors.cardAlt }]}>
-          {t("gm_builders", { busy: data.builders.busy, total: data.builders.total })}
-        </Text>
-        <Text style={[styles.badge, { backgroundColor: colors.cardAlt }]}>
-          {t("gm_unitsDone", { done: data.units.done, total: data.units.total })}
-        </Text>
-      </View>
-
-      {rewards ? (
-        <Card style={{ gap: space.xs, borderColor: colors.success, borderWidth: 1 }}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardTitle}>{t("gm_rewardsTitle")}</Text>
-            <Pressable onPress={() => setRewards(null)} hitSlop={10}>
-              <Ionicons name="close" size={18} color={colors.muted} />
-            </Pressable>
+    <View style={styles.full}>
+      <StatusBar hidden />
+      {/* 지도: 화면 꽉 차게 (크게 보기면 위아래·옆으로 밀어서 봄) */}
+      <ScrollView style={StyleSheet.absoluteFill} contentContainerStyle={styles.mapOuter} showsVerticalScrollIndicator={false} bounces={false}>
+        <ScrollView horizontal contentContainerStyle={styles.mapOuter} showsHorizontalScrollIndicator={false} bounces={false}>
+          <View style={{ minWidth: width, minHeight: height, alignItems: "center", justifyContent: "center" }}>
+            <GameMap
+              grid={data.grid}
+              W={W}
+              buildings={data.buildings}
+              selected={selected}
+              labels={labels}
+              place={placeSpec}
+              ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage } : null}
+              onSelect={(id) => {
+                setSelected(id);
+                if (id) setMode("home");
+              }}
+              onPlace={(x, y) => setPick({ x, y })}
+              now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
+            />
           </View>
-          <Text style={styles.text}>{rewardLine(t, rewards)}</Text>
-          <Text style={styles.small}>{whyLine(t, rewards.why)}</Text>
-        </Card>
-      ) : null}
-
-      {msg ? (
-        <Pressable onPress={() => setMsg("")}>
-          <Text style={styles.msg}>{msg}</Text>
-        </Pressable>
-      ) : null}
-
-      {/* 처음 따라 하기 */}
-      {tutStep ? (
-        <Card style={{ gap: space.sm }}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardTitle}>{t("gm_tutTitle", { n: (tut.step ?? 0) + 1, total: tut.steps.length })}</Text>
-            <Pressable onPress={() => run(() => gameTutorial(true))} hitSlop={10}>
-              <Text style={styles.link}>{t("gm_tutSkip")}</Text>
-            </Pressable>
-          </View>
-          <View style={styles.steps}>
-            {tut.steps.map((s, i) => (
-              <View key={s.id} style={[styles.stepBar, { backgroundColor: s.ok ? colors.primary : i === tut.step ? "#FFD166" : colors.border }]} />
-            ))}
-          </View>
-          <Text style={styles.small}>{tut.steps.map((s, i) => `${i + 1} ${t(`gm_tutShort_${s.id}`)}${s.ok ? " ✓" : ""}`).join(" · ")}</Text>
-        </Card>
-      ) : null}
-
-      {/* 웰디 */}
-      <Card style={{ gap: space.sm }}>
-        <StudyBuddy text={buddyLine} size={78} onPress={tutStep || tips.length < 2 ? undefined : () => setTipAt((n) => n + 1)} hint={tutStep || tips.length < 2 ? undefined : t("gm_tipNext")} />
-        {action ? <AppButton label={action.label} onPress={action.onPress} disabled={busy} /> : null}
-      </Card>
-
-      {/* 지도 */}
-      <View style={styles.rowBetween}>
-        <Text style={styles.small}>{mode === "place" ? t("gm_placeHint") : t("gm_mapHint")}</Text>
-        <Pressable onPress={() => setZoom((z) => !z)} style={styles.zoomBtn} hitSlop={6}>
-          <Ionicons name={zoom ? "contract-outline" : "expand-outline"} size={16} color={colors.text} />
-          <Text style={styles.small}>{zoom ? t("gm_zoomOut") : t("gm_zoomIn")}</Text>
-        </Pressable>
-      </View>
-      <ScrollView horizontal style={styles.mapBox} contentContainerStyle={{ alignItems: "flex-start" }} showsHorizontalScrollIndicator={zoom}>
-        <GameMap
-          grid={data.grid}
-          W={W}
-          buildings={data.buildings}
-          selected={selected}
-          labels={labels}
-          place={placeSpec}
-          ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage } : null}
-          onSelect={(id) => {
-            setSelected(id);
-            if (id) setMode("home");
-          }}
-          onPlace={(x, y) => setPick({ x, y })}
-          now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
-        />
+        </ScrollView>
       </ScrollView>
-      <View style={styles.legend}>
-        <LegendDot color="#73C985" label={t("gm_legendFree")} />
-        <LegendDot color="#0B2033" label={t("gm_legendTimer")} />
-        <LegendDot color="#2E9D5B" label={t("gm_legendDone")} />
-        <LegendDot color={RES_COLOR.steel} round label={t("gm_legendCoin")} />
+
+      {/* 왼쪽 위: 자원 현황 (작게) */}
+      <View style={[styles.hudTL, { top: 8 + insets.top, left: 8 + insets.left }]} pointerEvents="box-none">
+        <View style={styles.resRow}>
+          <Pressable onPress={() => router.back()} style={styles.roundSm} hitSlop={8} accessibilityLabel={t("common_back")}>
+            <Ionicons name="arrow-back" size={18} color="#fff" />
+          </Pressable>
+          <ResChip color={RES_COLOR.steel} label={t("gm_steel")} value={res.steel} cap={data.caps.steel} />
+          <ResChip color={RES_COLOR.rods} label={t("gm_rods")} value={res.rods} cap={data.caps.rods} />
+          <ResChip color={RES_COLOR.tech} label={t("gm_tech")} value={res.tech} />
+          <ResChip color={RES_COLOR.passes} label={t("gm_passes")} value={res.passes} />
+          <ResChip color={RES_COLOR.fame} label={t("gm_fame")} value={res.fame} />
+        </View>
+        <View style={styles.resRow}>
+          <Text style={[styles.badge, { backgroundColor: data.run_today ? "#2E9D5BE6" : "#0B2033CC" }]}>
+            {data.run_today ? t("gm_runOnShort") : t("gm_runOffShort")}
+          </Text>
+          <Text style={styles.badge}>{t("gm_builders", { busy: data.builders.busy, total: data.builders.total })}</Text>
+          <Text style={styles.badge}>{t("gm_unitsDone", { done: data.units.done, total: data.units.total })}</Text>
+        </View>
       </View>
 
-      {/* 아래 칸 */}
-      {mode === "place" && placeType ? (
-        <Card style={{ gap: space.sm }}>
-          <Text style={styles.cardTitle}>{moveId ? t("gm_moveTitle", { name: name(placeType) }) : t("gm_placeTitle", { name: name(placeType) })}</Text>
-          <Text style={styles.small}>{pick ? t("gm_placePicked") : t("gm_placeHint")}</Text>
-          <View style={styles.row2}>
-            <View style={{ flex: 1 }}>
-              <AppButton label={t("common_cancel")} variant="secondary" onPress={() => setMode(moveId ? "home" : "build")} />
-            </View>
-            <View style={{ flex: 2 }}>
-              <AppButton label={moveId ? t("gm_moveHere") : t("gm_buildHere")} disabled={!pick || busy} onPress={confirmPlace} />
-            </View>
-          </View>
-        </Card>
-      ) : sel && mode === "home" ? (
-        <BuildingPanel
-          b={sel}
-          data={data}
-          left={leftOf(sel)}
-          busy={busy}
-          canPay={canPay}
-          onUpgrade={() => run(() => gameUpgrade(sel.id))}
-          onSpeed={(using) => run(() => gameSpeedup(sel.id, using))}
-          onCollect={doCollect}
-          onMove={() => startMove(sel)}
-          onShips={() => setMode("ship")}
-          onBook={() => data.book_id && data.units.next && router.push(`/book?id=${data.book_id}&page=${data.units.next.pdf_page}`)}
-          onClose={() => setSelected(null)}
-        />
-      ) : mode === "build" ? (
-        <Card style={{ gap: space.sm }}>
-          <PanelHead title={t("gm_build")} onClose={() => setMode("home")} />
-          {data.catalog.length === 0 ? <Body muted>{t("gm_buildAllDone")}</Body> : null}
-          {data.catalog.map((c) => (
-            <View key={c.type} style={styles.item}>
-              <View style={[styles.swatch, { backgroundColor: BUILDING_COLOR[c.type] }]} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={styles.text}>{name(c.type)}</Text>
-                <Text style={styles.small}>{t(`gm_desc_${c.type}`)}</Text>
-                <Text style={styles.small}>
-                  {costLine(t, c.cost)} · {clock(c.seconds)}
-                  {c.locked ? ` · ${t("gm_needHq", { n: c.unlock })}` : ""}
-                </Text>
+      {/* 오른쪽 위: 크게/작게, 자원 얻는 법 */}
+      {!panelOpen ? (
+        <View style={[styles.hudTR, { top: 8 + insets.top, right: 8 + insets.right }]}>
+          <Pressable onPress={() => setZoom((z) => !z)} style={styles.roundSm} hitSlop={6} accessibilityLabel={zoom ? t("gm_zoomOut") : t("gm_zoomIn")}>
+            <Ionicons name={zoom ? "remove" : "add"} size={20} color="#fff" />
+          </Pressable>
+          <Pressable onPress={() => setMode("earn")} style={styles.roundSm} hitSlop={6} accessibilityLabel={t("gm_earnTitle")}>
+            <Ionicons name="help" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* 가운데 위: 알림 (몇 초 뒤 사라짐) */}
+      {msg || rewards ? (
+        <View style={[styles.toastWrap, { top: 8 + insets.top, right: panelOpen ? sheetW + 16 : 96 }]} pointerEvents="box-none">
+          {rewards ? (
+            <Pressable onPress={() => setRewards(null)} style={[styles.toast, { borderColor: colors.success }]}>
+              <Text style={styles.toastTitle}>{t("gm_rewardsTitle")}</Text>
+              <Text style={styles.toastText}>{rewardLine(t, rewards)}</Text>
+              <Text style={styles.toastSmall}>{whyLine(t, rewards.why)}</Text>
+            </Pressable>
+          ) : null}
+          {msg ? (
+            <Pressable onPress={() => setMsg("")} style={styles.toast}>
+              <Text style={styles.toastText}>{msg}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* 아래 왼쪽: 웰디 안내 + 처음 따라 하기 (작게, 항상 다음 할 일) */}
+      {mode !== "place" ? (
+        <View style={[styles.hudBL, { bottom: 8 + insets.bottom, left: 8 + insets.left, right: panelOpen ? sheetW + 16 : 8 + insets.right + FAB_ROW }]}>
+          {tutStep ? (
+            <View style={styles.tutRow}>
+              <Text style={styles.tutTitle}>{t("gm_tutTitle", { n: (tut.step ?? 0) + 1, total: tut.steps.length })}</Text>
+              <View style={styles.steps}>
+                {tut.steps.map((s, i) => (
+                  <View key={s.id} style={[styles.stepDot, { backgroundColor: s.ok ? colors.primary : i === tut.step ? "#FFD166" : "#FFFFFF33" }]} />
+                ))}
               </View>
-              <Pressable
-                style={[styles.smallBtn, (c.locked || !canPay(c.cost) || data.builders.busy >= data.builders.total) && { opacity: 0.4 }]}
-                disabled={c.locked || !canPay(c.cost) || data.builders.busy >= data.builders.total}
-                onPress={() => startPlace(c.type)}
-              >
-                <Text style={styles.smallBtnText}>{t("gm_pick")}</Text>
+              <Text style={styles.tutNow} numberOfLines={1}>
+                {t(`gm_tutShort_${tutStep}`)}
+              </Text>
+              <Pressable onPress={() => run(() => gameTutorial(true))} hitSlop={10}>
+                <Text style={styles.link}>{t("gm_tutSkip")}</Text>
               </Pressable>
             </View>
-          ))}
-          {data.builders.busy >= data.builders.total ? <Text style={styles.small}>{t("gm_err_builders")}</Text> : null}
-        </Card>
-      ) : mode === "ship" ? (
-        <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} onClose={() => setMode("home")} onStart={(k) => run(() => gameShipStart(k))}
-          onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
-      ) : mode === "earn" ? (
-        <EarnPanel data={data} onClose={() => setMode("home")} />
-      ) : (
-        <View style={styles.grid}>
-          <Tile icon="hammer-outline" label={t("gm_build")} onPress={() => setMode("build")} />
-          <Tile icon="boat-outline" label={t("gm_ships")} onPress={() => setMode("ship")} badge={data.ship?.ready ? "!" : undefined} />
-          <Tile
-            icon="cube-outline"
-            label={t("gm_collectAll")}
-            sub={data.pending.steel + data.pending.rods > 0 ? `+${data.pending.steel} / +${data.pending.rods}` : undefined}
-            onPress={doCollect}
-          />
-          <Tile icon="school-outline" label={t("gm_earnTitle")} onPress={() => setMode("earn")} />
-          <Tile icon="create-outline" label={t("gm_goDaily")} onPress={() => router.push("/daily")} />
-          <Tile icon="book-outline" label={t("gm_openBook")} onPress={() => (data.book_id ? router.push(`/book?id=${data.book_id}&page=${data.units.next?.pdf_page ?? 1}`) : null)} />
+          ) : null}
+          <View style={styles.buddyRow}>
+            <View style={{ flex: 1 }}>
+              <StudyBuddy
+                compact
+                text={buddyLine}
+                size={46}
+                onPress={tutStep || tips.length < 2 ? undefined : () => setTipAt((n) => n + 1)}
+              />
+            </View>
+            {action ? (
+              <Pressable onPress={action.onPress} disabled={busy} style={({ pressed }) => [styles.actBtn, (pressed || busy) && { opacity: 0.6 }]}>
+                <Text style={styles.actText} numberOfLines={2}>
+                  {action.label}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="#fff" />
+              </Pressable>
+            ) : null}
+          </View>
+          {!tutStep && tips.length > 1 ? <Text style={styles.hint}>{t("gm_tipNext")}</Text> : null}
         </View>
-      )}
-      {busy ? <ActivityIndicator color={colors.primary} /> : null}
-      <Text style={styles.foot}>{t("gm_footnote")}</Text>
-    </Screen>
+      ) : null}
+
+      {/* 아래 오른쪽: 메뉴 단추 */}
+      {!panelOpen ? (
+        <View style={[styles.hudBR, { bottom: 8 + insets.bottom, right: 8 + insets.right }]}>
+          <Fab icon="hammer" label={t("gm_build")} onPress={() => setMode("build")} />
+          <Fab icon="boat" label={t("gm_ships")} onPress={() => setMode("ship")} badge={data.ship?.ready ? "!" : undefined} />
+          <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
+          <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
+          <Fab
+            icon="book"
+            label={t("gm_bookShort")}
+            onPress={() => (data.book_id ? router.push(`/book?id=${data.book_id}&page=${data.units.next?.pdf_page ?? 1}`) : null)}
+          />
+        </View>
+      ) : null}
+
+      {/* 오른쪽 패널: 건물·짓기·배·자원 얻는 법·자리 고르기 */}
+      {panelOpen ? (
+        <View style={[styles.sheet, { width: sheetW, top: 8 + insets.top, bottom: 8 + insets.bottom, right: 8 + insets.right }]}>
+          <ScrollView contentContainerStyle={{ gap: space.sm, padding: space.sm }}>
+            {mode === "place" && placeType ? (
+              <Card style={{ gap: space.sm }}>
+                <Text style={styles.cardTitle}>{moveId ? t("gm_moveTitle", { name: name(placeType) }) : t("gm_placeTitle", { name: name(placeType) })}</Text>
+                <Text style={styles.small}>{pick ? t("gm_placePicked") : t("gm_placeHint")}</Text>
+                <LegendDot color="#73C985" label={t("gm_legendFree")} />
+                <AppButton label={moveId ? t("gm_moveHere") : t("gm_buildHere")} disabled={!pick || busy} onPress={confirmPlace} />
+                <AppButton label={t("common_cancel")} variant="secondary" onPress={() => setMode(moveId ? "home" : "build")} />
+              </Card>
+            ) : sel && mode === "home" ? (
+              <BuildingPanel
+                b={sel}
+                data={data}
+                left={leftOf(sel)}
+                busy={busy}
+                canPay={canPay}
+                onUpgrade={() => run(() => gameUpgrade(sel.id))}
+                onSpeed={(using) => run(() => gameSpeedup(sel.id, using))}
+                onCollect={doCollect}
+                onMove={() => startMove(sel)}
+                onShips={() => setMode("ship")}
+                onBook={() => data.book_id && data.units.next && router.push(`/book?id=${data.book_id}&page=${data.units.next.pdf_page}`)}
+                onClose={() => setSelected(null)}
+              />
+            ) : mode === "build" ? (
+              <Card style={{ gap: space.sm }}>
+                <PanelHead title={t("gm_build")} onClose={() => setMode("home")} />
+                {data.catalog.length === 0 ? <Body muted>{t("gm_buildAllDone")}</Body> : null}
+                {data.catalog.map((c) => (
+                  <View key={c.type} style={styles.item}>
+                    <View style={[styles.swatch, { backgroundColor: BUILDING_COLOR[c.type] }]} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={styles.text}>{name(c.type)}</Text>
+                      <Text style={styles.small}>{t(`gm_desc_${c.type}`)}</Text>
+                      <Text style={styles.small}>
+                        {costLine(t, c.cost)} · {clock(c.seconds)}
+                        {c.locked ? ` · ${t("gm_needHq", { n: c.unlock })}` : ""}
+                      </Text>
+                    </View>
+                    <Pressable
+                      style={[styles.smallBtn, (c.locked || !canPay(c.cost) || data.builders.busy >= data.builders.total) && { opacity: 0.4 }]}
+                      disabled={c.locked || !canPay(c.cost) || data.builders.busy >= data.builders.total}
+                      onPress={() => startPlace(c.type)}
+                    >
+                      <Text style={styles.smallBtnText}>{t("gm_pick")}</Text>
+                    </Pressable>
+                  </View>
+                ))}
+                {data.builders.busy >= data.builders.total ? <Text style={styles.small}>{t("gm_err_builders")}</Text> : null}
+              </Card>
+            ) : mode === "ship" ? (
+              <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} onClose={() => setMode("home")} onStart={(k) => run(() => gameShipStart(k))}
+                onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
+            ) : mode === "earn" ? (
+              <>
+                <EarnPanel data={data} onClose={() => setMode("home")} />
+                <Card style={{ gap: space.xs }}>
+                  <LegendDot color="#73C985" label={t("gm_legendFree")} />
+                  <LegendDot color="#0B2033" label={t("gm_legendTimer")} />
+                  <LegendDot color="#2E9D5B" label={t("gm_legendDone")} />
+                  <LegendDot color={RES_COLOR.steel} round label={t("gm_legendCoin")} />
+                  <Text style={styles.small}>{t("gm_footnote")}</Text>
+                </Card>
+              </>
+            ) : null}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {busy ? (
+        <View style={[styles.busy, { top: 8 + insets.top }]} pointerEvents="none">
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : null}
+
+      {party ? <LaunchParty info={party} onClose={() => setParty(null)} /> : null}
+    </View>
+  );
+}
+
+/** 진수식 축하 화면: 색종이 + 웰디 + 받은 것 */
+function LaunchParty({ info, onClose }: { info: NonNullable<GameState["delivered_now"]>; onClose: () => void }) {
+  const { t } = useTranslation();
+  const { width, height } = useWindowDimensions();
+  const fall = useRef(new Animated.Value(0)).current;
+  const pop = useRef(new Animated.Value(0.6)).current;
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 36 }, (_, i) => ({
+        x: Math.random() * width,
+        d: 0.5 + Math.random() * 0.9,
+        s: 6 + Math.random() * 8,
+        r: Math.random() * 360,
+        c: ["#FF8A1F", "#FFD166", "#4FC3F7", "#E05297", "#7FD18F", "#FFFFFF"][i % 6],
+      })),
+    [width],
+  );
+  useEffect(() => {
+    Animated.loop(Animated.timing(fall, { toValue: 1, duration: 3200, easing: Easing.linear, useNativeDriver: true })).start();
+    Animated.spring(pop, { toValue: 1, friction: 4, useNativeDriver: true }).start();
+  }, [fall, pop]);
+  const ship = t(`gm_ship_${info.kind}`);
+  const g = info.got;
+  const items: [string, string, number][] = [
+    [RES_COLOR.fame, t("gm_fame"), g.fame],
+    [RES_COLOR.steel, t("gm_steel"), g.steel],
+    [RES_COLOR.rods, t("gm_rods"), g.rods],
+    [RES_COLOR.tech, t("gm_tech"), g.tech],
+  ];
+  if (g.passes) items.push([RES_COLOR.passes, t("gm_passes"), g.passes]);
+  return (
+    <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
+      {pieces.map((p, i) => (
+        <Animated.View
+          key={i}
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: p.x,
+            top: -20,
+            width: p.s,
+            height: p.s * 0.5,
+            backgroundColor: p.c,
+            transform: [
+              { translateY: fall.interpolate({ inputRange: [0, 1], outputRange: [-40 * p.d, (height + 60) * p.d] }) },
+              { rotate: `${p.r}deg` },
+            ],
+          }}
+        />
+      ))}
+      <Animated.View style={[styles.partyCard, { transform: [{ scale: pop }] }]}>
+        <Text style={styles.partyTitle}>{t("gm_partyTitle")}</Text>
+        <Text style={styles.partyShip}>
+          {t("gm_partyShip", { ship, n: info.count })}
+        </Text>
+        <StudyBuddy compact size={52} text={info.first ? t("gm_partyFirst", { ship }) : t("gm_partyAgain", { ship })} />
+        <View style={styles.partyItems}>
+          {items.map(([c, l, n]) => (
+            <View key={l} style={styles.partyItem}>
+              <View style={[styles.dot, { backgroundColor: c, width: 10, height: 10 }]} />
+              <Text style={styles.partyItemText}>
+                {l} +{n}
+              </Text>
+            </View>
+          ))}
+        </View>
+        {info.first && g.passes ? <Text style={styles.small}>{t("gm_partyFirstPass")}</Text> : null}
+        <AppButton label={t("gm_partyOk")} icon="checkmark" onPress={onClose} />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -465,17 +620,13 @@ function costLine(t: TFunction, c: GameCost) {
   return parts.join(" + ") || t("gm_free");
 }
 
-function ResChip({ color, label, value, sub }: { color: string; label: string; value: string; sub?: string }) {
+function ResChip({ color, label, value, cap }: { color: string; label: string; value: number; cap?: number }) {
+  const full = cap !== undefined && value >= cap;
   return (
-    <View style={styles.res}>
-      <View style={styles.rowStart}>
-        <View style={[styles.dot, { backgroundColor: color }]} />
-        <Text style={styles.resLabel} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
-      <Text style={styles.resValue}>{value}</Text>
-      {sub ? <Text style={styles.resSub}>{sub}</Text> : null}
+    <View style={styles.res} accessibilityLabel={`${label} ${value}`}>
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      <Text style={[styles.resValue, full && { color: "#FFD166" }]}>{value}</Text>
+      {cap !== undefined ? <Text style={styles.resSub}>/{cap}</Text> : null}
     </View>
   );
 }
@@ -489,13 +640,14 @@ function LegendDot({ color, label, round }: { color: string; label: string; roun
   );
 }
 
-function Tile({ icon, label, sub, onPress, badge }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; sub?: string; onPress: () => void; badge?: string }) {
+function Fab({ icon, label, onPress, badge }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void; badge?: string }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.tile, pressed && { opacity: 0.7 }]}>
-      <Ionicons name={icon} size={22} color={colors.primary} />
-      <Text style={styles.tileText}>{label}</Text>
-      {sub ? <Text style={styles.small}>{sub}</Text> : null}
-      {badge ? <Text style={styles.tileBadge}>{badge}</Text> : null}
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.fab, pressed && { opacity: 0.7 }]} accessibilityLabel={label}>
+      <Ionicons name={icon} size={20} color="#fff" />
+      <Text style={styles.fabText} numberOfLines={1}>
+        {label}
+      </Text>
+      {badge ? <Text style={styles.fabBadge}>{badge}</Text> : null}
     </Pressable>
   );
 }
@@ -691,6 +843,10 @@ function ShipPanel({
               <Text style={styles.small}>
                 {costLine(t, x.cost)} · {clock(x.seconds)}
               </Text>
+              <Text style={styles.small}>
+                {t("gm_shipPay", { steel: x.pay.steel, rods: x.pay.rods, tech: x.pay.tech })}
+                {x.first_bonus ? ` · ${t("gm_shipFirstBonus", { n: x.first_bonus })}` : ""}
+              </Text>
               {lock ? <Text style={styles.warn}>{lock}</Text> : null}
             </View>
             <Pressable style={[styles.smallBtn, !ok && { opacity: 0.4 }]} disabled={!ok || busy} onPress={() => onStart(x.kind)}>
@@ -732,48 +888,64 @@ function EarnPanel({ data, onClose }: { data: GameState; onClose: () => void }) 
   );
 }
 
+const HUD = "#0B2033D9";
+const FAB_ROW = 5 * 64 + 8;   // 아래 오른쪽 메뉴 단추 5개 자리
 const styles = StyleSheet.create({
-  resRow: { flexDirection: "row", gap: 6 },
-  res: { flex: 1, backgroundColor: colors.card, borderRadius: radius.sm, paddingVertical: 6, paddingHorizontal: 6, borderWidth: 1, borderColor: colors.border },
-  resLabel: { color: colors.muted, fontSize: 11, flexShrink: 1 },
-  resValue: { color: colors.text, fontSize: 15, fontWeight: "700" },
-  resSub: { color: colors.faint, fontSize: 10 },
+  full: { flex: 1, backgroundColor: "#1F6FA8" },
+  center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
+  mapOuter: { flexGrow: 1 },
+  hudTL: { position: "absolute", gap: 4 },
+  hudTR: { position: "absolute", flexDirection: "row", gap: 6 },
+  hudBL: { position: "absolute", gap: 4, maxWidth: 560 },
+  hudBR: { position: "absolute", flexDirection: "row", gap: 6, alignItems: "flex-end" },
+  resRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
+  res: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 8 },
+  resValue: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  resSub: { color: "#FFFFFF88", fontSize: 10 },
   dot: { width: 8, height: 8, borderRadius: 2 },
+  round: { width: 40, height: 40, borderRadius: 20, backgroundColor: HUD, alignItems: "center", justifyContent: "center" },
+  roundSm: { width: 32, height: 32, borderRadius: 16, backgroundColor: HUD, alignItems: "center", justifyContent: "center" },
   rowStart: { flexDirection: "row", alignItems: "center", gap: 4 },
-  rowWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
   row2: { flexDirection: "row", gap: space.sm },
-  badge: { color: colors.text, fontSize: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, overflow: "hidden" },
+  badge: { color: "#fff", fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: "hidden", backgroundColor: "#0B2033CC" },
   cardTitle: { color: colors.text, fontSize: 15, fontWeight: "700", flexShrink: 1 },
   text: { color: colors.text, fontSize: 14 },
   small: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  hint: { color: "#FFFFFFAA", fontSize: 11, marginLeft: 52 },
   warn: { color: colors.warning, fontSize: 13 },
-  link: { color: colors.primary, fontSize: 13 },
-  msg: { color: colors.text, backgroundColor: colors.primaryDim, borderRadius: radius.sm, padding: space.sm, fontSize: 14, overflow: "hidden" },
-  steps: { flexDirection: "row", gap: 4 },
+  link: { color: "#FFB066", fontSize: 12 },
+  toastWrap: { position: "absolute", left: 300, gap: 6, alignItems: "flex-end" },
+  toast: { backgroundColor: "#0B2033F2", borderRadius: radius.md, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.primary, maxWidth: 420 },
+  toastTitle: { color: colors.success, fontSize: 12, fontWeight: "700" },
+  toastText: { color: "#fff", fontSize: 13, lineHeight: 18 },
+  toastSmall: { color: "#FFFFFFAA", fontSize: 11 },
+  tutRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: HUD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 10, alignSelf: "flex-start" },
+  tutTitle: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  tutNow: { color: "#FFD166", fontSize: 12, flexShrink: 1 },
+  steps: { flexDirection: "row", gap: 3 },
+  stepDot: { width: 14, height: 5, borderRadius: 3 },
   stepBar: { flex: 1, height: 6, borderRadius: 3 },
-  mapBox: { backgroundColor: "#1F6FA8", borderRadius: radius.md },
-  zoomBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 },
-  legend: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
+  buddyRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
+  actBtn: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, maxWidth: 170 },
+  actText: { color: "#fff", fontWeight: "700", fontSize: 13, flexShrink: 1 },
+  fab: { width: 58, height: 58, borderRadius: 14, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 2, borderWidth: 1, borderColor: "#FFFFFF22" },
+  fabText: { color: "#fff", fontSize: 10 },
+  fabBadge: { position: "absolute", top: -6, right: -6, color: "#fff", backgroundColor: colors.danger, borderRadius: 9, paddingHorizontal: 5, minWidth: 18, textAlign: "center", fontSize: 11, overflow: "hidden" },
+  sheet: { position: "absolute", backgroundColor: "#0E1624EE", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  busy: { position: "absolute", alignSelf: "center" },
   legendDot: { width: 10, height: 10 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  tile: {
-    width: "31.5%",
-    backgroundColor: colors.card,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: space.md,
-    alignItems: "center",
-    gap: 4,
-  },
-  tileText: { color: colors.text, fontSize: 13, textAlign: "center" },
-  tileBadge: { position: "absolute", top: 6, right: 8, color: "#fff", backgroundColor: colors.danger, borderRadius: 8, paddingHorizontal: 5, fontSize: 11, overflow: "hidden" },
   item: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
   swatch: { width: 18, height: 18, borderRadius: 4 },
   smallBtn: { backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8 },
   smallBtnText: { color: colors.text, fontWeight: "700", fontSize: 13 },
   next: { gap: space.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
   earnRow: { flexDirection: "row", gap: space.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
-  foot: { color: colors.faint, fontSize: 11, textAlign: "center", marginTop: space.sm },
+  partyBg: { backgroundColor: "#000000AA", alignItems: "center", justifyContent: "center" },
+  partyCard: { backgroundColor: colors.card, borderRadius: radius.lg, padding: space.md, gap: space.sm, width: 420, maxWidth: "90%", borderWidth: 2, borderColor: "#FFD166", alignItems: "stretch" },
+  partyTitle: { color: "#FFD166", fontSize: 22, fontWeight: "800", textAlign: "center" },
+  partyShip: { color: colors.text, fontSize: 15, textAlign: "center" },
+  partyItems: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
+  partyItem: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.cardAlt, borderRadius: 10, paddingVertical: 4, paddingHorizontal: 10 },
+  partyItemText: { color: colors.text, fontSize: 14, fontWeight: "700" },
 });
