@@ -13,7 +13,7 @@
 import threading
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
@@ -38,6 +38,9 @@ TOPIC_KINDS = ("explain", "outside")
 TAG_BATCH = 40
 TAG_ROUNDS = 5
 SORTS = ("solved", "score", "rate")
+MIN_GROWTH = 5            # 성장왕: 두 주 모두 이만큼 이상 푼 사람
+TOP_GROWTH = 3
+STAFF_ROLES = ("teacher", "staff", "admin")
 
 _cache_lock = threading.Lock()
 _cache = {}               # (book_id, period) → (시각, 모은 자료)
@@ -72,7 +75,7 @@ def _gather(book, period):
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < CACHE_SEC:
             return hit[1]
-    start = social.period_start(period)
+    start = _start(period)
     since = {"created_at": f"gte.{start}"} if start else {}
     bid = f"eq.{book['id']}"
     attempts = []
@@ -118,6 +121,108 @@ def _gather(book, period):
     with _cache_lock:
         _cache[key] = (time.time(), data)
     return data
+
+
+def _start(period):
+    """기간 시작 (한국 시간). '2weeks' = 지난주 월요일부터 (성장왕 비교용)."""
+    if period == "2weeks":
+        return (datetime.fromisoformat(social.period_start("week")) - timedelta(days=7)).isoformat()
+    return social.period_start(period)
+
+
+def _when(at):
+    try:
+        return datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def growth(attempts, who, students):
+    """이번 주 성장왕: 이번 주 정답률 − 지난주 정답률. 두 주 모두 MIN_GROWTH 문제 이상 푼 교육생, 오른 사람만."""
+    this_start = datetime.fromisoformat(social.period_start("week"))
+    weeks = {"this": [], "last": []}
+    for a in attempts:
+        w = _when(a["at"])
+        if w is not None:
+            weeks["this" if w >= this_start else "last"].append(a)
+    rate = {}
+    for k, rows in weeks.items():
+        st = {}
+        for a in first_attempts(rows, who):
+            x = st.setdefault(a["user_id"], [0, 0])
+            x[0] += 1
+            x[1] += 1 if a["correct"] else 0
+        rate[k] = {u: (n, round(c * 100 / n)) for u, (n, c) in st.items() if n >= MIN_GROWTH}
+    out = []
+    for u, (n, r) in rate["this"].items():
+        if u in rate["last"] and r > rate["last"][u][1]:
+            out.append({"user_id": u, "name": students[u]["name"], "last_rate": rate["last"][u][1], "this_rate": r,
+                        "delta": r - rate["last"][u][1], "solved": n})
+    out.sort(key=lambda x: (-x["delta"], -x["solved"], x["name"]))
+    return out[:TOP_GROWTH]
+
+
+def course_battle(firsts_all, students):
+    """과정 대항전: 과정마다 교육생 수·참여율·1인 평균 푼 수·평균 정답률·1인 평균 점수."""
+    courses = store.select("courses", {"active": "is.true", "select": "id,name,sort", "order": "sort.asc"})
+    links = select_all("user_courses", {"select": "user_id,course_id"})
+    members = {}
+    for r in links:
+        if r["user_id"] in students:
+            members.setdefault(r["course_id"], set()).add(r["user_id"])
+    per = {}
+    for a in firsts_all:
+        x = per.setdefault(a["user_id"], [0, 0, 0])
+        x[0] += 1
+        x[1] += 1 if a["correct"] else 0
+        x[2] += a["score"]
+    out = []
+    for c in courses:
+        m = members.get(c["id"], set())
+        if not m:
+            continue
+        solved = sum(per.get(u, [0])[0] for u in m)
+        correct = sum(per.get(u, [0, 0])[1] for u in m)
+        score = sum(per.get(u, [0, 0, 0])[2] for u in m)
+        active = sum(1 for u in m if u in per)
+        out.append({"course_id": c["id"], "name": c["name"], "students": len(m), "active": active,
+                    "participation": round(active * 100 / len(m)), "avg_solved": round(solved / len(m), 1),
+                    "avg_rate": round(correct * 100 / solved) if solved else 0, "avg_score": round(score / len(m), 1)})
+    return out
+
+
+def staff_view(firsts_all, who, students, days, qinfo, units, course):
+    """교사·관리자 전용: 기간 안 안 푼 학생, 반별 약한 장, 최근 신고."""
+    solved = {a["user_id"] for a in firsts_all}
+    idle = []
+    for u in sorted(who - solved, key=lambda u: students[u]["name"]):
+        d = sorted((days.get(u) or {}).keys())
+        idle.append({"user_id": u, "name": students[u]["name"], "last_day": d[-1] if d else None})
+    courses = store.select("courses", {"active": "is.true", "select": "id,name,sort", "order": "sort.asc"})
+    if course != "all":
+        courses = [c for c in courses if c["id"] == course]
+    links = select_all("user_courses", {"select": "user_id,course_id"})
+    weak = []
+    for c in courses:
+        m = {r["user_id"] for r in links if r["course_id"] == c["id"] and r["user_id"] in students}
+        st = [u for u in unit_stats([a for a in firsts_all if a["user_id"] in m], qinfo, units) if u["attempts"] >= MIN_WEAK]
+        st.sort(key=lambda u: (u["rate"], -u["attempts"]))
+        if st:
+            weak.append({"course_id": c["id"], "name": c["name"], "units": st[:2]})
+    try:
+        tutor_reports = store.select("tutor_messages", {"reported": "is.true", "select": "id,question,answer,report_note,reported_at",
+                                                        "order": "reported_at.desc", "limit": "10"})
+    except Exception:  # noqa: BLE001
+        tutor_reports = []
+    reps = store.select("question_reports", {"select": "question_id,reason,created_at", "order": "created_at.desc", "limit": "10"})
+    qtext = {}
+    if reps:
+        ids = sorted({r["question_id"] for r in reps})
+        qtext = {q["id"]: q for q in store.select("quiz_questions", {"id": f"in.({','.join(ids)})", "select": "id,question,book_id"})}
+    question_reports = [{"question_id": r["question_id"], "question": (qtext.get(r["question_id"]) or {}).get("question") or "",
+                         "book_id": (qtext.get(r["question_id"]) or {}).get("book_id"), "reason": r.get("reason") or "",
+                         "created_at": r.get("created_at")} for r in reps]
+    return {"idle": idle, "weak": weak, "tutor_reports": tutor_reports, "question_reports": question_reports}
 
 
 def _students():
@@ -303,7 +408,7 @@ def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", 
     book = textbook.current_book()
     base = {"book": None, "period": period, "course": course, "sort": sort, "rows": [], "me": None, "total": 0,
             "topics": [], "tagging": 0, "wrong": [], "units": [], "min_rate_solved": MIN_RATE_SOLVED,
-            "min_wrong_users": MIN_WRONG_USERS}
+            "min_wrong_users": MIN_WRONG_USERS, "growth": [], "min_growth": MIN_GROWTH, "courses": [], "staff": None}
     if not book:
         return base
     if not textbook.can_view(user, book):  # 교육생에게 숨긴 교재
@@ -313,7 +418,15 @@ def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", 
     members = _scope(course)
     who = set(students) if members is None else set(students) & members
     data = _gather(book, period)
-    firsts = first_attempts(data["attempts"], who)
+    firsts_all = first_attempts(data["attempts"], set(students))
+    firsts = [a for a in firsts_all if a["user_id"] in who]
+
+    # 이번 주 성장왕 (기간 선택과 상관없이 이번 주 vs 지난주, 과정 선택은 따름)
+    two = _gather(book, "2weeks")
+    grow = growth(two["attempts"], who, students)
+    if grow:
+        av = media.avatars_of([students[g["user_id"]] for g in grow])
+        grow = [{**g, **(av.get(g["user_id"]) or {})} for g in grow]
 
     # 문제 풀이 순위
     today = daily.today()
@@ -382,10 +495,15 @@ def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", 
         bg.add_task(tag_topics, book["id"])
 
     me_out = next((r for r in rows if r["user_id"] == user["id"]), None)
+    staff = None
+    if user["role"] in STAFF_ROLES:
+        staff = staff_view(firsts_all, who, students, data["days"], data["qinfo"], units,
+                           "all" if members is None else str(uuid.UUID(course)))
     return {**base, "book": {"id": book["id"], "title": book.get("title") or ""},
             "rows": rows[:len(top)],
             "me": me_out, "total": len(ordered), "topics": topics, "tagging": waiting,
-            "wrong": wrong, "units": all_units}
+            "wrong": wrong, "units": all_units, "growth": grow, "min_growth": MIN_GROWTH,
+            "courses": course_battle(firsts_all, students), "staff": staff}
 
 
 @router.get("/study-board/user/{uid}")

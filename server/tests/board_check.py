@@ -185,6 +185,36 @@ def main():
     assert [(u["unit_key"], u["attempts"], u["correct"]) for u in uu] == [("0-0", 2, 2), ("0-1", 1, 1)], uu
     assert c.get("/study-board/user/nope", headers=T1).status_code == 404
 
+    # 2차: 이번 주 성장왕 · 과정 대항전 · 교사용 칸
+    import social
+    from datetime import datetime as _dt
+    last = (_dt.fromisoformat(social.period_start("week")) - timedelta(days=1)).astimezone(timezone.utc).isoformat()
+    for qn in (1, 2):  # s2: 지난주 2문제 다 틀림 → 이번 주 3문제 중 2개 맞음
+        db.insert_rows("tutor_answers", {"user_id": s[2][0], "book_id": bid, "question_id": q[qn], "kind": "mc",
+                                         "answer": "3", "correct": False, "created_at": last})
+    board.MIN_GROWTH = 2
+    board.clear_cache()
+    b = c.get("/study-board", headers=s[5][1]).json()
+    g = b["growth"]
+    assert [x["name"] for x in g] == ["s2"] and g[0]["last_rate"] == 0 and g[0]["this_rate"] == 67 and g[0]["delta"] == 67, g  # 이번 주 3문제 중 2개
+    assert c.get("/study-board", params={"course": cb}, headers=s[5][1]).json()["growth"] == []  # 과정 선택을 따름
+    board.MIN_GROWTH = 5
+    cs = {x["name"]: x for x in b["courses"]}
+    assert cs["뉴딜2기"]["students"] == 5 and cs["페루반"]["students"] == 2, cs  # s1~s4 + s7
+    assert cs["페루반"]["active"] == 2 and cs["페루반"]["participation"] == 100, cs["페루반"]
+    assert cs["뉴딜2기"]["active"] == 4 and cs["뉴딜2기"]["participation"] == 80, cs["뉴딜2기"]
+    assert b["staff"] is None  # 교육생에게는 교사용 칸 없음
+    db.insert_rows("question_reports", {"question_id": q[0], "user_id": s[1][0], "reason": "보기 이상", "created_at": at(0)})
+    mid = db.TABLES["tutor_messages"][0]["id"]
+    db.TABLES["tutor_messages"][0].update(reported=True, report_note="틀림", reported_at=at(0))
+    st = c.get("/study-board", params={"course": ca}, headers=T1).json()["staff"]
+    assert [x["name"] for x in st["idle"]] == ["s7"] and st["idle"][0]["last_day"] is None, st["idle"]
+    assert [w["name"] for w in st["weak"]] == ["뉴딜2기"] and [u["unit_key"] for u in st["weak"][0]["units"]] == ["0-1", "0-0"], st["weak"]
+    assert st["question_reports"][0]["question"] == "문제0" and st["question_reports"][0]["reason"] == "보기 이상", st
+    assert st["tutor_reports"][0]["id"] == mid and st["tutor_reports"][0]["report_note"] == "틀림", st
+    st = c.get("/study-board", headers=T1).json()["staff"]
+    assert {w["name"] for w in st["weak"]} <= {"뉴딜2기", "페루반"}
+
     # 숨긴 교재 → 교육생은 통계 없음, 교사는 보임
     db.TABLES["textbooks"][0]["show_students"] = False
     assert c.get("/study-board", headers=s[1][1]).json()["hidden"] is True
