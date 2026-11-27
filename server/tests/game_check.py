@@ -199,6 +199,8 @@ def main():
     db.insert_rows("game_ledger", {"user_id": s1, "key": "test_gift", "steel": 5000, "rods": 3000})  # 시험용 자원
     out = c.post("/game/ship/start", headers=S1, json={"kind": "barge"}).json()
     assert out["ship"]["stage"] == 0 and out["ship"]["left"] == 60
+    bal1 = game.balance(game.ledger(s1))   # 시험용 자원을 다 빼서 진수 대금이 창고에 다 들어가게
+    db.insert_rows("game_ledger", {"user_id": s1, "key": "test_trim", "steel": -bal1["steel"], "rods": -bal1["rods"]})
     assert c.post("/game/ship/next", headers=S1).json()["detail"]["code"] == "not_ready"
     for sec in game.STAGE_SECONDS:
         tick(sec)
@@ -298,6 +300,25 @@ def main():
     words = {q["id"]: q["question"].rstrip("?") for q in ex["questions"]}
     r = c.post("/game/hq-exam/submit", headers=S4, json={"id": ex["id"], "answers": {k: f" {v} " for k, v in words.items()}}).json()
     assert r["passed"] is True and r["right"] == 2, r
+    # 창고 한도: 공부 보상이 창고 자리를 넘으면 사라지지 않고 '창고 대기' → 자리가 나면 들어옴
+    s5, S5 = user("s5", "student")
+    d = c.get("/game/state", headers=S5).json()
+    assert d["resources"]["steel"] == 500 and d["caps"]["steel"] == 1000
+    db.insert_rows("game_ledger", {"user_id": s5, "key": "test_gift", "steel": 400, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
+    db.insert_rows("daily_sets", {"user_id": s5, "day": "2026-12-05", "book_id": bid, "question_ids": [qs[0]]})
+    db.insert_rows("daily_answers", {"user_id": s5, "day": "2026-12-05", "question_id": qs[0], "book_id": bid, "kind": "mc", "score": 0})
+    d = c.get("/game/state", headers=S5).json()
+    dd = d["earn"]["daily_done_steel"]
+    assert d["resources"]["steel"] == 900, d["resources"]          # 매일 문제 강판이 들어갈 자리(100)가 없음
+    assert d["waiting"]["steel"] == dd > 100, d["waiting"]
+    assert any(t["id"] == "full" and t["steel"] == dd for t in d["tips"]), d["tips"]
+    d = c.get("/game/state", headers=S5).json()
+    assert d["resources"]["steel"] == 900 and d["waiting"]["steel"] == dd and d["rewards"] is None   # 다시 열어도 그대로
+    db.insert_rows("game_ledger", {"user_id": s5, "key": "test_spend", "steel": -500, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
+    d = c.get("/game/state", headers=S5).json()
+    assert d["resources"]["steel"] == 400 + dd and d["waiting"]["steel"] == 0, (d["resources"], d["waiting"])
+    assert d["rewards"]["steel"] == dd
+    assert game.clip_storage({"steel": 500, "rods": 100}, {"steel": 900, "rods": 600}, {"steel": 1000, "rods": 600}) == {"steel": 100, "rods": 0}
     print("game_check OK")
 
 
