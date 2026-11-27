@@ -1189,10 +1189,17 @@ export type TutorReply = {
   /** 이번에 새로 만들어 문제 은행에 넣은 문제 */
   made?: boolean;
 };
-export const askTutor = (text: string, lang: string, history: TutorTurn[], page?: number, lastPages: number[] = []) =>
+export const askTutor = (
+  text: string,
+  lang: string,
+  history: TutorTurn[],
+  page?: number,
+  lastPages: number[] | null = null,
+  seenPage: number | null = null,
+) =>
   request<TutorReply>(
     "/tutor/ask",
-    json("POST", { text, lang, history, page: page ?? null, last_pages: lastPages }),
+    json("POST", { text, lang, history, page: page ?? null, last_pages: lastPages, seen_page: seenPage }),
     AI_TIMEOUT,
   );
 export type TutorEvent = { t: "delta"; text: string } | { t: "status"; key: string };
@@ -1203,8 +1210,9 @@ export async function askTutorStream(
   lang: string,
   history: TutorTurn[],
   page: number | undefined,
-  lastPages: number[],
+  lastPages: number[] | null,
   onEvent: (e: TutorEvent) => void,
+  seenPage: number | null = null,
   ctrl: AbortController = new AbortController(),
 ): Promise<TutorReply> {
   const started = Date.now();
@@ -1218,7 +1226,7 @@ export async function askTutorStream(
     res = await fetch(`${API_URL}/tutor/ask/stream`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ text, lang, history, page: page ?? null, last_pages: lastPages }),
+      body: JSON.stringify({ text, lang, history, page: page ?? null, last_pages: lastPages, seen_page: seenPage }),
       signal: ctrl.signal,
     });
   } catch (e) {
@@ -1232,7 +1240,7 @@ export async function askTutorStream(
   }
   if (res.status === 404 || res.status === 405) {
     clearTimeout(timer);
-    return askTutor(text, lang, history, page, lastPages); // 아직 예전 서버
+    return askTutor(text, lang, history, page, lastPages, seenPage); // 아직 예전 서버
   }
   if (!res.ok) {
     clearTimeout(timer);
@@ -1325,5 +1333,26 @@ export type TutorFaq = {
   outside: boolean;
   reported: boolean;
 };
+export type TutorCheck = {
+  id: string;
+  question: string;
+  page_from: number;
+  page_to: number;
+  note: string;
+  /** ok 맞음 / wrong_page 엉뚱한 쪽 / no_page 근거 쪽 없음 / said_missing "교재에 없다"고 함 / error_* 오류 */
+  last_verdict: string;
+  last_pages: number[];
+  last_found: number[];
+  last_reply: string;
+  last_run_at: string | null;
+};
+export const listTutorChecks = () => request<{ items: TutorCheck[]; book: string | null }>("/admin/tutor/checks", {}, BOARD_TIMEOUT);
+export const addTutorCheck = (question: string, pageFrom: number, pageTo: number) =>
+  request<TutorCheck>("/admin/tutor/checks", json("POST", { question, page_from: pageFrom, page_to: pageTo }), BOARD_TIMEOUT);
+export const deleteTutorCheck = (id: string) =>
+  request<{ ok: boolean }>(`/admin/tutor/checks/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
+export const seedTutorChecks = () => request<{ added: number }>("/admin/tutor/checks/seed", { method: "POST" }, BOARD_TIMEOUT);
+export const runTutorCheck = (id: string) =>
+  request<TutorCheck>(`/admin/tutor/checks/${id}/run`, { method: "POST" }, AI_TIMEOUT);
 export const listTutorFaq = (days = 30) =>
   request<{ items: TutorFaq[]; days: number }>(`/admin/tutor/faq?days=${days}`, {}, BOARD_TIMEOUT);

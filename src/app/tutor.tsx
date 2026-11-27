@@ -101,6 +101,7 @@ export default function TutorScreen() {
   const silent = useRef(false); // 웰디를 눌러 멈췄으면 남은 대답은 말하지 않고 글자로만
   const finalThen = useRef<null | (() => void)>(null); // 마지막 문장까지 말한 뒤 할 일
   const speaking = useRef(false); // 웰디가 지금 말하는 중
+  const seen = useRef<number | null>(null); // 대화에서 열어 본 교재 쪽 ("이 페이지에는 없잖아" 할 때 같이 보낸다)
 
   useFocusEffect(
     useCallback(() => {
@@ -278,15 +279,16 @@ export default function TutorScreen() {
     return out.slice(-5);
   };
 
-  /** 바로 전 웰디 대답의 교재 쪽 ("그 페이지 펼쳐줘") */
-  const lastPages = (): number[] => {
+  /** 바로 전 웰디 대답의 확인된 교재 쪽 ("그 페이지 펼쳐줘"). 더 앞 대화로 거슬러 가지 않는다.
+   *  이 화면에서 아직 대답이 없으면 null (서버가 30분 안의 마지막 대화를 본다) */
+  const lastPages = (): number[] | null => {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const r = msgs[i].res;
       if (msgs[i].who !== "buddy" || !r) continue;
       const out = [...(r.open ? [r.open.page] : []), ...r.pages.map((p) => p.page), ...(r.quiz?.page ? [r.quiz.page] : [])];
-      if (out.length) return [...new Set(out)];
+      return [...new Set(out)];
     }
-    return [];
+    return null;
   };
 
   const replyText = (r: TutorReply) => r.reply || t(r.key ?? "tutor_aiFailed", r.params);
@@ -336,7 +338,7 @@ export default function TutorScreen() {
         pending.current += ev.text;
         takeSentences(false);
         if (!speaking.current && queue.current.length) pump(); // 첫 문장이 오면 바로 말하기 시작
-      });
+      }, seen.current);
       setMaking(false);
       if (r.left !== null) setLeft(r.left);
       const s = replyText(r);
@@ -481,12 +483,14 @@ export default function TutorScreen() {
   const openBook = (bookId: string, page: number) => {
     stopTimers();
     setPhase("closed");
+    seen.current = page;
     if (focused.current) router.push(`/book?id=${bookId}&page=${page}`);
   };
 
   const openPage = (bookId: string | null, page: number) => {
     if (!bookId) return;
     hush();
+    seen.current = page;
     stopTimers();
     router.push(`/book?id=${bookId}&page=${page}`);
   };
