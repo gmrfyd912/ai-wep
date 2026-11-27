@@ -39,6 +39,10 @@ KEEP_ENDED = 15 * 60    # 끝난 문제를 교육생 화면에 남겨 두는 초
 WHO_CACHE = 60          # 로그인 확인 기억 초
 LANG_FRESH = 30 * 60    # 최근 이만큼 안에 앱을 연 교육생의 언어로 미리 번역
 REPEAT_DAYS = 30        # 같은 반에 같은 문제 다시 안 내는 기간
+REVIEW_RATE = 60        # 반 정답률이 이보다 낮은 돌발 OX 는 다음 날 매일 문제에 다시 낸다 (%)
+REVIEW_MIN_ANSWERS = 3  # 답한 사람이 이보다 적으면 정답률을 믿지 않음
+REVIEW_DAYS = 3         # 최근 며칠 안에 낸 돌발 OX 까지 (주말·결석 다음 날도 받도록)
+REVIEW_MAX = 2          # 하루 매일 문제에 더하는 최대 수
 TEXT_MAX = 300
 
 _lock = threading.RLock()
@@ -645,4 +649,35 @@ def missed_counts(course_ids, since_iso):
                 x[0] += len(ids) - len(got.get(uid, set()))
     except Exception as e:  # noqa: BLE001  (step13 SQL 전)
         print("[live] 놓친 학생 못 셈", str(e)[:160], flush=True)
+    return out
+
+
+def review_for(user_id, book_id, exclude=()):
+    """정답률이 낮았던 돌발 OX → 이 교육생의 다음 매일 문제에 다시 낼 문제 id (맞힌 사람은 빼고, 최신 먼저)."""
+    since = (datetime.now(timezone.utc) - timedelta(days=REVIEW_DAYS)).isoformat()
+    skip = set(exclude)
+    out = []
+    try:
+        cids = manage.course_ids_of(user_id)
+        if not cids:
+            return []
+        rows = store.select("live_ox", {"course_id": f"in.({','.join(sorted(cids))})", "book_id": f"eq.{book_id}",
+                                        "ended_at": "not.is.null", "started_at": f"gte.{since}",
+                                        "select": "id,question_id,answered,correct,started_at", "order": "started_at.desc"})
+        low = [r for r in rows if r.get("question_id") and (r.get("answered") or 0) >= REVIEW_MIN_ANSWERS
+               and (r.get("correct") or 0) * 100 < REVIEW_RATE * r["answered"]]
+        if not low:
+            return []
+        right = {a["quiz_id"] for a in store.select("live_ox_answers", {
+            "quiz_id": f"in.({','.join(r['id'] for r in low)})", "user_id": f"eq.{user_id}", "correct": "is.true",
+            "select": "quiz_id"})}
+        for r in low:
+            if r["id"] in right or r["question_id"] in skip or r["question_id"] in out:
+                continue
+            out.append(r["question_id"])
+            if len(out) >= REVIEW_MAX:
+                break
+    except Exception as e:  # noqa: BLE001  (step13 SQL 전)
+        print("[live] 다시 풀 문제 못 찾음", str(e)[:160], flush=True)
+        return []
     return out

@@ -1144,6 +1144,7 @@ const fil: Translation = {
   sb_noReports: "Walang ulat.",
   sb_ruleStaff: "Sumusunod sa filter ng klase at panahon · pindutin ang pangalan para sa record · asikasuhin ang ulat sa admin screen",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ Ulitin ang biglaang OX sa klase",
   lo_title: "⚡ Biglaang OX!",
   lo_left: "{{n}} segundo pa",
   lo_pick: "Pindutin ang O kung tama, X kung mali",

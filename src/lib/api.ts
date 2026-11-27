@@ -1078,6 +1078,8 @@ export type DailyItem = {
   /** 내 앱 언어 번역 (한국어면 없음) */
   tr: { question: string; choices: string[] } | null;
   result: DailyResult | null;
+  /** 반 정답률이 낮았던 수업 중 돌발 OX 를 다시 내는 문제 */
+  review?: boolean;
 };
 export type MyDaily =
   | { ready: false; reason: "no_book" | "no_questions"; day: string }

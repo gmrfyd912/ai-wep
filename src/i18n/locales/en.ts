@@ -1144,6 +1144,7 @@ const en: Translation = {
   sb_noReports: "No reports.",
   sb_ruleStaff: "Follows the class and period filters · tap a name to see their records · handle reports in the admin screens",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ Pop quiz review from class",
   lo_title: "⚡ Pop quiz OX!",
   lo_left: "{{n}}s left",
   lo_pick: "Tap O if it's true, X if it's false",

@@ -1144,6 +1144,7 @@ const uz: Translation = {
   sb_noReports: "Xabar yo‘q.",
   sb_ruleStaff: "Guruh va davr filtriga amal qiladi · ismni bosib yozuvlarni ko‘ring · xabarlarni admin ekranida hal qiling",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ Darsdagi kutilmagan OX ni qayta yechish",
   lo_title: "⚡ Kutilmagan OX!",
   lo_left: "{{n}} soniya qoldi",
   lo_pick: "To'g'ri bo'lsa O, noto'g'ri bo'lsa X ni bosing",

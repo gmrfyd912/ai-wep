@@ -1144,6 +1144,7 @@ const id: Translation = {
   sb_noReports: "Tidak ada laporan.",
   sb_ruleStaff: "Mengikuti filter kelas dan periode · ketuk nama untuk melihat catatan · tangani laporan di layar admin",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ Ulangi kuis OX dadakan di kelas",
   lo_title: "⚡ Kuis OX dadakan!",
   lo_left: "Sisa {{n}} detik",
   lo_pick: "Tekan O jika benar, X jika salah",
