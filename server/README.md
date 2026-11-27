@@ -114,3 +114,18 @@ A4에 '실제 크기(100%)'로 인쇄하고 100mm 눈금선으로 인쇄 크기�
 - 메일(선택): Render 무료 서버는 메일 포트가 막혀 있어 Brevo 웹 API를 씁니다. 환경 변수 `BREVO_API_KEY`, `MAIL_FROM`. 없으면 이메일 찾기만 "준비 안 됨"으로 나오고 나머지는 정상 동작합니다.
 - 리포트 하루 한도는 계정 기준. 시스템관리자 계정과 `report_unlimited_devices` 휴대폰은 한도 없음.
 - 흐름 시험: `python -m tests.accounts_check` (Supabase·메일은 가짜)
+
+## T4: 학습 보드 (board.py)
+
+모든 사용자(교육생·교사·행정·관리자)가 보는 이론 학습 순위·통계. 지금 쓰는 교재만, 순위·통계는 교육생 것만 셉니다.
+
+| 주소 | 하는 일 |
+|---|---|
+| `GET /study-board?course=all\|과정id&period=day\|week\|month\|all&sort=solved\|score\|rate&lang=ko` | 문제 풀이 순위·나·많이 물어본 질문·많이 틀린 문제·장별 정답률 |
+| `GET /study-board/user/{id}?period=week` | 순위에서 사람을 누르면 그 사람의 장별 정답률 |
+
+- 문제 풀이: 매일 문제(`daily_answers`) + 웰디 대화 중 문제(`tutor_answers`) 합산. 문제 하나 10점 만점, 같은 문제는 기간 안 처음 푼 것만, 채점 대기는 채점 뒤에. 정답률 순은 10문제 이상만.
+- 많이 물어본 질문: `tutor_messages.topic` (AI 가 붙인 짧은 한국어 주제)로 묶음. 주제가 없는 질문은 보드를 열 때 뒤에서 40개씩 붙임(기본 `claude-haiku-5-5`). 이름은 안 보냄.
+- 많이 틀린 문제: 5명 이상 푼 문제, 틀린 비율 순, 가장 많이 고른 오답. 이름은 안 보냄.
+- 계산 결과는 1분 동안 같이 씀. Supabase 준비: `supabase/step12-board.sql`.
+- 흐름 시험: `python -m tests.board_check`

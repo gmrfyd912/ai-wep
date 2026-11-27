@@ -1360,3 +1360,68 @@ export const runTutorCheck = (id: string) =>
   request<TutorCheck>(`/admin/tutor/checks/${id}/run`, { method: "POST" }, AI_TIMEOUT);
 export const listTutorFaq = (days = 30) =>
   request<{ items: TutorFaq[]; days: number }>(`/admin/tutor/faq?days=${days}`, {}, BOARD_TIMEOUT);
+
+// ---- T4(이론): 학습 보드 (모든 사용자) ----
+
+export type BoardSort = "solved" | "score" | "rate";
+export type BoardUnit = { unit_key: string; title: string; attempts: number; correct: number; rate: number };
+export type BoardRow = {
+  user_id: string;
+  name: string;
+  courses: string[];
+  /** 푼 문제 수 (같은 문제는 처음 한 번만) */
+  solved: number;
+  correct: number;
+  /** 문제 하나 10점 만점의 합 */
+  score: number;
+  /** 정답률 % */
+  rate: number;
+  /** 매일 문제 / 웰디 대화 중 푼 수 */
+  daily: number;
+  tutor: number;
+  /** 🔥 매일 문제 연속 일수 */
+  streak: number;
+  /** 정답률 순에서 아직 문제 수가 모자라면 null */
+  rank: number | null;
+  rank_note?: "need_more";
+  weak_unit?: BoardUnit | null;
+} & AvatarFields;
+export type BoardTopic = {
+  topic: string;
+  count: number;
+  users: number;
+  question: string;
+  answer: string;
+  pages: { page: number; printed: number }[];
+};
+export type BoardWrong = {
+  qid: string;
+  attempts: number;
+  wrong: number;
+  /** 정답률 % */
+  rate: number;
+  /** 가장 많이 고른 오답 보기 번호 (0부터) */
+  top_wrong: number | null;
+  top_wrong_n: number;
+  item: DailyItem & {
+    reveal: { correct_choice: number | null; model_answer: string; explanation: string; tr: { model_answer: string; explanation: string } | null };
+  };
+};
+export type StudyBoard = {
+  book: { id: string; title: string } | null;
+  hidden?: boolean;
+  rows: BoardRow[];
+  me: BoardRow | null;
+  total: number;
+  topics: BoardTopic[];
+  /** 아직 주제를 붙이는 중인 질문 수 */
+  tagging: number;
+  wrong: BoardWrong[];
+  units: BoardUnit[];
+  min_rate_solved: number;
+  min_wrong_users: number;
+};
+export const getStudyBoard = (q: { course: string; period: RankPeriod; sort: BoardSort; lang: string }) =>
+  request<StudyBoard>(`/study-board?${new URLSearchParams(q).toString()}`, {}, BOARD_TIMEOUT);
+export const getStudyBoardUser = (userId: string, period: RankPeriod) =>
+  request<{ units: BoardUnit[] }>(`/study-board/user/${userId}?period=${period}`, {}, BOARD_TIMEOUT);

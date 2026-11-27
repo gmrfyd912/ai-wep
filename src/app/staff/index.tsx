@@ -18,6 +18,7 @@ export default function StaffHome() {
       {canManage(user, "manage_members") ? (
         <ListRow icon="people-outline" title={t("admin_members")} desc={t("admin_membersDesc")} onPress={() => router.push("/manage/members")} />
       ) : null}
+      <ListRow icon="podium-outline" title={t("sb_title")} desc={t("sb_desc")} onPress={() => router.push("/study-board")} />
       <CourseCards />
     </Screen>
   );

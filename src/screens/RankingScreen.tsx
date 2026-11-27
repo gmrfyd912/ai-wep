@@ -342,7 +342,7 @@ function RankCard({
 }
 
 /** 필터 버튼을 누르면 아래에서 올라오는 선택지 창 */
-function OptionSheet({
+export function OptionSheet({
   group,
   onPick,
   onClose,

@@ -35,6 +35,7 @@ import store
 import textbook
 import daily
 import tutor
+import board
 from engine.analyze import ENGINE_VERSION, analyze_image
 from engine.config import Config
 
@@ -55,6 +56,7 @@ app.include_router(rules.router)
 app.include_router(textbook.router)
 app.include_router(daily.router)
 app.include_router(tutor.router)
+app.include_router(board.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}
