@@ -58,3 +58,7 @@ alter table public.game_bases enable row level security;
 alter table public.game_buildings enable row level security;
 alter table public.game_ships enable row level security;
 alter table public.game_ledger enable row level security;
+
+-- 서버(service_role)가 읽고 쓸 수 있게 권한 주기 (이게 없으면 "permission denied for table game_bases")
+grant select, insert, update, delete on public.game_bases, public.game_buildings,
+  public.game_ships, public.game_ledger to service_role;
