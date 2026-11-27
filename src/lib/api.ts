@@ -1591,7 +1591,10 @@ export const getLiveHistory = (courseId: string) =>
 export type GameBuildingType = "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock";
 export type GameCost = { steel: number; rods: number };
 export type GameRes = { steel: number; rods: number; tech: number; passes: number; fame: number };
-export type GameBlock = "busy" | "max" | "units" | "hq_level" | null;
+export type GameBlock = "busy" | "max" | "exam" | "hq_level" | null;
+export type GameExamKind = "ox" | "mc" | "word" | "short";
+/** 본관 승급 시험 조건 (관리자 설정) */
+export type GameExamSpec = { counts: Record<GameExamKind, number>; total: number; pass: number; passed: boolean };
 export type GameBuilding = {
   id: string;
   type: GameBuildingType;
@@ -1608,7 +1611,7 @@ export type GameBuilding = {
   pending: number;
   just_done: boolean;
   block: GameBlock;
-  next?: { level: number; cost: GameCost; seconds: number; units_need?: number };
+  next?: { level: number; cost: GameCost; seconds: number; exam?: GameExamSpec };
   rate?: number;
   cap?: number;
 };
@@ -1657,6 +1660,30 @@ export const gameSpeedup = (target: string, using: "tech" | "pass") => post<Game
 export const gameShipStart = (kind: GameShipKind) => post<GameState>("/game/ship/start", { kind }, GAME_TIMEOUT);
 export const gameShipNext = () => post<GameState>("/game/ship/next", {}, GAME_TIMEOUT);
 export const gameTutorial = (done: boolean) => post<GameState>("/game/tutorial", { done }, GAME_TIMEOUT);
+
+/** 본관 승급 시험 문제 (답은 낸 뒤에만) */
+export type GameExamQuestion = {
+  id: string;
+  kind: GameExamKind;
+  unit_title: string;
+  question: string;
+  choices: string[];
+  tr: { question: string; choices: string[] } | null;
+};
+export type GameExam = { id: string; target: number; pass: number; total: number; short_of: number; questions: GameExamQuestion[] };
+export type GameExamResult = {
+  passed: boolean;
+  right: number;
+  total: number;
+  pass: number;
+  unsure: number;
+  target: number;
+  results: { id: string; correct: boolean | null; feedback: string; correct_choice: number | null; model_answer: string; explanation: string }[];
+  state: GameState;
+};
+export const gameExamStart = (lang: string) => post<GameExam>("/game/hq-exam/start", { lang }, GAME_TIMEOUT);
+export const gameExamSubmit = (id: string, answers: Record<string, string | number>) =>
+  post<GameExamResult>("/game/hq-exam/submit", { id, answers }, GAME_TIMEOUT);
 
 export type GameSettings = Record<string, number | boolean>;
 export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings");

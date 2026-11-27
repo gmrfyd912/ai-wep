@@ -3,7 +3,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -13,6 +13,8 @@ import { AppButton, Body, Card } from "@/components/ui";
 import {
   gameBuild,
   gameCollect,
+  gameExamStart,
+  gameExamSubmit,
   gameMove,
   gameShipNext,
   gameShipStart,
@@ -24,6 +26,8 @@ import {
   type GameBuilding,
   type GameBuildingType,
   type GameCost,
+  type GameExam,
+  type GameExamResult,
   type GameShipKind,
   type GameState,
   type GameTip,
@@ -31,7 +35,8 @@ import {
 import { BUILDING_COLOR, GameMap, RES_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam";
+type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
 const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock"];
 const STAGES = 5;
 
@@ -65,6 +70,11 @@ export default function GameScreen() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [party, setParty] = useState<GameState["delivered_now"] | null>(null);
+  const [info, setInfo] = useState<ResKey | null>(null);
+  const [exam, setExam] = useState<GameExam | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string | number>>({});
+  const [examRes, setExamRes] = useState<GameExamResult | null>(null);
+  const [examErr, setExamErr] = useState("");
   const [data, setData] = useState<GameState | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -240,6 +250,57 @@ export default function GameScreen() {
       if (d.delivered_now) setParty(d.delivered_now);
     });
 
+  // 본관 승급 시험
+  const hqB = data.buildings.find((b) => b.type === "hq") ?? null;
+  const openExam = async () => {
+    setSelected(null);
+    setMode("exam");
+    setExam(null);
+    setExamRes(null);
+    setAnswers({});
+    setExamErr("");
+    setBusy(true);
+    try {
+      setExam(await gameExamStart(i18n.language));
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submitExam = async () => {
+    if (!exam || busy) return;
+    setBusy(true);
+    setExamErr("");
+    try {
+      const r = await gameExamSubmit(exam.id, answers);
+      setExamRes(r);
+      apply(r.state);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const closeExam = () => {
+    setMode("home");
+    setExam(null);
+    setExamRes(null);
+  };
+
+  // 자원 칩을 누르면: 무엇인지·어떻게 얻는지·어디에 쓰는지 (+ 쓸 곳으로 가기)
+  const busyB = data.buildings.find((b) => b.busy_until) ?? null;
+  const shipBusy = data.ship && !data.ship.ready ? data.ship : null;
+  const infoAction = (k: ResKey): { label: string; onPress: () => void } | null => {
+    if (k === "tech" || k === "passes") {
+      if (busyB) return { label: t("gm_infoUseOn", { name: name(busyB.type) }), onPress: () => { setInfo(null); setMode("home"); setSelected(busyB.id); } };
+      if (shipBusy) return { label: t("gm_infoUseOn", { name: t(`gm_ship_${shipBusy.kind}`) }), onPress: () => { setInfo(null); setSelected(null); setMode("ship"); } };
+      return null;
+    }
+    if (k === "steel" || k === "rods") return { label: t("gm_earnTitle"), onPress: () => { setInfo(null); setSelected(null); setMode("earn"); } };
+    return null;
+  };
+
   // 웰디가 하는 말 (처음 따라 하기 중이면 그 단계, 아니면 오늘의 할 일)
   const tipText = (x: GameTip) => {
     const p: Record<string, string | number> = { ...x };
@@ -260,8 +321,8 @@ export default function GameScreen() {
         return { label: data.ship && data.ship.stage >= STAGES - 1 ? t("gm_shipDeliver") : t("gm_shipNext"), onPress: shipNext };
       case "collect":
         return { label: t("gm_collectAll"), onPress: doCollect };
-      case "units":
-        return data.book_id ? { label: t("gm_openBook"), onPress: () => router.push(`/book?id=${data.book_id}&page=${x.pdf_page}`) } : null;
+      case "exam":
+        return { label: t("gm_examStart"), onPress: openExam };
       case "built":
       case "idle": {
         const b = data.buildings.find((k) => k.type === x.type);
@@ -293,7 +354,9 @@ export default function GameScreen() {
           : { label: t("gm_shipStartBarge"), onPress: () => setMode("ship") };
       case "hq": {
         const hq = data.buildings.find((b) => b.type === "hq");
-        return hq ? { label: t("gm_seeBuilding", { name: name("hq") }), onPress: () => { setSelected(hq.id); setMode("home"); } } : null;
+        if (!hq) return null;
+        if (hq.block === "exam") return { label: t("gm_examStart"), onPress: openExam };
+        return { label: t("gm_seeBuilding", { name: name("hq") }), onPress: () => { setSelected(hq.id); setMode("home"); } };
       }
       default:
         return null;
@@ -336,19 +399,47 @@ export default function GameScreen() {
           <Pressable onPress={() => router.back()} style={styles.roundSm} hitSlop={8} accessibilityLabel={t("common_back")}>
             <Ionicons name="arrow-back" size={18} color="#fff" />
           </Pressable>
-          <ResChip color={RES_COLOR.steel} label={t("gm_steel")} value={res.steel} cap={data.caps.steel} />
-          <ResChip color={RES_COLOR.rods} label={t("gm_rods")} value={res.rods} cap={data.caps.rods} />
-          <ResChip color={RES_COLOR.tech} label={t("gm_tech")} value={res.tech} />
-          <ResChip color={RES_COLOR.passes} label={t("gm_passes")} value={res.passes} />
-          <ResChip color={RES_COLOR.fame} label={t("gm_fame")} value={res.fame} />
+          {(["steel", "rods", "tech", "passes", "fame"] as ResKey[]).map((k) => (
+            <ResChip
+              key={k}
+              color={RES_COLOR[k]}
+              label={t(`gm_${k}`)}
+              value={res[k]}
+              cap={k === "steel" || k === "rods" ? data.caps[k] : undefined}
+              on={info === k}
+              onPress={() => setInfo((cur) => (cur === k ? null : k))}
+            />
+          ))}
         </View>
         <View style={styles.resRow}>
           <Text style={[styles.badge, { backgroundColor: data.run_today ? "#2E9D5BE6" : "#0B2033CC" }]}>
             {data.run_today ? t("gm_runOnShort") : t("gm_runOffShort")}
           </Text>
           <Text style={styles.badge}>{t("gm_builders", { busy: data.builders.busy, total: data.builders.total })}</Text>
-          <Text style={styles.badge}>{t("gm_unitsDone", { done: data.units.done, total: data.units.total })}</Text>
         </View>
+        {info ? (
+          <View style={styles.infoCard}>
+            <View style={styles.rowBetween}>
+              <View style={styles.rowStart}>
+                <View style={[styles.dot, { backgroundColor: RES_COLOR[info], width: 10, height: 10 }]} />
+                <Text style={styles.infoTitle}>
+                  {t(`gm_${info}`)} {res[info]}
+                </Text>
+              </View>
+              <Pressable onPress={() => setInfo(null)} hitSlop={10}>
+                <Ionicons name="close" size={18} color="#fff" />
+              </Pressable>
+            </View>
+            <Text style={styles.infoText}>{t(`gm_info_${info}`, { m: data.speed_rule.tech_minutes, h: data.speed_rule.pass_hours })}</Text>
+            {(info === "tech" || info === "passes") && !busyB && !shipBusy ? <Text style={styles.infoSmall}>{t("gm_infoNothingBusy")}</Text> : null}
+            {infoAction(info) ? (
+              <Pressable onPress={infoAction(info)!.onPress} style={styles.infoBtn}>
+                <Text style={styles.actText}>{infoAction(info)!.label}</Text>
+                <Ionicons name="chevron-forward" size={14} color="#fff" />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       {/* 오른쪽 위: 크게/작게, 자원 얻는 법 */}
@@ -461,7 +552,7 @@ export default function GameScreen() {
                 onCollect={doCollect}
                 onMove={() => startMove(sel)}
                 onShips={() => setMode("ship")}
-                onBook={() => data.book_id && data.units.next && router.push(`/book?id=${data.book_id}&page=${data.units.next.pdf_page}`)}
+                onExam={openExam}
                 onClose={() => setSelected(null)}
               />
             ) : mode === "build" ? (
@@ -490,6 +581,22 @@ export default function GameScreen() {
                 ))}
                 {data.builders.busy >= data.builders.total ? <Text style={styles.small}>{t("gm_err_builders")}</Text> : null}
               </Card>
+            ) : mode === "exam" ? (
+              <ExamPanel
+                exam={exam}
+                answers={answers}
+                setAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))}
+                result={examRes}
+                error={examErr}
+                busy={busy}
+                spec={hqB?.next?.exam ?? null}
+                onSubmit={submitExam}
+                onRetry={openExam}
+                onUpgrade={() => hqB && run(() => gameUpgrade(hqB.id), () => closeExam())}
+                canUpgrade={!!hqB && !!hqB.next && canPay(hqB.next.cost) && data.builders.busy < data.builders.total}
+                upgradeNote={!hqB?.next ? "" : data.builders.busy >= data.builders.total ? t("gm_err_builders") : !canPay(hqB.next.cost) ? `${t("gm_err_money")} (${costLine(t, hqB.next.cost)})` : costLine(t, hqB.next.cost)}
+                onClose={closeExam}
+              />
             ) : mode === "ship" ? (
               <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} onClose={() => setMode("home")} onStart={(k) => run(() => gameShipStart(k))}
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
@@ -620,14 +727,15 @@ function costLine(t: TFunction, c: GameCost) {
   return parts.join(" + ") || t("gm_free");
 }
 
-function ResChip({ color, label, value, cap }: { color: string; label: string; value: number; cap?: number }) {
+function ResChip({ color, label, value, cap, on, onPress }: { color: string; label: string; value: number; cap?: number; on?: boolean; onPress: () => void }) {
   const full = cap !== undefined && value >= cap;
   return (
-    <View style={styles.res} accessibilityLabel={`${label} ${value}`}>
+    <Pressable onPress={onPress} hitSlop={4} style={({ pressed }) => [styles.res, on && styles.resOn, pressed && { opacity: 0.7 }]} accessibilityLabel={`${label} ${value}`}>
       <View style={[styles.dot, { backgroundColor: color }]} />
+      <Text style={styles.resLabel}>{label}</Text>
       <Text style={[styles.resValue, full && { color: "#FFD166" }]}>{value}</Text>
       {cap !== undefined ? <Text style={styles.resSub}>/{cap}</Text> : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -674,7 +782,7 @@ function BuildingPanel({
   onCollect,
   onMove,
   onShips,
-  onBook,
+  onExam,
   onClose,
 }: {
   b: GameBuilding;
@@ -687,7 +795,7 @@ function BuildingPanel({
   onCollect: () => void;
   onMove: () => void;
   onShips: () => void;
-  onBook: () => void;
+  onExam: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -737,22 +845,10 @@ function BuildingPanel({
           <Text style={styles.small}>
             {costLine(t, nx.cost)} · {clock(nx.seconds)}
           </Text>
-          {block === "units" ? (
+          {block === "exam" && nx.exam ? (
             <>
-              <Text style={styles.warn}>{t("gm_blockUnits", { need: nx.units_need ?? 0, done: data.units.done })}</Text>
-              {data.units.next ? (
-                <Text style={styles.small}>
-                  {t("gm_unitNext", {
-                    title: data.units.next.title,
-                    seen: data.units.next.seen,
-                    pages: data.units.next.pages,
-                    correct: data.units.next.correct,
-                    needCorrect: data.units.rule.correct,
-                    pct: data.units.rule.pages_pct,
-                  })}
-                </Text>
-              ) : null}
-              <AppButton label={t("gm_openBook")} icon="book-outline" variant="secondary" onPress={onBook} />
+              <Text style={styles.warn}>{t("gm_examNeed", { rule: examRule(t, nx.exam) })}</Text>
+              <AppButton label={t("gm_examStart")} icon="school-outline" onPress={onExam} disabled={busy} />
             </>
           ) : block === "hq_level" ? (
             <Text style={styles.warn}>{t("gm_blockHq")}</Text>
@@ -869,7 +965,7 @@ function EarnPanel({ data, onClose }: { data: GameState; onClose: () => void }) 
     [t("gm_earn_redo"), `${t("gm_tech")} +${e.redo_tech}`],
     [t("gm_earn_live"), `${t("gm_rods")} +${e.live_ok_rods}`],
     [t("gm_earn_tutor"), `${t("gm_tech")} +${e.tutor_ok_tech}`],
-    [t("gm_earn_unit", { pct: data.units.rule.pages_pct, n: data.units.rule.correct }), `${t("gm_tech")} +${e.unit_done_tech} · ${t("gm_earn_unlock")}`],
+    [t("gm_earn_unit", { pct: data.units.rule.pages_pct, n: data.units.rule.correct }), `${t("gm_tech")} +${e.unit_done_tech}`],
     [t("gm_earn_practice"), `${t("gm_steel")} +${e.practice_steel}`],
     [t("gm_earn_pass", { high: e.pass_high_score, jump: e.pass_jump }), t("gm_earn_passMax", { n: e.pass_day_max })],
   ];
@@ -888,6 +984,141 @@ function EarnPanel({ data, onClose }: { data: GameState; onClose: () => void }) 
   );
 }
 
+/** "OX 10 · 단답형 3 중 8개 맞히기" */
+function examRule(t: TFunction, ex: { counts: Record<string, number>; total: number; pass: number }) {
+  const parts = (["ox", "mc", "word", "short"] as const).filter((k) => ex.counts[k] > 0).map((k) => `${t(`gm_kind_${k}`)} ${ex.counts[k]}`);
+  return t("gm_examRule", { list: parts.join(" · "), total: ex.total, pass: ex.pass });
+}
+
+function ExamPanel({
+  exam,
+  answers,
+  setAnswer,
+  result,
+  error,
+  busy,
+  spec,
+  onSubmit,
+  onRetry,
+  onUpgrade,
+  canUpgrade,
+  upgradeNote,
+  onClose,
+}: {
+  exam: GameExam | null;
+  answers: Record<string, string | number>;
+  setAnswer: (id: string, v: string | number) => void;
+  result: GameExamResult | null;
+  error: string;
+  busy: boolean;
+  spec: { counts: Record<string, number>; total: number; pass: number } | null;
+  onSubmit: () => void;
+  onRetry: () => void;
+  onUpgrade: () => void;
+  canUpgrade: boolean;
+  upgradeNote: string;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const done = exam ? exam.questions.filter((q) => String(answers[q.id] ?? "").trim() !== "").length : 0;
+  const res = result ? Object.fromEntries(result.results.map((r) => [r.id, r])) : {};
+  return (
+    <Card style={{ gap: space.sm }}>
+      <PanelHead title={t("gm_examTitle", { n: exam?.target ?? result?.target ?? "" })} onClose={onClose} />
+      {spec ? <Text style={styles.small}>{examRule(t, spec)}</Text> : null}
+      {error ? <Text style={styles.warn}>{error}</Text> : null}
+      {!exam && !error ? <ActivityIndicator color={colors.primary} /> : null}
+      {exam && exam.short_of > 0 ? <Text style={styles.small}>{t("gm_examShortOf", { n: exam.total })}</Text> : null}
+      {result ? (
+        <Text style={[styles.text, { color: result.passed ? colors.success : colors.warning, fontWeight: "700" }]}>
+          {result.passed ? t("gm_examPassed") : t("gm_examFailed")} {t("gm_examScore", { right: result.right, total: result.total, pass: result.pass })}
+        </Text>
+      ) : null}
+      {exam?.questions.map((q, i) => {
+        const r = res[q.id];
+        const text = q.tr?.question || q.question;
+        const choices = q.tr?.choices?.length ? q.tr.choices : q.choices;
+        const mine = answers[q.id];
+        return (
+          <View key={q.id} style={styles.examQ}>
+            <Text style={styles.text}>
+              {r ? (r.correct ? "✅ " : r.correct === null ? "⏳ " : "❌ ") : ""}
+              {i + 1}. [{t(`gm_kind_${q.kind}`)}] {text}
+            </Text>
+            {q.kind === "ox" ? (
+              <View style={styles.row2}>
+                {["O", "X"].map((lab, k) => (
+                  <Pressable
+                    key={lab}
+                    disabled={!!result}
+                    onPress={() => setAnswer(q.id, k)}
+                    style={[styles.choice, { flex: 1, alignItems: "center" }, mine === k && styles.choiceOn, r && r.correct_choice === k && styles.choiceRight]}
+                  >
+                    <Text style={styles.choiceBig}>{lab}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : q.kind === "mc" ? (
+              choices.map((c, k) => (
+                <Pressable
+                  key={k}
+                  disabled={!!result}
+                  onPress={() => setAnswer(q.id, k)}
+                  style={[styles.choice, mine === k && styles.choiceOn, r && r.correct_choice === k && styles.choiceRight]}
+                >
+                  <Text style={styles.text}>
+                    {k + 1}. {c}
+                  </Text>
+                </Pressable>
+              ))
+            ) : (
+              <TextInput
+                editable={!result}
+                value={String(mine ?? "")}
+                onChangeText={(v) => setAnswer(q.id, v)}
+                multiline={q.kind === "short"}
+                placeholder={t(q.kind === "short" ? "gm_examTypeLong" : "gm_examTypeWord")}
+                placeholderTextColor={colors.faint}
+                style={[styles.input, q.kind === "short" && { minHeight: 70, textAlignVertical: "top" }]}
+              />
+            )}
+            {r && (q.kind === "word" || q.kind === "short") && r.model_answer ? (
+              <Text style={styles.small}>{t("gm_examModel", { a: r.model_answer })}</Text>
+            ) : null}
+            {r?.feedback ? <Text style={styles.small}>{r.feedback}</Text> : null}
+          </View>
+        );
+      })}
+      {exam && !result ? (
+        <AppButton
+          label={t("gm_examSubmit", { done, total: exam.total })}
+          icon="checkmark-done-outline"
+          disabled={busy || done < exam.total}
+          onPress={onSubmit}
+        />
+      ) : null}
+      {busy && exam && !result ? <Text style={styles.small}>{t("gm_examGrading")}</Text> : null}
+      {result ? (
+        <View style={[styles.examResult, { borderColor: result.passed ? colors.success : colors.warning }]}>
+          <Text style={[styles.cardTitle, { color: result.passed ? colors.success : colors.warning }]}>
+            {result.passed ? t("gm_examPassed") : t("gm_examFailed")}
+          </Text>
+          <Text style={styles.text}>{t("gm_examScore", { right: result.right, total: result.total, pass: result.pass })}</Text>
+          {result.unsure ? <Text style={styles.small}>{t("gm_examUnsure", { n: result.unsure })}</Text> : null}
+          {result.passed ? (
+            <>
+              <AppButton label={t("gm_examUpgrade", { n: result.target })} icon="arrow-up-circle-outline" disabled={busy || !canUpgrade} onPress={onUpgrade} />
+              {upgradeNote ? <Text style={styles.small}>{upgradeNote}</Text> : null}
+            </>
+          ) : (
+            <AppButton label={t("gm_examRetry")} icon="refresh-outline" disabled={busy} onPress={onRetry} />
+          )}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
 const HUD = "#0B2033D9";
 const FAB_ROW = 5 * 64 + 8;   // 아래 오른쪽 메뉴 단추 5개 자리
 const styles = StyleSheet.create({
@@ -901,6 +1132,20 @@ const styles = StyleSheet.create({
   resRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
   res: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 8 },
   resValue: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  resLabel: { color: "#FFFFFFCC", fontSize: 11 },
+  resOn: { borderWidth: 1, borderColor: "#FFD166" },
+  infoCard: { backgroundColor: "#0B2033F2", borderRadius: radius.md, padding: 10, gap: 6, maxWidth: 360, borderWidth: 1, borderColor: "#FFFFFF33" },
+  infoTitle: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  infoText: { color: "#fff", fontSize: 12, lineHeight: 17 },
+  infoSmall: { color: "#FFFFFFAA", fontSize: 11 },
+  infoBtn: { flexDirection: "row", alignItems: "center", gap: 2, alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10 },
+  examResult: { borderWidth: 1.5, borderRadius: radius.md, padding: space.sm, gap: space.sm },
+  examQ: { gap: 6, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  choice: { backgroundColor: colors.cardAlt, borderRadius: radius.sm, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: colors.border },
+  choiceOn: { borderColor: colors.primary, backgroundColor: colors.primaryDim },
+  choiceRight: { borderColor: colors.success },
+  choiceBig: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  input: { backgroundColor: colors.cardAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, color: colors.text, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14 },
   resSub: { color: "#FFFFFF88", fontSize: 10 },
   dot: { width: 8, height: 8, borderRadius: 2 },
   round: { width: 40, height: 40, borderRadius: 20, backgroundColor: HUD, alignItems: "center", justifyContent: "center" },
