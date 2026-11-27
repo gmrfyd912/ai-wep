@@ -1392,6 +1392,8 @@ const es: Translation = {
   gm_partyOk: "Vale",
   gm_shipPay: "Pago de botadura: chapa {{steel}} · electrodos {{rods}} · puntos técnicos {{tech}}",
   gm_shipFirstBonus: "Primera entrega: pase +{{n}}",
+  gm_newsTitle: "Noticia de botadura",
+  gm_newsText: "¡{{name}} acaba de botar un {{ship}}! Felicítale.",
   gm_err_students_only: "El astillero de Weldy es solo para aprendices.",
   gm_err_game_off: "El juego está apagado ahora.",
   gm_err_money: "No hay recursos suficientes",

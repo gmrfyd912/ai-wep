@@ -158,6 +158,15 @@ def main():
     out = c.post("/game/move", headers=S1, json={"id": cut["id"], "x": 0, "y": 0}).json()
     assert next(b for b in out["buildings"] if b["type"] == "cutting")["x"] == 0
 
+    # 같은 반 친구 진수 알림 준비: s1·s2 같은 반, s3 다른 반
+    ca = db.insert_rows("courses", {"name": "A반", "sort": 1})[0]["id"]
+    cb = db.insert_rows("courses", {"name": "B반", "sort": 2})[0]["id"]
+    s2, S2 = user("s2", "student")
+    s3, S3 = user("s3", "student")
+    for uid_, cid_ in ((s1, ca), (s2, ca), (s3, cb)):
+        db.insert_rows("user_courses", {"user_id": uid_, "course_id": cid_})
+    assert c.get("/live/now", headers=S2).json()["launches"] == []
+
     # 배: 바지선 → 공정 5개 → 인도 명성 10
     assert next(x for x in d["ships"] if x["kind"] == "bulk")["lock"] == "dock"
     assert c.post("/game/ship/start", headers=S1, json={"kind": "barge"}).json()["detail"]["code"] == "money"
@@ -173,6 +182,11 @@ def main():
     assert dn["got"] == {"fame": 10, "steel": 350, "rods": 180, "tech": 5, "passes": 1}, dn
     assert out["resources"]["fame"] == 10 and out["ship"] is None and out["delivered"] == ["barge"]
     assert next(x for x in out["ships"] if x["kind"] == "barge")["first_bonus"] == 0
+    # 같은 반 친구(s2)에게만 알림, 나(s1)·다른 반(s3)은 안 보임, 10분 지나면 사라짐
+    ln = c.get("/live/now", headers=S2).json()["launches"]
+    assert len(ln) == 1 and ln[0]["name"] == "s1" and ln[0]["kind"] == "barge", ln
+    assert c.get("/live/now", headers=S1).json()["launches"] == []
+    assert c.get("/live/now", headers=S3).json()["launches"] == []
     passes_before = out["resources"]["passes"]
     # 두 번째 바지선: 대금은 또 받지만 첫 인도 완료권은 없음
     c.post("/game/ship/start", headers=S1, json={"kind": "barge"})
@@ -207,6 +221,7 @@ def main():
     # 다음 날: 매일 문제 안 풀면 공장 멈춤 (전날 몫만 쌓임)
     c.post("/game/collect", headers=S1)
     tick(24 * 3600)
+    assert c.get("/live/now", headers=S2).json()["launches"] == []  # 진수 알림은 10분만
     d = c.get("/game/state", headers=S1).json()
     assert d["run_today"] is False
     p_before = d["pending"]["steel"]

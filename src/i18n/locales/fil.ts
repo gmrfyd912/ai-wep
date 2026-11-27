@@ -1392,6 +1392,8 @@ const fil: Translation = {
   gm_partyOk: "Sige",
   gm_shipPay: "Bayad sa paglulunsad: bakal {{steel}} · rod {{rods}} · tech {{tech}}",
   gm_shipFirstBonus: "Unang delivery: instant pass +{{n}}",
+  gm_newsTitle: "Balita ng paglulunsad",
+  gm_newsText: "Kalulunsad lang ni {{name}} ng {{ship}}! Batiin natin.",
   gm_err_students_only: "Para sa mga trainee lang ang Shipyard ni Weldy.",
   gm_err_game_off: "Naka-off ang laro ngayon.",
   gm_err_money: "Kulang ang resources",

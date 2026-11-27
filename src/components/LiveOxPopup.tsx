@@ -5,7 +5,7 @@ import { AppState, Image, Modal, Pressable, ScrollView, StyleSheet, Text, Vibrat
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 
-import { answerLive, getLiveNow, NetworkError, type LiveNow } from "@/lib/api";
+import { answerLive, getLiveNow, NetworkError, type LaunchNews, type LiveNow } from "@/lib/api";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
@@ -32,13 +32,25 @@ function LiveOxPoller() {
   const [sending, setSending] = useState(false);
   const [lateMsg, setLateMsg] = useState(false);
   const seen = useRef<string>("");
+  const [news, setNews] = useState<LaunchNews | null>(null);
+  const newsQueue = useRef<LaunchNews[]>([]);
+  const newsSeen = useRef<Set<string>>(new Set());
+  const newsFirst = useRef(true);
   const active = useRef(AppState.currentState === "active");
 
   const poll = useCallback(async () => {
     if (!active.current) return;
     try {
-      const { quiz: q } = await getLiveNow(i18n.language);
+      const { quiz: q, launches } = await getLiveNow(i18n.language);
       setQuiz(q);
+      // 같은 반 친구 진수식: 처음 켤 때 이미 지난 것은 건너뛰고, 새로 생긴 것만 하나씩
+      for (const l of launches ?? []) {
+        if (newsSeen.current.has(l.id)) continue;
+        newsSeen.current.add(l.id);
+        if (!newsFirst.current) newsQueue.current.push(l);
+      }
+      newsFirst.current = false;
+      setNews((cur) => cur ?? newsQueue.current.shift() ?? null);
       if (q?.phase === "open" && q.left != null) setDeadline(Date.now() + q.left * 1000);
       if (q && q.phase === "open" && seen.current !== q.id) {
         seen.current = q.id;
@@ -63,6 +75,28 @@ function LiveOxPoller() {
     };
   }, [poll]);
 
+  useEffect(() => {
+    if (!news) return;
+    const timer = setTimeout(() => setNews(newsQueue.current.shift() ?? null), 6000);
+    return () => clearTimeout(timer);
+  }, [news]);
+
+  const banner = news ? (
+    <Pressable
+      style={styles.news}
+      onPress={() => {
+        setNews(newsQueue.current.shift() ?? null);
+        router.push("/game");
+      }}
+    >
+      <Image source={BUDDY} style={styles.newsBuddy} resizeMode="contain" />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.newsTitle}>{t("gm_newsTitle")}</Text>
+        <Text style={styles.newsText}>{t("gm_newsText", { name: news.name, ship: t(`gm_ship_${news.kind}`) })}</Text>
+      </View>
+    </Pressable>
+  ) : null;
+
   const open = quiz?.phase === "open";
   useEffect(() => {
     if (!open) return;
@@ -70,11 +104,11 @@ function LiveOxPoller() {
     return () => clearInterval(timer);
   }, [open]);
 
-  if (!quiz) return null;
+  if (!quiz) return banner;
   const res = quiz.result;
   // 닫은 뒤에도 웰디 설명이 새로 오면 한 번 더 띄운다
   const key = `${quiz.id}:${quiz.phase === "ended" ? (res?.explain ? "explain" : "end") : "open"}`;
-  if (closed.has(key) || (quiz.phase === "ended" && !res?.explain && closed.has(`${quiz.id}:explain`))) return null;
+  if (closed.has(key) || (quiz.phase === "ended" && !res?.explain && closed.has(`${quiz.id}:explain`))) return banner;
   const close = () => setClosed((s) => new Set(s).add(key));
 
   const left = open ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
@@ -189,6 +223,28 @@ function OxButton({ mark, picked, onPress }: { mark: "O" | "X"; picked: boolean;
 }
 
 const styles = StyleSheet.create({
+  news: {
+    position: "absolute",
+    top: 44,
+    left: 12,
+    right: 12,
+    maxWidth: 520,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#0B2033F2",
+    borderColor: "#FFD166",
+    borderWidth: 1.5,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    zIndex: 50,
+    elevation: 8,
+  },
+  newsBuddy: { width: 34, height: 50 },
+  newsTitle: { color: "#FFD166", fontSize: 13, fontWeight: "800" },
+  newsText: { color: "#fff", fontSize: 13, lineHeight: 18 },
   wrap: { flex: 1, backgroundColor: colors.bg },
   body: { padding: space.lg, gap: space.md, flexGrow: 1, justifyContent: "center" },
   head: { color: colors.primary, fontSize: 22, fontWeight: "800", textAlign: "center" },

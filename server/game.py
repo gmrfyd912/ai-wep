@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 import accounts
 import daily
+import manage
 import scoring
 import store
 import textbook
@@ -91,6 +92,10 @@ DEFAULTS = {
 }
 SETTING_KEYS = tuple(DEFAULTS)
 GAME_ROLES = ("student", "admin")
+
+LAUNCH_KEEP = 600            # 같은 반 친구에게 진수 알림을 보여 주는 시간 (초)
+_launches: list[dict] = []   # 최근 진수 (메모리, 서버가 다시 켜지면 비워짐)
+_launch_lock = threading.Lock()
 
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -670,6 +675,41 @@ def _seen(uid, now):
     store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"last_seen_at": _iso(now)})
 
 
+# ---- 같은 반 친구 진수 알림 ----
+
+def _announce(user, kind, ship_id):
+    try:
+        courses = manage.course_ids_of(user["id"])
+    except Exception as e:  # noqa: BLE001
+        print("[game] 반 못 읽음", str(e)[:120], flush=True)
+        return
+    if not courses:
+        return
+    now = _now()
+    with _launch_lock:
+        _launches.append({"id": ship_id, "user_id": user["id"], "name": user.get("name") or "", "kind": kind,
+                          "courses": set(courses), "at": now})
+        _launches[:] = [e for e in _launches if (now - e["at"]).total_seconds() <= LAUNCH_KEEP][-50:]
+
+
+def has_recent_launch():
+    now = _now()
+    with _launch_lock:
+        return any((now - e["at"]).total_seconds() <= LAUNCH_KEEP for e in _launches)
+
+
+def recent_launches(me):
+    """me = {"id", "courses"}: 같은 반 친구(나 빼고)의 최근 진수 (최대 3개, 오래된 것부터)."""
+    if not settings()["enabled"]:
+        return []
+    now = _now()
+    mine = set(me.get("courses") or ())
+    with _launch_lock:
+        out = [{"id": e["id"], "name": e["name"], "kind": e["kind"], "at": _iso(e["at"])} for e in _launches
+               if (now - e["at"]).total_seconds() <= LAUNCH_KEEP and e["user_id"] != me["id"] and e["courses"] & mine]
+    return out[-3:]
+
+
 # ---- API ----
 
 @router.get("/game/state")
@@ -944,6 +984,8 @@ def ship_next(user=Depends(need_player)):
             store.patch("game_ships", {"id": f"eq.{ship['id']}"},
                         {"stage": stage, "stage_until": _iso(now + timedelta(seconds=ship_stage_seconds(ship["kind"], stage)))})
             delivered = False
+    if delivered:
+        _announce(user, ship["kind"], ship["id"])
     out = _fresh(user)
     if delivered:
         out["delivered_now"] = {"kind": ship["kind"], "fame": got["fame"], "first": first, "got": got,

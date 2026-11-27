@@ -1392,6 +1392,8 @@ const uz: Translation = {
   gm_partyOk: "Yaxshi",
   gm_shipPay: "Marosim to'lovi: po'lat {{steel}} · elektrod {{rods}} · texnik ball {{tech}}",
   gm_shipFirstBonus: "Birinchi topshirish: chipta +{{n}}",
+  gm_newsTitle: "Suvga tushirish xabari",
+  gm_newsText: "{{name}} hozirgina {{ship}} ni suvga tushirdi! Tabriklang.",
   gm_err_students_only: "Weldyning kemasozlik zavodi faqat tinglovchilar uchun.",
   gm_err_game_off: "Hozir o'yin o'chirilgan.",
   gm_err_money: "Resurs yetarli emas",

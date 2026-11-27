@@ -1392,6 +1392,8 @@ const th: Translation = {
   gm_partyOk: "ตกลง",
   gm_shipPay: "เงินปล่อยเรือ: เหล็กแผ่น {{steel}} · ลวดเชื่อม {{rods}} · แต้มเทคนิค {{tech}}",
   gm_shipFirstBonus: "ส่งมอบครั้งแรก: บัตร +{{n}}",
+  gm_newsTitle: "ข่าวพิธีปล่อยเรือ",
+  gm_newsText: "{{name}} เพิ่งปล่อย{{ship}}ลงทะเล! ร่วมแสดงความยินดีกัน",
   gm_err_students_only: "อู่ต่อเรือของ Weldy สำหรับผู้เรียนเท่านั้น",
   gm_err_game_off: "ขณะนี้เกมปิดอยู่",
   gm_err_money: "ทรัพยากรไม่พอ",
