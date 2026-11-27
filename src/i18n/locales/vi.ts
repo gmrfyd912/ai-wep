@@ -1392,6 +1392,8 @@ const vi: Translation = {
   gm_partyOk: "Được",
   gm_shipPay: "Tiền hạ thủy: thép tấm {{steel}} · que hàn {{rods}} · điểm kỹ thuật {{tech}}",
   gm_shipFirstBonus: "Lần đầu bàn giao: vé +{{n}}",
+  gm_newsTitle: "Tin hạ thủy",
+  gm_newsText: "{{name}} vừa hạ thủy {{ship}}! Hãy chúc mừng nhé.",
   gm_err_students_only: "Xưởng đóng tàu của Weldy chỉ dành cho học viên.",
   gm_err_game_off: "Trò chơi đang tắt.",
   gm_err_money: "Không đủ tài nguyên",

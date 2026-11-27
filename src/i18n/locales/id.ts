@@ -1392,6 +1392,8 @@ const id: Translation = {
   gm_partyOk: "Oke",
   gm_shipPay: "Bayaran peluncuran: pelat baja {{steel}} · kawat las {{rods}} · poin teknik {{tech}}",
   gm_shipFirstBonus: "Penyerahan pertama: tiket +{{n}}",
+  gm_newsTitle: "Kabar peluncuran",
+  gm_newsText: "{{name}} baru saja meluncurkan {{ship}}! Beri selamat, ya.",
   gm_err_students_only: "Galangan Kapal Weldy hanya untuk peserta pelatihan.",
   gm_err_game_off: "Game sedang dimatikan.",
   gm_err_money: "Sumber daya tidak cukup",

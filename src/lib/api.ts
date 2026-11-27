@@ -1512,7 +1512,9 @@ export type LiveNow = {
     explain: string | null;
   } | null;
 };
-export const getLiveNow = (lang: string) => request<{ quiz: LiveNow | null }>(`/live/now?lang=${lang}`, {}, 8000);
+/** 같은 반 친구의 최근 진수식 (G1 웰디의 조선소, 10분 동안) */
+export type LaunchNews = { id: string; name: string; kind: GameShipKind; at: string };
+export const getLiveNow = (lang: string) => request<{ quiz: LiveNow | null; launches?: LaunchNews[] }>(`/live/now?lang=${lang}`, {}, 8000);
 export const answerLive = (quiz_id: string, answer: number) =>
   request<{ ok: boolean }>("/live/answer", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ quiz_id, answer }) }, 8000);
 

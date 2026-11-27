@@ -1407,6 +1407,8 @@ const ko = {
   gm_partyOk: "좋아요",
   gm_shipPay: "진수식 대금: 강판 {{steel}} · 용접봉 {{rods}} · 기술 포인트 {{tech}}",
   gm_shipFirstBonus: "처음 인도하면 즉시 완료권 +{{n}}",
+  gm_newsTitle: "진수식 소식",
+  gm_newsText: "{{name}}님이 {{ship}}을(를) 바다에 띄웠어요! 축하해 주세요.",
   gm_err_students_only: "웰디의 조선소는 교육생만 할 수 있어요.",
   gm_err_game_off: "지금은 게임이 꺼져 있어요.",
   gm_err_money: "자원이 모자라요",

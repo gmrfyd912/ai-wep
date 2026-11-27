@@ -1392,6 +1392,8 @@ const en: Translation = {
   gm_partyOk: "OK",
   gm_shipPay: "Launch payment: steel {{steel}} · rods {{rods}} · tech {{tech}}",
   gm_shipFirstBonus: "First delivery: instant pass +{{n}}",
+  gm_newsTitle: "Launch news",
+  gm_newsText: "{{name}} just launched a {{ship}}! Send your congratulations.",
   gm_err_students_only: "Weldy's Shipyard is for trainees only.",
   gm_err_game_off: "The game is turned off right now.",
   gm_err_money: "Not enough resources",

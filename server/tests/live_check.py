@@ -73,7 +73,7 @@ def main():
     _, A = user("admin", "admin")
 
     # 아무 문제 없을 때: 로그인 확인 없이 바로 빈 답
-    assert c.get("/live/now").json() == {"quiz": None}
+    assert c.get("/live/now").json() == {"quiz": None, "launches": []}
     # 교육생·남의 반 교사는 못 보냄
     assert c.get("/live/setup", headers=S1).status_code == 403
     assert c.post("/live/start", headers=T1, json={"course_id": cb, "text": "문장", "answer": 0}).status_code == 404
