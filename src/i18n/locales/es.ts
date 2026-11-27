@@ -1067,6 +1067,16 @@ const es: Translation = {
   tc_addHint: "Las páginas son los números impresos en el libro. Los números de las casillas son ejemplos; escribe los tuyos.",
   tc_add: "Agregar",
   auth_err_tutor_check_bad: "Revisa la pregunta y las páginas de respuesta.",
+  tc_hint_weldy_right: "Revisión del libro: el contenido está en la p.{{page}} que eligió Weldy, no en la página de respuesta. La página de respuesta puede estar mal.",
+  tc_hint_both: "Revisión del libro: el contenido está en la página de respuesta y en la p.{{page}} que eligió Weldy. Ambas pueden ser correctas.",
+  tc_hint_weldy_wrong: "Revisión del libro: el contenido está en la página de respuesta. Weldy se equivocó. Envía una captura de esta tarjeta.",
+  tc_hint_elsewhere: "Revisión del libro: no está en la página de respuesta, sino en la p.{{page}}. La página de respuesta puede estar mal.",
+  tc_hint_unclear: "Revisión del libro: difícil saberlo solo por el texto. Revisa el libro.",
+  tc_useHint: "Cambiar respuesta a p.{{page}}",
+  tc_editTitle: "Corregir páginas de respuesta",
+  tc_edit: "Corregir",
+  tc_share: "Enviar resultados (copiar)",
+  tc_shareHead: "Resultados de Weldy: {{ok}} / {{total}} correctas",
 
   // T4 학습 보드
   sb_title: "Tablero de estudio",

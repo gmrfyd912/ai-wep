@@ -1067,6 +1067,16 @@ const fil: Translation = {
   tc_addHint: "Ang pahina ay numerong nakalimbag sa aklat. Halimbawa lang ang numero sa kahon; ilagay ang sa iyo.",
   tc_add: "Idagdag",
   auth_err_tutor_check_bad: "Suriin ang tanong at mga pahina ng sagot.",
+  tc_hint_weldy_right: "Tsek sa aklat: nasa p.{{page}} na pinili ni Weldy ang nilalaman, wala sa sagot na pahina. Baka mali ang sagot na pahina.",
+  tc_hint_both: "Tsek sa aklat: nasa sagot na pahina at sa p.{{page}} na pinili ni Weldy. Baka parehong tama.",
+  tc_hint_weldy_wrong: "Tsek sa aklat: nasa sagot na pahina ang nilalaman. Mali si Weldy. Pakikuhanan ng screenshot ang card na ito.",
+  tc_hint_elsewhere: "Tsek sa aklat: wala sa sagot na pahina pero nasa p.{{page}}. Baka mali ang sagot na pahina.",
+  tc_hint_unclear: "Tsek sa aklat: mahirap sabihin sa teksto lang. Pakitingnan ang aklat.",
+  tc_useHint: "Gawing p.{{page}} ang sagot",
+  tc_editTitle: "Ayusin ang sagot na pahina",
+  tc_edit: "Ayusin",
+  tc_share: "Ipadala ang resulta (kopya)",
+  tc_shareHead: "Resulta ng tsek kay Weldy: tama {{ok}} / {{total}}",
 
   // T4 학습 보드
   sb_title: "Study board",

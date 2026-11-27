@@ -1067,6 +1067,16 @@ const uz: Translation = {
   tc_addHint: "Bet — kitobda bosilgan raqam. Katakdagi raqamlar misol, o'zingiznikini kiriting.",
   tc_add: "Qo'shish",
   auth_err_tutor_check_bad: "Savol va javob betlarini tekshiring.",
+  tc_hint_weldy_right: "Darslik tekshiruvi: mazmun Weldy tanlagan {{page}}-betda bor, javob betida yo'q. Javob beti noto'g'ri bo'lishi mumkin.",
+  tc_hint_both: "Darslik tekshiruvi: mazmun javob betida ham, Weldy tanlagan {{page}}-betda ham bor. Ikkalasi ham to'g'ri bo'lishi mumkin.",
+  tc_hint_weldy_wrong: "Darslik tekshiruvi: mazmun javob betida bor. Weldy xato qildi. Shu kartani rasmga olib yuboring.",
+  tc_hint_elsewhere: "Darslik tekshiruvi: javob betida yo'q, {{page}}-betda bor. Javob beti noto'g'ri bo'lishi mumkin.",
+  tc_hint_unclear: "Darslik tekshiruvi: faqat matndan aniqlash qiyin. Darslikni o'zingiz ko'ring.",
+  tc_useHint: "Javobni {{page}}-betga o'zgartirish",
+  tc_editTitle: "Javob betini tuzatish",
+  tc_edit: "Tuzatish",
+  tc_share: "Natijani yuborish (nusxa)",
+  tc_shareHead: "Weldy tekshiruvi: to'g'ri {{ok}} / {{total}}",
 
   // T4 학습 보드
   sb_title: "O‘quv doskasi",

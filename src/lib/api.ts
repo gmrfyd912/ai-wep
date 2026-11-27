@@ -1345,10 +1345,14 @@ export type TutorCheck = {
   last_found: number[];
   last_reply: string;
   last_run_at: string | null;
+  /** 서버가 교재 글로 다시 본 결과 (엉뚱한 쪽·근거 쪽 없음일 때만) */
+  hint: { kind: "weldy_right" | "both" | "weldy_wrong" | "elsewhere" | "unclear"; page: number | null } | null;
 };
 export const listTutorChecks = () => request<{ items: TutorCheck[]; book: string | null }>("/admin/tutor/checks", {}, BOARD_TIMEOUT);
 export const addTutorCheck = (question: string, pageFrom: number, pageTo: number) =>
   request<TutorCheck>("/admin/tutor/checks", json("POST", { question, page_from: pageFrom, page_to: pageTo }), BOARD_TIMEOUT);
+export const editTutorCheck = (id: string, pageFrom: number, pageTo: number) =>
+  request<TutorCheck>(`/admin/tutor/checks/${id}`, json("PATCH", { page_from: pageFrom, page_to: pageTo }), BOARD_TIMEOUT);
 export const deleteTutorCheck = (id: string) =>
   request<{ ok: boolean }>(`/admin/tutor/checks/${id}`, { method: "DELETE" }, BOARD_TIMEOUT);
 export const seedTutorChecks = () => request<{ added: number }>("/admin/tutor/checks/seed", { method: "POST" }, BOARD_TIMEOUT);

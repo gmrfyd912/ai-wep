@@ -91,35 +91,55 @@ def _index(book):
             return hit[1], hit[2]
     rows = store.select("textbook_pages", {"book_id": f"eq.{book['id']}", "select": "page,text", "order": "page.asc"})
     texts = {r["page"]: (r.get("text") or "").strip() for r in rows}
-    tf = {p: {} for p in texts}
-    df = {}
-    for p, txt in texts.items():
-        for w in terms(txt):
-            tf[p][w] = tf[p].get(w, 0) + 1
-        for w in tf[p]:
-            df[w] = df.get(w, 0) + 1
-    idx = {"tf": tf, "df": df, "n": max(1, len(texts))}
+    idx = build_index(texts)
     with _cache_lock:
         _cache[book["id"]] = (key, texts, idx)
     return texts, idx
 
 
-def find_pages(book, query, near=None, k=PICK_PAGES, ranked=False):
-    """질문과 낱말이 많이 겹치는 쪽 → [PDF 쪽]. near=(시작, 끝) 이면 그 장 쪽을 조금 더 쳐준다. ranked 면 잘 맞는 순."""
+def build_index(texts):
+    """{쪽: 글} → 낱말 색인 (쪽별 낱말 수, 낱말이 나오는 쪽 수, 쪽 길이, 문제 쪽)."""
+    tf = {p: {} for p in texts}
+    df = {}
+    size = {}
+    for p, txt in texts.items():
+        ws = terms(txt)
+        size[p] = len(ws)
+        for w in ws:
+            tf[p][w] = tf[p].get(w, 0) + 1
+        for w in tf[p]:
+            df[w] = df.get(w, 0) + 1
+    quiz = {p for p, txt in texts.items() if len(QUIZ_PAGE_RE.findall(txt)) >= 2}
+    avg = (sum(size.values()) / len(size)) if size else 1
+    return {"tf": tf, "df": df, "n": max(1, len(texts)), "size": size, "avg": max(1.0, avg), "quiz": quiz}
+
+
+# 문제 쪽 표시: "~설명하시오", "~논하시오" 같은 문제 문장 (장 끝 핵심 문제·기출 문제 쪽은 모든 주제 낱말이 몰려 있다)
+QUIZ_PAGE_RE = re.compile(r"(?:설명|논|기술|서술|비교|쓰|답)\s*하\s*시\s*오|하시오")
+BM25_K, BM25_B = 1.2, 0.75
+
+
+def find_pages(book, query, near=None, k=PICK_PAGES, ranked=False, boost=1.3):
+    """질문과 낱말이 많이 겹치는 쪽 → [PDF 쪽]. near=(시작, 끝) 이면 그 장 쪽을 boost 배 쳐준다. ranked 면 잘 맞는 순.
+    긴 쪽이 낱말 수로 이기지 않게 쪽 길이로 나누고(BM25), 문제 쪽은 본문 뒤로 (절반 점수)."""
     texts, idx = _index(book)
     q = set(terms(query))
     if not q:
         return []
     n = idx["n"]
+    size, avg, quiz = idx.get("size") or {}, idx.get("avg") or 1.0, idx.get("quiz") or set()
     scores = []
     for p, tf in idx["tf"].items():
         s = 0.0
+        norm = BM25_K * (1 - BM25_B + BM25_B * (size.get(p, avg) / avg))
         for w in q:
             c = tf.get(w)
             if c:
-                s += math.log(1 + n / idx["df"][w]) * (1 + math.log(c))
+                s += math.log(1 + n / idx["df"][w]) * c * (BM25_K + 1) / (c + norm)
+        if s and p in quiz:
+            s *= 0.5
         if s and near and near[0] <= p <= near[1]:
-            s *= 1.3
+            s *= boost
         if s:
             scores.append((s, p))
     scores.sort(reverse=True)
@@ -152,22 +172,83 @@ def page_has(book, page, words, need=0.5):
     return hit >= max(1, math.ceil(len(words) * need))
 
 
-def verified(book, pages, reply, given):
-    """AI 가 근거라고 한 쪽 중 실제로 준 쪽이고, 대답의 드문 낱말이 그 쪽에 들어 있는 쪽만."""
-    words = key_terms(book, reply, 16)
+NOT_FOUND_RE = re.compile(r"찾지\s*못|확인하지\s*못|교재에(?:는|선|서는)?\s*없|could\s*n'?o?t\s+find|not\s+in\s+the\s+textbook", re.I)
+SUPPORT_OK = 0.3      # 웰디가 적은 쪽: 대답 낱말이 이만큼 그 쪽에 있으면 근거로 인정
+SUPPORT_AUTO = 0.45   # 웰디가 쪽을 안 적었을 때 붙이는 기준 (더 엄격)
+
+
+def content_terms(book, text):
+    """대답에서 교재에 있는 낱말 중 너무 흔한 것(쪽 절반 넘게 나오는 '용접'·'하는' 등)을 뺀 낱말."""
+    _, idx = _index(book)
+    n = idx["n"]
+    return {w for w in terms(text) if 0 < idx["df"].get(w, 0) <= max(2, n * 0.5)}
+
+
+def support(book, page, words):
+    """그 쪽 글에 대답 낱말이 몇 할 들어 있나 (0~1)."""
+    if not words:
+        return 0.0
+    _, idx = _index(book)
+    tf = idx["tf"].get(page) or {}
+    return sum(1 for w in words if w in tf) / len(words)
+
+
+def verified(book, pages, reply, given, auto=True):
+    """근거 쪽 = 실제로 준 쪽 중 대답 전체와 많이 겹치는 쪽.
+    웰디가 적은 쪽은 SUPPORT_OK 이상이면 인정. 하나도 안 남고 대답이 '못 찾았다'가 아니면
+    준 쪽 중 가장 많이 겹치는 쪽(SUPPORT_AUTO 이상)을 대신 붙인다."""
+    words = content_terms(book, reply)
+    if len(words) < 2:
+        return []
+    sup = {p: support(book, p, words) for p in given}
     out = []
     for p in pages:
-        if p in given and p not in out and page_has(book, p, words, 0.3 if len(words) >= 4 else 0.5):
+        if p in sup and p not in out and sup[p] >= SUPPORT_OK:
             out.append(p)
-    return out
+    if out or not auto or not sup or NOT_FOUND_RE.search(reply):
+        return out
+    best = max(sup.values())
+    if best < SUPPORT_AUTO:
+        return []
+    return sorted((p for p, v in sup.items() if v >= max(SUPPORT_AUTO, best * 0.9)), key=lambda p: -sup[p])[:2]
+
+
+TITLE_NUM_RE = re.compile(r"^\s*(?:제?\s*\d+\s*[편장절]\.?|chapter\s*\d+|part\s*\d+|\d+(?:\.\d+)*[\.\s])\s*", re.I)
+
+
+def toc_range(book, query):
+    """질문이 목차 제목(장)과 맞으면 그 장의 (PDF 시작, 끝). 제목이 질문에 통째로 들어 있거나 제목 낱말이 거의 다 있으면."""
+    qn = re.sub(r"\s+", "", (query or "").lower())
+    qt = set(terms(query))
+    best = None
+    try:
+        units = daily.book_units(book)
+    except Exception:  # noqa: BLE001
+        return None
+    for _, title, s0, e0 in units:
+        name = TITLE_NUM_RE.sub("", title.split("›")[-1]).strip().lower()
+        nn = re.sub(r"\s+", "", name)
+        tt = set(terms(name))
+        if len(nn) < 2 or not tt:
+            continue
+        hit = nn in qn or (len(tt) >= 2 and len(tt & qt) / len(tt) >= 0.8)
+        if hit and (best is None or len(nn) > best[0]):
+            best = (len(nn), (s0, e0))
+    return best[1] if best else None
 
 
 def mentions(book, query, near=None):
     """교재 전체에서 그 주제가 실제로 나오는 쪽 (드문 낱말이 절반 넘게 들어 있는 쪽), 잘 맞는 순으로 최대 4쪽."""
+    unit = toc_range(book, query)
+    head = []
+    if unit:  # 목차 제목과 맞는 장 → 그 장 본문 쪽을 먼저 (문제 쪽은 뒤로)
+        quiz = _index(book)[1].get("quiz") or set()
+        inside = [p for p in find_pages(book, query, unit, k=40, ranked=True, boost=3.0) if unit[0] <= p <= unit[1]]
+        head = ([p for p in inside if p not in quiz] + [p for p in inside if p in quiz])[:2] or [unit[0]]
     words = key_terms(book, query, 8)
-    if not words:
-        return []
-    return [p for p in find_pages(book, query, near, k=8, ranked=True) if page_has(book, p, words, 0.5)][:4]
+    rest = [p for p in find_pages(book, query, unit or near, k=8, ranked=True, boost=2.0 if unit else 1.3)
+            if page_has(book, p, words, 0.5)] if words else []
+    return list(dict.fromkeys(head + rest))[:4]
 
 
 # 교육생이 따지는 말 ("이 페이지에 없잖아", "교재에 없어?", "틀렸어")
@@ -703,7 +784,10 @@ def ask_ai(book, text, lang, history, near, focus=None, prev_pages=(), follow=Fa
         raise TutorError("pages", str(e)[:160])
     meta = bool(META_RE.search(text)) and bool(history)
     query = korean_query(search_query(text, history, follow))
-    pages = find_pages(book, query, near)
+    unit = toc_range(book, query)
+    if unit:
+        near = unit
+    pages = find_pages(book, query, near, boost=2.0 if unit else 1.3)
     found = mentions(book, query, near)  # 교재 전체에서 주제가 실제로 나오는 쪽 (서버가 확인한 사실)
     first = []
     if focus:  # "277쪽에서 ○○" → 그 쪽을 꼭 넣는다
@@ -1181,11 +1265,55 @@ class CheckBody(BaseModel):
     note: str = ""
 
 
-def _check_out(r, offset):
+ASK_TAIL_RE = re.compile(r"(?:에\s*대해(?:서)?|이?란|가|이|은|는)?\s*(?:자세히\s*)?(?:설명|알려|가르쳐)\S*\s*(?:줘|주세요|줄래)?\s*[?.!]*\s*$")
+
+
+def _share(book, page, words):
+    """그 쪽(PDF 쪽)에 질문 낱말이 몇 할 들어 있나."""
+    _, idx = _index(book)
+    tf = idx["tf"].get(page) or {}
+    return sum(1 for w in words if w in tf) / len(words) if words else 0.0
+
+
+def check_hint(book, r, offset):
+    """엉뚱한 쪽·근거 쪽 없음일 때 서버가 교재 글로 다시 본다 (AI 안 씀, 바로 끝남).
+    weldy_right 웰디 쪽에 내용이 있고 정답 쪽엔 없음 → 정답 쪽을 고치자 / both 둘 다 있음 /
+    weldy_wrong 정답 쪽에만 있음 → 웰디 잘못 / elsewhere 근거 쪽은 없지만 교재 다른 쪽에 있음 / unclear 글로는 판단 어려움."""
+    verdict = r.get("last_verdict") or ""
+    if verdict not in ("wrong_page", "no_page"):
+        return None
+    try:
+        words = key_terms(book, ASK_TAIL_RE.sub("", r["question"]).strip() or r["question"], 8)
+        if not words:
+            return {"kind": "unclear", "page": None}
+        texts, _ = _index(book)
+        a, b = r["page_from"], r["page_to"]
+        exp = max((_share(book, p + offset, words) for p in range(a, b + 1) if p + offset in texts), default=0.0)
+        if verdict == "wrong_page":
+            got = sorted(((_share(book, p + offset, words), p) for p in r.get("last_pages") or []), reverse=True)
+            best, page = got[0] if got else (0.0, None)
+            if best >= 0.5 and exp >= 0.5:
+                return {"kind": "both", "page": page}
+            if best >= 0.5:
+                return {"kind": "weldy_right", "page": page}
+            if exp >= 0.5:
+                return {"kind": "weldy_wrong", "page": None}
+            return {"kind": "unclear", "page": None}
+        if exp >= 0.5:
+            return {"kind": "weldy_wrong", "page": None}
+        other = [p - offset for p in mentions(book, r["question"]) if not a <= p - offset <= b]
+        return {"kind": "elsewhere", "page": other[0]} if other else {"kind": "unclear", "page": None}
+    except Exception as e:  # noqa: BLE001 — 힌트는 덤이라 실패해도 목록은 보여 준다
+        print("[tutor] 점검 힌트 실패", type(e).__name__, e)
+        return None
+
+
+def _check_out(r, offset, book=None):
     return {"id": r["id"], "question": r["question"], "page_from": r["page_from"], "page_to": r["page_to"],
             "note": r.get("note") or "", "last_verdict": r.get("last_verdict") or "",
             "last_pages": r.get("last_pages") or [], "last_found": r.get("last_found") or [],
-            "last_reply": r.get("last_reply") or "", "last_run_at": r.get("last_run_at")}
+            "last_reply": r.get("last_reply") or "", "last_run_at": r.get("last_run_at"),
+            "hint": check_hint(book, r, offset) if book else None}
 
 
 @router.get("/admin/tutor/checks")
@@ -1194,7 +1322,7 @@ def list_checks(user=Depends(need_admin)):
     if not book:
         return {"items": [], "book": None}
     rows = store.select("tutor_checks", {"book_id": f"eq.{book['id']}", "select": "*", "order": "created_at.asc"})
-    return {"items": [_check_out(r, book.get("page_offset") or 0) for r in rows], "book": book.get("title") or ""}
+    return {"items": [_check_out(r, book.get("page_offset") or 0, book) for r in rows], "book": book.get("title") or ""}
 
 
 @router.post("/admin/tutor/checks")
@@ -1210,7 +1338,35 @@ def add_check(body: CheckBody, user=Depends(need_admin)):
     row = {"id": str(uuid.uuid4()), "book_id": book["id"], "question": q, "page_from": a, "page_to": b,
            "note": body.note.strip()[:200], "created_at": _now()}
     store.insert_rows("tutor_checks", row, returning=False)
-    return _check_out(row, book.get("page_offset") or 0)
+    return _check_out(row, book.get("page_offset") or 0, book)
+
+
+class CheckPagesBody(BaseModel):
+    page_from: int
+    page_to: int | None = None
+
+
+@router.patch("/admin/tutor/checks/{cid}")
+def edit_check(cid: str, body: CheckPagesBody, user=Depends(need_admin)):
+    """정답 쪽 고치기. 지난 점검 결과가 있으면 AI 다시 안 부르고 새 정답 쪽으로 판정만 다시 한다."""
+    try:
+        uuid.UUID(cid)
+    except ValueError:
+        _err(404, "not_found")
+    rows = store.select("tutor_checks", {"id": f"eq.{cid}", "select": "*"})
+    book = textbook.current_book()
+    if not rows or not book:
+        _err(404, "not_found")
+    a = body.page_from
+    b = body.page_to if body.page_to is not None else a
+    if a < 1 or b < a:
+        _err(400, "tutor_check_bad")
+    r = rows[0]
+    fields = {"page_from": a, "page_to": b}
+    if r.get("last_verdict") in ("ok", "wrong_page", "no_page", "said_missing"):
+        fields["last_verdict"] = judge(r.get("last_pages") or [], r.get("last_reply") or "", a, b)
+    store.patch("tutor_checks", {"id": f"eq.{cid}"}, fields)
+    return _check_out({**r, **fields}, book.get("page_offset") or 0, book)
 
 
 @router.delete("/admin/tutor/checks/{cid}")
@@ -1289,4 +1445,4 @@ def run_check(cid: str, user=Depends(need_admin)):
     fields = {"last_verdict": verdict, "last_pages": pages, "last_found": found, "last_reply": reply[:800],
               "last_run_at": _now()}
     store.patch("tutor_checks", {"id": f"eq.{cid}"}, fields)
-    return _check_out({**r, **fields}, offset)
+    return _check_out({**r, **fields}, offset, book)
