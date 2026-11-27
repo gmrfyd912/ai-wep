@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import accounts
@@ -49,6 +50,10 @@ POSITIONS = {"plate": ("1G", "2G", "3G", "4G", "1F", "2F", "3F", "4F"),
              "pipe": ("1G", "2G", "5G", "6G", "6GR", "1F", "2F", "4F", "5F")}
 
 app = FastAPI(title="AI W.E.P analysis server")
+# 웹 브라우저(npx expo start --web)에서도 서버를 부를 수 있게 허용.
+# 로그인은 쿠키가 아니라 Authorization 헤더(토큰)라서 어느 주소에서 열어도 토큰 없이는 아무것도 못 한다.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+                   allow_credentials=False, max_age=600)
 app.include_router(accounts.router)
 app.include_router(manage.router)
 app.include_router(social.router)
