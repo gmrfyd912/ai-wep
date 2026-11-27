@@ -343,12 +343,39 @@ def main():
     # 창고가 가득이면 자리만큼만
     db.insert_rows("game_ledger", {"user_id": s6, "key": "test_fill", "steel": 1000 - 660 - 20, "rods": 0})
     r = c.post("/game/supply/submit", headers=S6, json={"id": sp2["id"], "answers": {q: ans_of[q] for q in ox_ids(sp2)}}).json()
-    assert r["right"] == 3 and r["got"]["steel"] == 20 and r["full"] is True, r
+    assert r["right"] == len(ox_ids(sp2)) >= 3 and r["got"]["steel"] == 20 and r["full"] is True, (r["right"], r["got"])
     # 관리자: 하루 횟수 1번으로 → 오늘 더 못 함
     assert c.put("/admin/game-settings", headers=A, json={"supply_ox": 0, "supply_mc": 0, "supply_word": 0}).status_code == 400
     assert c.put("/admin/game-settings", headers=A, json={"supply_day_max": 1}).status_code == 200
     e = c.post("/game/supply/start", headers=S6, json={}).json()["detail"]
     assert e["code"] == "supply_day_max" and e["n"] == 1, e
+    # 자재 조달 2: 다 낼 때까지 같은 문제 안 나옴, OX 바닥나면 객관식→단답형으로, 서술형은 절대 안 나옴, 서버가 다시 켜져도 기억
+    assert c.put("/admin/game-settings", headers=A, json={"supply_day_max": 0, "supply_ox": 5, "supply_mc": 0, "supply_word": 0}).status_code == 200
+    s7, S7 = user("s7", "student")
+    bank = [q for q in db.TABLES["quiz_questions"] if q["book_id"] == bid and q["status"] == "active"]
+    n_ox = sum(1 for q in bank if q["kind"] == "ox")
+    fresh_total = sum(1 for q in bank if q["kind"] in ("ox", "mc"))   # 단답형 0 → 단답형은 안 나옴
+    seen_ids, rounds = [], []
+    for i in range(fresh_total // 5 + 2):
+        if i == 1:
+            game._supply_open.clear()   # 서버가 다시 켜진 것처럼 (메모리 지움) → 장부로 기억해야 함
+        sp = c.post("/game/supply/start", headers=S7, json={}).json()
+        kinds = [q["kind"] for q in sp["questions"]]
+        assert set(kinds) <= {"ox", "mc"} and len(kinds) == 5, kinds
+        ids = [q["id"] for q in sp["questions"]]
+        assert len(set(ids)) == 5
+        rounds.append((ids, kinds, sp["swapped"]))
+        c.post("/game/supply/submit", headers=S7, json={"id": sp["id"], "answers": {}})
+        seen_ids += ids
+    full_rounds = fresh_total // 5
+    first = seen_ids[:full_rounds * 5]
+    assert len(set(first)) == len(first), "다 낼 때까지는 같은 문제가 다시 나오면 안 됨"
+    left = {q["id"] for q in bank if q["kind"] in ("ox", "mc")} - set(first)
+    assert left <= set(rounds[full_rounds][0]), "남은 새 문제를 먼저 내야 함"
+    swap_round = rounds[n_ox // 5]
+    assert swap_round[2] is True and "mc" in swap_round[1], swap_round   # OX 가 바닥난 판은 객관식으로 채움
+    last, prev = rounds[-1][0], rounds[-2][0]
+    assert not (set(last) & set(prev)), "다시 낼 때도 방금 판 문제가 연달아 나오면 안 됨"
     print("game_check OK")
 
 

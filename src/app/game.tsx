@@ -1244,6 +1244,7 @@ function SupplyPanel({
       {error ? <Text style={styles.warn}>{error}</Text> : null}
       {!supply && !error ? <ActivityIndicator color={colors.primary} /> : null}
       {supply && supply.short_of > 0 ? <Text style={styles.small}>{t("gm_examShortOf", { n: supply.total })}</Text> : null}
+      {supply?.swapped ? <Text style={styles.small}>{t("gm_supplySwapped")}</Text> : null}
       {supply ? <QuizList questions={supply.questions} answers={answers} setAnswer={setAnswer} result={result} /> : null}
       {supply && !result ? (
         <AppButton label={t("gm_examSubmit", { done, total: supply.total })} icon="checkmark-done-outline" disabled={busy || done < supply.total} onPress={onSubmit} />

@@ -107,10 +107,10 @@ DEFAULTS = {
 EXAM_KINDS = ("ox", "mc", "word", "short")
 EXAM_MAX_EACH = 20
 _exams: dict[str, dict] = {}         # 보는 중인 승급 시험 (메모리, 사람마다 하나)
-SUPPLY_KINDS = ("ox", "mc", "word")  # 서술형은 AI 채점이라 무제한 반복에 안 넣음
-SUPPLY_REPEAT_S = 3 * 24 * 3600      # 자재 조달에서 나온 문제는 3일 동안 다시 안 냄 (가능하면)
+SUPPLY_KINDS = ("ox", "mc", "word")  # 서술형은 AI 채점이라 자재 조달에는 절대 안 냄
+SUPPLY_FALLBACK = ("ox", "mc", "word")  # 종류 순서. 새 문제가 바닥나면 객관식으로 채움 (단답형은 관리자가 켰을 때만)
 _supplies: dict[str, dict] = {}      # 푸는 중인 자재 조달 (메모리, 사람마다 하나)
-_supply_seen: dict[str, dict] = {}   # 사람별 최근 낸 문제 {문제 id: 낸 시각}
+_supply_open: dict[str, dict] = {}   # 사람별 '열었지만 아직 안 낸' 문제 {문제 id: 낸 시각} (서버 메모리)
 SETTING_KEYS = tuple(DEFAULTS)
 GAME_ROLES = ("student", "admin")
 
@@ -1189,6 +1189,88 @@ def supply_today(rows, now=None):
     return sum(1 for r in rows if str(r.get("key", "")).startswith(pre))
 
 
+def supply_seen(uid, rows):
+    """자재 조달에서 이미 낸 문제 → 낸 순서 (클수록 최근). 장부(낸 판, 오래된 것부터) + 메모리(열었지만 안 낸 판)."""
+    seen, n = {}, 0
+    for r in rows:   # 장부는 created_at 오름차순
+        note = str(r.get("note") or "")
+        if str(r.get("key", "")).startswith("supply:") and note.startswith("supply|"):
+            n += 1
+            for q in note[7:].split(","):
+                if q:
+                    seen[q] = n
+    n += 1
+    for q in _supply_open.get(uid, {}):
+        seen[q] = n
+    return seen
+
+
+def _norm(text):
+    return "".join(ch for ch in str(text or "").lower() if ch.isalnum())
+
+
+def pick_supply(book, counts, seen):
+    """자재 조달 문제 고르기.
+    1) 아직 안 낸 문제만, 종류별로 정한 수만큼 (글이 같은 문제는 하나로 봄)
+    2) 그 종류의 새 문제가 바닥나면 객관식 새 문제로 채움 (단답형은 관리자가 단답형 수를 1 이상으로 했을 때만:
+       답이 조금 달라도 AI 채점이 들 수 있어서)
+    3) 전부 다 냈으면 가장 오래전에 낸 문제부터 다시 (방금 낸 문제가 연달아 나오지 않게)
+    서술형은 절대 안 냄."""
+    import random
+    pools = {}
+    for k in SUPPLY_FALLBACK:
+        rows = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active",
+                                               "select": daily.QSEL, "limit": "2000"})
+        random.shuffle(rows)
+        pools[k] = rows
+    picked, used_text = [], set()
+    # 글이 같은 문제(문제 은행에 겹쳐 들어간 것)는 하나라도 냈으면 같이 낸 것으로 본다
+    text_seen = {}
+    for rows in pools.values():
+        for q in rows:
+            if q["id"] in seen:
+                t = _norm(q.get("question"))
+                text_seen[t] = max(text_seen.get(t, 0), seen[q["id"]])
+    when = lambda q: max(seen.get(q["id"], 0), text_seen.get(_norm(q.get("question")), 0))
+
+    def take(k, n, fresh):
+        got = []
+        cands = [q for q in pools[k] if (when(q) == 0) == fresh]
+        if not fresh:   # 다시 낼 때는 오래전에 낸 것부터
+            cands.sort(key=when)
+        for q in cands:
+            if len(got) >= n:
+                break
+            t = _norm(q.get("question"))
+            if t in used_text or any(q["id"] == x["id"] for x in picked):
+                continue
+            used_text.add(t)
+            got.append(q)
+        picked.extend(got)
+        return n - len(got)
+
+    short = 0
+    for k in SUPPLY_FALLBACK:
+        if counts.get(k, 0) > 0:
+            short += take(k, counts[k], True)
+    swapped = False
+    allowed = [k for k in SUPPLY_FALLBACK if k != "word" or counts.get("word", 0) > 0]
+    for k in allowed:                  # 새 문제가 모자라면 다른 종류의 새 문제로
+        if short <= 0:
+            break
+        before = short
+        short = take(k, short, True)
+        swapped = swapped or short < before
+    order = [k for k in allowed if counts.get(k, 0) > 0] + [k for k in allowed if counts.get(k, 0) <= 0]
+    for k in order:                    # 그래도 모자라면 오래전에 낸 문제부터 다시
+        if short <= 0:
+            break
+        short = take(k, short, False)
+    rank = {k: i for i, k in enumerate(SUPPLY_FALLBACK)}
+    picked.sort(key=lambda q: rank.get(q["kind"], 9))
+    return picked, swapped
+
+
 @router.post("/game/supply/start")
 def supply_start(body: ExamStartBody, user=Depends(need_player)):
     """자재 조달 문제 뽑기. 하루 횟수(0 = 무제한)를 넘으면 day_max."""
@@ -1198,7 +1280,8 @@ def supply_start(body: ExamStartBody, user=Depends(need_player)):
     spec = supply_spec(st)
     if spec["total"] <= 0:
         _err(400, "no_questions")
-    done = supply_today(ledger(uid))
+    rows = ledger(uid)
+    done = supply_today(rows)
     if spec["day_max"] and done >= spec["day_max"]:
         _err(400, "supply_day_max", n=spec["day_max"])
     book = textbook.current_book()
@@ -1206,20 +1289,20 @@ def supply_start(body: ExamStartBody, user=Depends(need_player)):
         _err(400, "no_questions")
     now = _now()
     with _lock(uid):
-        seen = {q: t for q, t in _supply_seen.get(uid, {}).items() if (now - t).total_seconds() < SUPPLY_REPEAT_S}
-        _supply_seen[uid] = seen
-    picked = _pick(book, spec["counts"], set(seen))
+        seen = supply_seen(uid, rows)
+    picked, swapped = pick_supply(book, spec["counts"], seen)
     if not picked:
         _err(400, "no_questions")
     daily.ensure_translations(picked, lang)
     sid = str(uuid.uuid4())
     with _lock(uid):
         _supplies[uid] = {"id": sid, "qids": [q["id"] for q in picked], "lang": lang, "at": now}
+        opened = _supply_open.setdefault(uid, {})
         for q in picked:
-            _supply_seen[uid][q["id"]] = now
+            opened[q["id"]] = now
     off = book.get("page_offset") or 0
-    return {"id": sid, "total": len(picked), "short_of": spec["total"] - len(picked), "steel": spec["steel"],
-            "rods": spec["rods"], "done_today": done, "day_max": spec["day_max"],
+    return {"id": sid, "total": len(picked), "short_of": spec["total"] - len(picked), "swapped": swapped,
+            "steel": spec["steel"], "rods": spec["rods"], "done_today": done, "day_max": spec["day_max"],
             "questions": [daily._public(q, None, lang, off) for q in picked]}
 
 
@@ -1239,7 +1322,11 @@ def supply_submit(body: ExamSubmitBody, user=Depends(need_player)):
         buildings = _buildings(uid)
         got = clip_storage(earn, balance(ledger(uid)), caps(buildings))
         day = _now().astimezone(KST).date().isoformat()
-        _add(uid, [{"key": f"supply:{day}:{sp['id']}", **got, "note": "supply"}])
+        # 낸 문제 id 를 메모에 남겨 서버가 다시 켜져도 같은 문제를 또 내지 않게
+        _add(uid, [{"key": f"supply:{day}:{sp['id']}", **got, "note": "supply|" + ",".join(sp["qids"])}])
+        opened = _supply_open.get(uid, {})
+        for q in sp["qids"]:
+            opened.pop(q, None)
     return {"right": right, "total": len(results), "unsure": unsure, "earn": earn, "got": got,
             "full": got != earn, "results": results, "state": _fresh(user)}
 

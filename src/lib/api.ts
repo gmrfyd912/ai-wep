@@ -1693,6 +1693,8 @@ export type GameSupply = {
   id: string;
   total: number;
   short_of: number;
+  /** 새 OX 가 바닥나서 다른 종류(객관식·단답형)로 채웠으면 true */
+  swapped?: boolean;
   steel: number;
   rods: number;
   done_today: number;
