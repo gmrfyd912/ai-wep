@@ -121,19 +121,45 @@ def main():
     d = c.get("/game/state", headers=S1).json()
     assert not next(b for b in d["buildings"] if b["type"] == "yard")["just_done"]
 
-    # 본관 2레벨: 장 완료 1개 필요 → 아직 0개
+    # 교재 장 완료는 기술 포인트 30 (본관 조건은 아님)
     hq = next(b for b in d["buildings"] if b["type"] == "hq")
-    assert hq["block"] == "units" and hq["next"]["units_need"] == 1
-    assert any(t["id"] == "units" for t in d["tips"])
-    assert c.post("/game/upgrade", headers=S1, json={"id": hq["id"]}).json()["detail"]["code"] == "units"
-    # 1장(쪽 4~5) 다 보고 + 1장 문제 2개 맞힘 → 장 완료, 기술 포인트 30
+    assert hq["block"] == "exam" and hq["next"]["exam"] == {"counts": {"ox": 10, "mc": 0, "word": 0, "short": 0},
+                                                            "total": 10, "pass": 8, "passed": False}, hq["next"]
+    assert c.post("/game/upgrade", headers=S1, json={"id": hq["id"]}).json()["detail"]["code"] == "exam"
     for p in (4, 5):
         db.insert_rows("textbook_progress", {"user_id": s1, "book_id": bid, "page": p})
     d = c.get("/game/state", headers=S1).json()
     assert d["units"]["done"] == 1 and d["units"]["total"] == 2, d["units"]
     assert d["rewards"]["tech"] == 30 and d["rewards"]["why"] == {"unit_done": 1}, d["rewards"]
     hq = next(b for b in d["buildings"] if b["type"] == "hq")
-    assert hq["block"] is None
+    assert hq["block"] == "exam"
+
+    # 본관 승급 시험: OX 10문제 중 8개 (문제 은행에 OX 12개, 정답은 짝수 번 O·홀수 번 X)
+    ox = {}
+    for i in range(12):
+        q = db.insert_rows("quiz_questions", {"book_id": bid, "unit_key": "0-0", "unit_title": "제1장", "kind": "ox",
+                                              "question": f"OX{i}", "choices": [], "answer": i % 2, "status": "active",
+                                              "translations": {}})[0]
+        ox[q["id"]] = i % 2
+    assert c.post("/game/hq-exam/start", headers=T1, json={}).status_code == 403
+    ex = c.post("/game/hq-exam/start", headers=S1, json={}).json()
+    assert ex["target"] == 2 and ex["total"] == 10 and ex["pass"] == 8 and ex["short_of"] == 0, ex
+    assert all(q["kind"] == "ox" and q["result"] is None for q in ex["questions"])  # 답은 안 보냄
+    ids = [q["id"] for q in ex["questions"]]
+    # 7개만 맞힘 → 불합격, 다시 봐야 함
+    ans = {qid: (ox[qid] if k < 7 else 1 - ox[qid]) for k, qid in enumerate(ids)}
+    r = c.post("/game/hq-exam/submit", headers=S1, json={"id": ex["id"], "answers": ans}).json()
+    assert r["passed"] is False and r["right"] == 7 and r["results"][0]["correct_choice"] is not None, r
+    assert c.post("/game/hq-exam/submit", headers=S1, json={"id": ex["id"], "answers": ans}).json()["detail"]["code"] == "exam_gone"
+    # 다시 보고 8개 맞힘 → 통과
+    ex = c.post("/game/hq-exam/start", headers=S1, json={}).json()
+    ids = [q["id"] for q in ex["questions"]]
+    ans = {qid: (ox[qid] if k < 8 else 1 - ox[qid]) for k, qid in enumerate(ids)}
+    r = c.post("/game/hq-exam/submit", headers=S1, json={"id": ex["id"], "answers": ans}).json()
+    assert r["passed"] is True and r["right"] == 8, r
+    hq = next(b for b in r["state"]["buildings"] if b["type"] == "hq")
+    assert hq["block"] is None and hq["next"]["exam"]["passed"] is True
+    assert c.post("/game/hq-exam/start", headers=S1, json={}).json()["detail"]["code"] == "already"
     tick(4 * 3600)  # 공장 4시간 → 강판 240 (본관 비용 800 모으기)
     d = c.post("/game/collect", headers=S1).json()
     steel0 = d["resources"]["steel"]
@@ -250,6 +276,28 @@ def main():
     assert c.put("/admin/game-settings", headers=A, json={"enabled": False, "daily_done_steel": 500}).json()["settings"]["daily_done_steel"] == 500
     assert c.get("/game/state", headers=S1).json()["detail"]["code"] == "game_off"
     assert c.get("/game/state", headers=A).status_code == 200
+
+    # 관리자: 승급 시험 바꾸기 (단답형 2개 모두 맞히기). 합격 개수가 문제 수보다 많으면 안 됨
+    bad = c.put("/admin/game-settings", headers=A, json={"hq_exam_ox": 0, "hq_exam_word": 2, "hq_exam_pass": 3})
+    assert bad.status_code == 400 and bad.json()["detail"]["key"] == "hq_exam_pass"
+    assert c.put("/admin/game-settings", headers=A, json={"hq_exam_ox": 0, "hq_exam_mc": 0, "hq_exam_word": 0,
+                                                          "hq_exam_short": 0}).status_code == 400
+    assert c.put("/admin/game-settings", headers=A, json={"hq_exam_ox": 21}).status_code == 400
+    st = c.put("/admin/game-settings", headers=A, json={"enabled": True, "hq_exam_ox": 0, "hq_exam_word": 2,
+                                                        "hq_exam_pass": 2}).json()["settings"]
+    assert st["hq_exam_word"] == 2 and st["hq_exam_pass"] == 2
+    for w in ("아크", "용융지"):
+        db.insert_rows("quiz_questions", {"book_id": bid, "unit_key": "0-0", "unit_title": "제1장", "kind": "word",
+                                          "question": f"{w}?", "choices": [], "answer": None, "model_answer": w,
+                                          "status": "active", "translations": {}})
+    s4, S4 = user("s4", "student")
+    hq4 = next(b for b in c.get("/game/state", headers=S4).json()["buildings"] if b["type"] == "hq")
+    assert hq4["next"]["exam"]["counts"]["word"] == 2 and hq4["next"]["exam"]["pass"] == 2
+    ex = c.post("/game/hq-exam/start", headers=S4, json={}).json()
+    assert ex["total"] == 2 and all(q["kind"] == "word" for q in ex["questions"]), ex
+    words = {q["id"]: q["question"].rstrip("?") for q in ex["questions"]}
+    r = c.post("/game/hq-exam/submit", headers=S4, json={"id": ex["id"], "answers": {k: f" {v} " for k, v in words.items()}}).json()
+    assert r["passed"] is True and r["right"] == 2, r
     print("game_check OK")
 
 

@@ -5,7 +5,8 @@
   아직 안 준 것만 '자원 장부'(game_ledger)에 한 줄씩 적는다. 줄마다 열쇠(key)가 있어 같은 공부로 두 번 받지 않는다.
   잔액 = 장부 합계 (쓴 것도 음수 줄로 적는다). 현금 결제 없음.
 - 공장은 그날 매일 문제를 다 푼 날(한국 날짜)에만 돌아간다.
-- 본관 레벨을 올리려면 교재 장 완료가 필요하다 (장 완료 = 쪽 80% 이상 보고, 그 장 문제 2개 이상 맞힘).
+- 본관 레벨을 올리려면 '본관 승급 시험'을 통과해야 한다 (박사 변경 2026-11-27: 교재 장 완료 조건은 뺌).
+  문제 수·종류(OX·객관식·단답형·서술형)·합격 개수는 관리자 '게임 설정'에서 정한다. 문제는 지금 교재의 문제 은행에서 뽑는다.
 - 즉시 완료권은 실습 점수로만 (90점 이상·실력 급상승·개인 최고점·새 자세 첫 합격, 하루 2장).
 - 공사·배 건조는 '끝나는 시각'만 저장하고, 화면을 열 때 계산한다 (무료 서버가 자고 있어도 됨).
 - 교육생만 (관리자는 시험용으로 들어갈 수 있음). 학습 보드 점수와는 따로.
@@ -89,7 +90,16 @@ DEFAULTS = {
     "pass_day_max": 2,                # 즉시 완료권 하루 최대
     "pass_high_score": 90,            # 고득점 기준
     "pass_jump": 10,                  # 실력 급상승: 같은 자세 지난 5번 평균보다 이만큼 이상
+    # 본관 승급 시험 (문제 은행에서 종류별로 뽑음, 이만큼 맞히면 통과). 예시 값.
+    "hq_exam_ox": 10,
+    "hq_exam_mc": 0,
+    "hq_exam_word": 0,                # 단답형
+    "hq_exam_short": 0,               # 서술형
+    "hq_exam_pass": 8,
 }
+EXAM_KINDS = ("ox", "mc", "word", "short")
+EXAM_MAX_EACH = 20
+_exams: dict[str, dict] = {}         # 보는 중인 승급 시험 (메모리, 사람마다 하나)
 SETTING_KEYS = tuple(DEFAULTS)
 GAME_ROLES = ("student", "admin")
 
@@ -489,8 +499,20 @@ def hq_need(target, units):
     return min(need, len(units)) if units else need
 
 
-def upgrade_block(b, buildings, units):
-    """올릴 수 없는 이유 코드 (없으면 None)."""
+def exam_passed(rows, target):
+    """본관 target 레벨 승급 시험을 통과했나 (장부에 hq_exam:target 줄)."""
+    key = f"hq_exam:{target}"
+    return any(r["key"] == key for r in rows)
+
+
+def exam_spec(st):
+    counts = {k: int(st[f"hq_exam_{k}"]) for k in EXAM_KINDS}
+    total = sum(counts.values())
+    return {"counts": counts, "total": total, "pass": min(int(st["hq_exam_pass"]), total)}
+
+
+def upgrade_block(b, buildings, rows):
+    """올릴 수 없는 이유 코드 (없으면 None). rows = 자원 장부 (승급 시험 통과 확인용)."""
     spec = BUILDINGS[b["type"]]
     if b.get("busy_until"):
         return "busy"
@@ -499,9 +521,8 @@ def upgrade_block(b, buildings, units):
         return "max"
     hq = _hq(buildings)
     if b["type"] == "hq":
-        need = hq_need(nxt, units)
-        if units_done(units) < need:
-            return "units"
+        if not exam_passed(rows, nxt):
+            return "exam"
     elif hq and nxt > hq["level"]:
         return "hq_level"
     return None
@@ -532,11 +553,11 @@ def view(s, lang="ko"):
                 "w": spec["size"][0], "h": spec["size"][1], "fixed": bool(spec.get("fixed")),
                 "busy_until": b.get("busy_until"), "pending": p,
                 "just_done": bool(b.get("finished_at") and last_seen and _dt(b["finished_at"]) > last_seen),
-                "block": upgrade_block(b, buildings, units)}
+                "block": upgrade_block(b, buildings, s["rows"])}
         if nxt <= spec["max"]:
             item["next"] = {"level": nxt, "cost": cost(b["type"], nxt), "seconds": build_seconds(nxt)}
             if b["type"] == "hq":
-                item["next"]["units_need"] = hq_need(nxt, units)
+                item["next"]["exam"] = {**exam_spec(st), "passed": exam_passed(s["rows"], nxt)}
         if b.get("busy_until"):
             left = max(0, int((_dt(b["busy_until"]) - now).total_seconds()))
             item["left"] = left
@@ -567,8 +588,6 @@ def view(s, lang="ko"):
         lock = None
         if not dock or dock["level"] < sp["dock"]:
             lock = "dock"
-        elif done_n < min(sp["units"], len(units) if units else sp["units"]):
-            lock = "units"
         ships.append({"kind": k, "cost": {"steel": sp["steel"], "rods": sp["rods"]}, "fame": sp["fame"], "pay": sp["pay"],
                       "first_bonus": FIRST_SHIP_PASSES if k not in delivered_kinds else 0,
                       "dock": sp["dock"], "units": sp["units"], "lock": lock,
@@ -625,7 +644,7 @@ def tutorial(s, buildings, ship, delivered):
         ("yard", any(b["type"] == "yard" for b in buildings)),
         ("collect", "collect" in keys),
         ("ship", bool(ship) or bool(delivered)),
-        ("hq", bool(hq and hq["level"] >= 2) or bool(hq and hq.get("busy_until"))),
+        ("hq", bool(hq and hq["level"] >= 2) or bool(hq and hq.get("busy_until"))),  # 승급 시험 → 올리기
     ]
     cur = next((i for i, (_, ok) in enumerate(steps) if not ok), None)
     done = bool(s["base"].get("tutorial_done")) or cur is None
@@ -649,10 +668,10 @@ def tips(d, s):
     if d["pending"]["steel"] + d["pending"]["rods"] >= 30:
         out.append({"id": "collect", "steel": d["pending"]["steel"], "rods": d["pending"]["rods"]})
     hq = next((b for b in d["buildings"] if b["type"] == "hq"), None)
-    if hq and hq["block"] == "units" and d["units"]["next"]:
-        u = d["units"]["next"]
-        out.append({"id": "units", "title": u["title"], "pdf_page": u["pdf_page"], "need": hq["next"]["units_need"],
-                    "done": d["units"]["done"], "seen": u["seen"], "pages": u["pages"], "correct": u["correct"]})
+    if hq and hq["block"] == "exam" and hq.get("next") and d["builders"]["busy"] < d["builders"]["total"] \
+            and _afford(d["resources"], hq["next"]["cost"]):
+        ex = hq["next"]["exam"]
+        out.append({"id": "exam", "level": hq["next"]["level"], "total": ex["total"], "pass": ex["pass"]})
     if d["builders"]["busy"] < d["builders"]["total"]:
         bal = d["resources"]
         cands = [b for b in d["buildings"] if not b["block"] and b.get("next") and _afford(bal, b["next"]["cost"])]
@@ -793,8 +812,7 @@ def upgrade(body: IdBody, user=Depends(need_player)):
         b = next((x for x in buildings if x["id"] == body.id), None)
         if not b:
             _err(404, "not_found")
-        _, units = unit_progress(uid, st) if b["type"] == "hq" else (None, [])
-        why = upgrade_block(b, buildings, units)
+        why = upgrade_block(b, buildings, ledger(uid))
         if why:
             _err(400, why)
         if sum(1 for x in buildings if x.get("busy_until")) >= BUILDERS:
@@ -940,9 +958,6 @@ def ship_start(body: ShipBody, user=Depends(need_player)):
         dock = _dock(buildings)
         if not dock or dock["level"] < sp["dock"]:
             _err(400, "dock")
-        _, units = unit_progress(uid, st)
-        if units_done(units) < min(sp["units"], len(units) if units else sp["units"]):
-            _err(400, "units")
         price = {"steel": sp["steel"], "rods": sp["rods"]}
         if not _afford(balance(ledger(uid)), price):
             _err(400, "money")
@@ -993,6 +1008,106 @@ def ship_next(user=Depends(need_player)):
     return out
 
 
+# ---- 본관 승급 시험 ----
+
+class ExamStartBody(BaseModel):
+    lang: str = "ko"
+
+
+@router.post("/game/hq-exam/start")
+def hq_exam_start(body: ExamStartBody, user=Depends(need_player)):
+    """지금 본관 다음 레벨 승급 시험 문제를 문제 은행에서 뽑는다 (볼 때마다 새로 뽑음)."""
+    import random
+    uid = user["id"]
+    st = settings()
+    lang = daily._lang(body.lang)
+    hq = _hq(_buildings(uid))
+    if not hq:
+        _err(404, "not_found")
+    target = hq["level"] + 1
+    if target > BUILDINGS["hq"]["max"]:
+        _err(400, "max")
+    if exam_passed(ledger(uid), target):
+        _err(400, "already")
+    book = textbook.current_book()
+    if not book:
+        _err(400, "no_questions")
+    spec = exam_spec(st)
+    picked = []
+    for k in EXAM_KINDS:
+        n = spec["counts"][k]
+        if n <= 0:
+            continue
+        pool = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active",
+                                               "select": daily.QSEL, "limit": "2000"})
+        picked += random.sample(pool, min(n, len(pool)))
+    if not picked:
+        _err(400, "no_questions")
+    need = min(spec["pass"], len(picked))
+    daily.ensure_translations(picked, lang)
+    exam_id = str(uuid.uuid4())
+    with _lock(uid):
+        _exams[uid] = {"id": exam_id, "target": target, "qids": [q["id"] for q in picked], "pass": need,
+                       "lang": lang, "at": _now()}
+    off = book.get("page_offset") or 0
+    return {"id": exam_id, "target": target, "pass": need, "total": len(picked), "short_of": spec["total"] - len(picked),
+            "questions": [daily._public(q, None, lang, off) for q in picked]}
+
+
+class ExamSubmitBody(BaseModel):
+    id: str
+    answers: dict[str, str | int]
+
+
+def _grade(q, ans, lang):
+    """승급 시험 한 문제 채점 → (맞음 True/False/None(채점 못 함), 해설)."""
+    if q["kind"] in daily.CHOICE_KINDS:
+        try:
+            pick = int(ans)
+        except (TypeError, ValueError):
+            return False, ""
+        return pick == q.get("answer"), ""
+    text = str(ans or "").strip()[:1000 if q["kind"] == "short" else 200]
+    if not text:
+        return False, ""
+    if q["kind"] == "word":
+        score, fb, _ = daily.grade_word(q, text, lang)
+    else:
+        score, fb = daily.grade_short(q, text, lang)
+    return (None if score is None else score >= daily.PASS_SCORE), fb
+
+
+@router.post("/game/hq-exam/submit")
+def hq_exam_submit(body: ExamSubmitBody, user=Depends(need_player)):
+    uid = user["id"]
+    with _lock(uid):
+        ex = _exams.get(uid)
+    if not ex or ex["id"] != body.id:
+        _err(400, "exam_gone")  # 서버가 다시 켜졌거나 다른 시험을 새로 시작함 → 다시 보기
+    qs = daily._questions(ex["qids"])
+    results, right, unsure = [], 0, 0
+    for qid in ex["qids"]:
+        q = qs.get(qid)
+        if not q:
+            continue
+        ok, fb = _grade(q, body.answers.get(qid), ex["lang"])
+        right += 1 if ok else 0
+        unsure += 1 if ok is None else 0
+        tr = (q.get("translations") or {}).get(ex["lang"]) if ex["lang"] != "ko" else None
+        results.append({"id": qid, "correct": ok, "feedback": fb,
+                        "correct_choice": q.get("answer") if q["kind"] in daily.CHOICE_KINDS else None,
+                        "model_answer": (tr or {}).get("model_answer") or q.get("model_answer") or "",
+                        "explanation": (tr or {}).get("explanation") or q.get("explanation") or ""})
+    passed = right >= ex["pass"]
+    with _lock(uid):
+        if _exams.get(uid, {}).get("id") == ex["id"]:
+            _exams.pop(uid, None)
+        if passed:
+            _add(uid, [{"key": f"hq_exam:{ex['target']}", "note": "hq_exam"}])
+    return {"passed": passed, "right": right, "total": len(results), "pass": ex["pass"], "unsure": unsure,
+            "target": ex["target"], "results": results, "state": _fresh(user)}
+
+
 class TutorialBody(BaseModel):
     done: bool
 
@@ -1028,5 +1143,13 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         cur[k] = v
     if not 1 <= cur["unit_pages_pct"] <= 100:
         _err(400, "bad_value", key="unit_pages_pct")
+    for k in EXAM_KINDS:
+        if cur[f"hq_exam_{k}"] > EXAM_MAX_EACH:
+            _err(400, "bad_value", key=f"hq_exam_{k}")
+    total = sum(cur[f"hq_exam_{k}"] for k in EXAM_KINDS)
+    if total < 1:
+        _err(400, "bad_value", key="hq_exam_ox")
+    if not 1 <= cur["hq_exam_pass"] <= total:
+        _err(400, "bad_value", key="hq_exam_pass")
     _save_setting("game", cur)
     return {"settings": cur, "defaults": DEFAULTS}

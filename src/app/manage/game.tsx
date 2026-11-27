@@ -25,6 +25,10 @@ const NUMBER_KEYS = [
   "welcome_rods",
 ] as const;
 
+/** 본관 승급 시험 칸 (종류별 문제 수 + 합격 개수) */
+const EXAM_KEYS = ["hq_exam_ox", "hq_exam_mc", "hq_exam_word", "hq_exam_short", "hq_exam_pass"] as const;
+const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS];
+
 /** 관리자: 웰디의 조선소 게임 설정 (켜기·공부 보상 숫자·장 완료 기준) */
 export default function GameSettingsScreen() {
   const { t } = useTranslation();
@@ -36,7 +40,7 @@ export default function GameSettingsScreen() {
 
   const fill = (s: GameSettings) => {
     setSt(s);
-    setText(Object.fromEntries(NUMBER_KEYS.map((k) => [k, String(s[k] ?? "")])));
+    setText(Object.fromEntries(ALL_KEYS.map((k) => [k, String(s[k] ?? "")])));
   };
 
   useEffect(() => {
@@ -65,13 +69,19 @@ export default function GameSettingsScreen() {
   const saveNumbers = () => {
     if (!st) return;
     const next: GameSettings = { ...st };
-    for (const k of NUMBER_KEYS) {
+    for (const k of ALL_KEYS) {
       const v = Number(text[k]);
-      if (!Number.isFinite(v) || v < 0) {
+      if (text[k] === "" || !Number.isFinite(v) || v < 0) {
         setMsg(t("gm_setBad"));
         return;
       }
       next[k] = Math.round(v);
+    }
+    const total = EXAM_KEYS.slice(0, 4).reduce((a, k) => a + Number(next[k]), 0);
+    const pass = Number(next.hq_exam_pass);
+    if (EXAM_KEYS.some((k) => Number(next[k]) > 20) || total < 1 || pass < 1 || pass > total) {
+      setMsg(t("gm_setExamBad"));
+      return;
     }
     save(next);
   };
@@ -79,6 +89,7 @@ export default function GameSettingsScreen() {
   if (!st) {
     return <Screen>{msg ? <Body>{msg}</Body> : <ActivityIndicator color={colors.primary} />}</Screen>;
   }
+  const examTotal = EXAM_KEYS.slice(0, 4).reduce((a, k) => a + (Number(text[k]) || 0), 0);
   return (
     <Screen>
       <Card>
@@ -105,6 +116,24 @@ export default function GameSettingsScreen() {
           </View>
         ))}
       </Card>
+      <Text style={styles.section}>{t("gm_setExamTitle")}</Text>
+      <Body muted>{t("gm_setExamHint", { total: examTotal })}</Body>
+      <Card style={{ gap: space.sm }}>
+        {EXAM_KEYS.map((k) => (
+          <View key={k} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>{t(`gm_set_${k}`)}</Text>
+              {defaults ? <Text style={styles.hint}>{t("gm_setDefault", { n: String(defaults[k]) })}</Text> : null}
+            </View>
+            <TextInput
+              style={styles.input}
+              value={text[k]}
+              onChangeText={(v) => setText((old) => ({ ...old, [k]: v.replace(/[^0-9]/g, "") }))}
+              keyboardType="number-pad"
+            />
+          </View>
+        ))}
+      </Card>
       {msg ? <Text style={{ color: colors.muted }}>{msg}</Text> : null}
       <AppButton label={t("common_save")} icon="save-outline" disabled={saving} onPress={saveNumbers} />
     </Screen>
@@ -114,6 +143,7 @@ export default function GameSettingsScreen() {
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md, paddingVertical: 4 },
   label: { color: colors.text, fontSize: 14 },
+  section: { color: colors.text, fontSize: 16, fontWeight: "700", marginTop: space.sm },
   hint: { color: colors.muted, fontSize: 12 },
   input: {
     width: 90,
