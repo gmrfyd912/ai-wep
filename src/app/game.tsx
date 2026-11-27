@@ -323,6 +323,13 @@ export default function GameScreen() {
         return { label: t("gm_collectAll"), onPress: doCollect };
       case "exam":
         return { label: t("gm_examStart"), onPress: openExam };
+      case "full": {
+        const store = Number(x.steel) >= Number(x.rods) ? "yard" : "rodstore";
+        const b = data.buildings.find((k) => k.type === store);
+        return b
+          ? { label: t("gm_seeBuilding", { name: name(store) }), onPress: () => { setSelected(b.id); setMode("home"); } }
+          : { label: t("gm_build"), onPress: () => setMode("build") };
+      }
       case "built":
       case "idle": {
         const b = data.buildings.find((k) => k.type === x.type);
@@ -431,6 +438,12 @@ export default function GameScreen() {
               </Pressable>
             </View>
             <Text style={styles.infoText}>{t(`gm_info_${info}`, { m: data.speed_rule.tech_minutes, h: data.speed_rule.pass_hours })}</Text>
+            {(info === "steel" || info === "rods") && res[info] >= data.caps[info] ? (
+              <Text style={[styles.infoSmall, { color: "#FFD166" }]}>{t("gm_infoFull", { cap: data.caps[info] })}</Text>
+            ) : null}
+            {(info === "steel" || info === "rods") && (data.waiting?.[info] ?? 0) > 0 ? (
+              <Text style={styles.infoSmall}>{t("gm_infoWaiting", { n: data.waiting![info] })}</Text>
+            ) : null}
             {(info === "tech" || info === "passes") && !busyB && !shipBusy ? <Text style={styles.infoSmall}>{t("gm_infoNothingBusy")}</Text> : null}
             {infoAction(info) ? (
               <Pressable onPress={infoAction(info)!.onPress} style={styles.infoBtn}>

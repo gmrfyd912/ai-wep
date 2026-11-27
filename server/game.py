@@ -469,16 +469,47 @@ def load(user, sync=True):
         rows = ledger(uid)
         book, units = None, []
         new_rows = []
+        waiting = {"steel": 0, "rods": 0}
         if sync:
             have = {r["key"] for r in rows}
-            new_rows, book, units = study_rewards(uid, st, have)
+            found, book, units = study_rewards(uid, st, have)
+            new_rows, waiting = fit_storage(found, balance(rows), caps(buildings))
             if new_rows:
                 _add(uid, [dict(r) for r in new_rows])
                 rows = ledger(uid)
         else:
             book, units = unit_progress(uid, st)
     return {"uid": uid, "st": st, "base": base, "new": new, "now": now, "buildings": buildings, "rows": rows,
-            "book": book, "units": units, "new_rows": new_rows, "ship": _ship(uid), "run_days": _run_days(uid)}
+            "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": _ship(uid),
+            "run_days": _run_days(uid)}
+
+
+def fit_storage(found, bal, cap):
+    """창고에 들어갈 공부 보상만 고른다.
+    강판·용접봉이 창고 자리보다 많은 보상 줄은 장부에 아직 안 쓰고 '창고 대기'로 남긴다
+    (사라지지 않음: 자원을 쓰거나 창고를 올려 자리가 나면 다음에 들어온다).
+    기술 포인트·완료권만 있는 줄은 창고와 상관없이 바로 들어온다."""
+    room = {k: max(0, cap[k] - bal[k]) for k in ("steel", "rods")}
+    ok, waiting = [], {"steel": 0, "rods": 0}
+    for r in found:
+        need = {k: int(r.get(k) or 0) for k in ("steel", "rods")}
+        if all(need[k] <= room[k] for k in need):
+            ok.append(r)
+            for k in need:
+                room[k] -= need[k]
+        else:
+            for k in need:
+                waiting[k] += need[k]
+    return ok, waiting
+
+
+def clip_storage(got, bal, cap):
+    """한 번에 받는 보상(진수 대금·첫 생산분 선물)을 창고 자리만큼 자른다. 넘치는 만큼은 못 받음."""
+    out = dict(got)
+    for k in ("steel", "rods"):
+        if out.get(k):
+            out[k] = max(0, min(int(out[k]), cap[k] - bal[k]))
+    return out
 
 
 def _hq(buildings):
@@ -603,6 +634,7 @@ def view(s, lang="ko"):
     tut = tutorial(s, buildings, ship, delivered)
     data = {
         "enabled": st["enabled"], "now": _iso(now), "resources": bal, "caps": cap, "pending": pending,
+        "waiting": s.get("waiting") or {"steel": 0, "rods": 0},
         "builders": {"total": BUILDERS, "busy": len(busy)}, "run_today": run_today,
         "hq_level": hq_lv, "grid": GRID, "buildings": out_b, "catalog": catalog,
         "ships": ships, "ship": ship_out, "delivered": [d["kind"] for d in delivered],
@@ -667,6 +699,9 @@ def tips(d, s):
         out.append({"id": "ship_ready", "kind": d["ship"]["kind"], "stage": d["ship"]["stage"]})
     if d["pending"]["steel"] + d["pending"]["rods"] >= 30:
         out.append({"id": "collect", "steel": d["pending"]["steel"], "rods": d["pending"]["rods"]})
+    w = d.get("waiting") or {}
+    if w.get("steel", 0) + w.get("rods", 0) > 0:
+        out.append({"id": "full", "steel": w.get("steel", 0), "rods": w.get("rods", 0)})
     hq = next((b for b in d["buildings"] if b["type"] == "hq"), None)
     if hq and hq["block"] == "exam" and hq.get("next") and d["builders"]["busy"] < d["builders"]["total"] \
             and _afford(d["resources"], hq["next"]["cost"]):
@@ -891,8 +926,8 @@ def collect(user=Depends(need_player)):
             base, _ = _base(uid)
             keys = {r["key"].split(":")[0] for r in ledger(uid)}
             if not base.get("tutorial_done") and "collect" not in keys:
-                _add(uid, [{"key": "collect:tutorial", **TUTORIAL_COLLECT, "note": "collect_first"}])
-                got = dict(TUTORIAL_COLLECT)
+                got = clip_storage(TUTORIAL_COLLECT, balance(ledger(uid)), cap)
+                _add(uid, [{"key": "collect:tutorial", **got, "note": "collect_first"}])
                 gift = True
     out = _fresh(user)
     out["collected"] = got
@@ -988,7 +1023,7 @@ def ship_next(user=Depends(need_player)):
             sp = SHIPS[ship["kind"]]
             keys = {r["key"] for r in ledger(uid)}
             first = f"first_ship:{ship['kind']}" not in keys
-            got = {"fame": sp["fame"], **sp["pay"]}
+            got = {"fame": sp["fame"], **clip_storage(sp["pay"], balance(ledger(uid)), caps(_buildings(uid)))}
             rows = [{"key": f"deliver:{ship['id']}", **got, "note": ship["kind"]}]
             if first and FIRST_SHIP_PASSES:
                 rows.append({"key": f"first_ship:{ship['kind']}", "passes": FIRST_SHIP_PASSES, "note": "first_ship"})

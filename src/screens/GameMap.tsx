@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 
 import type { GameBuilding, GameShipKind } from "@/lib/api";
@@ -167,6 +167,12 @@ export function GameMap({
       }
       if (b.type === "cutting" || b.type === "welding") parts.push(box(b.x + b.w - 0.6, b.y + 0.3, 0.3, 0.3, z + 0.6 * W, "#6B6B6B", "chim"));
     }
+    if (b.busy_until && b.type !== "dock") {
+      // 공사 중: 작업 반장이 건물 앞쪽을 오가며 망치질 (건물과 같은 층이라 앞 건물에 알맞게 가려짐)
+      parts.push(
+        <Foreman key="wk" from={P(b.x + 0.2, b.y + b.h + 0.25)} to={P(b.x + b.w - 0.1, b.y + b.h + 0.25)} size={W * 0.62} offset={(b.x * 7 + b.y * 3) * 300} />,
+      );
+    }
     if (sel) {
       const A = P(b.x, b.y), B = P(b.x + b.w, b.y), C = P(b.x + b.w, b.y + b.h), D = P(b.x, b.y + b.h);
       parts.unshift(<Polygon key="sel" points={pts([A, B, C, D])} fill="#FFFFFF33" stroke="#FFFFFF" strokeWidth={2} />);
@@ -247,5 +253,60 @@ export function GameMap({
       {ghost}
       {tags}
     </Svg>
+  );
+}
+
+const CYCLE = 4400;   // 오른쪽으로 걷기 → 망치질 → 왼쪽으로 걷기 → 망치질 (ms)
+const WALK = 1600;
+const HIT = 600;
+
+/**
+ * 작업 반장 (공사 중 표시). 안전모·남색 작업복, 건물 앞을 오가다 끝에서 망치질.
+ * 자기 상태만 다시 그려서 지도 전체는 다시 그리지 않는다.
+ */
+function Foreman({ from, to, size, offset }: { from: Pt; to: Pt; size: number; offset: number }) {
+  const [t, setT] = useState(offset % CYCLE);
+  useEffect(() => {
+    const start = Date.now() - offset;
+    const id = setInterval(() => setT((Date.now() - start) % CYCLE), 90);
+    return () => clearInterval(id);
+  }, [offset]);
+  let k: number;          // 0 = 왼쪽 끝, 1 = 오른쪽 끝
+  let dir = 1;
+  let hitting = false;
+  if (t < WALK) k = t / WALK;
+  else if (t < WALK + HIT) { k = 1; hitting = true; }
+  else if (t < 2 * WALK + HIT) { k = 1 - (t - WALK - HIT) / WALK; dir = -1; }
+  else { k = 0; hitting = true; dir = -1; }
+  const x = from[0] + (to[0] - from[0]) * k;
+  const y = from[1] + (to[1] - from[1]) * k;
+  const s = size;
+  const walking = !hitting;
+  const step = walking ? Math.sin((t / 140) * Math.PI) * s * 0.12 : 0;
+  // 망치: 들었다 내리기
+  const swing = hitting ? (Math.sin((t / 150) * Math.PI) > 0 ? -1.1 : 0.3) : -0.4;
+  const sx = x + dir * s * 0.18, sy = y - s * 0.62;               // 어깨
+  const hx = sx + dir * Math.cos(swing) * s * 0.42, hy = sy + Math.sin(swing) * s * 0.42; // 손
+  const spark = hitting && swing > 0;
+  return (
+    <G>
+      <Circle cx={x} cy={y + 1} r={s * 0.22} fill="#0003" />
+      <Line x1={x - s * 0.06} y1={y - s * 0.3} x2={x - s * 0.08 + step} y2={y} stroke="#1E2A4A" strokeWidth={s * 0.11} strokeLinecap="round" />
+      <Line x1={x + s * 0.06} y1={y - s * 0.3} x2={x + s * 0.08 - step} y2={y} stroke="#1E2A4A" strokeWidth={s * 0.11} strokeLinecap="round" />
+      <Rect x={x - s * 0.16} y={y - s * 0.72} width={s * 0.32} height={s * 0.45} rx={s * 0.06} fill="#2B3A67" />
+      <Rect x={x - s * 0.16} y={y - s * 0.56} width={s * 0.32} height={s * 0.05} fill="#FFD166" />
+      <Line x1={sx} y1={sy} x2={hx} y2={hy} stroke="#F2C9A0" strokeWidth={s * 0.08} strokeLinecap="round" />
+      <Line x1={hx} y1={hy} x2={hx + dir * Math.cos(swing - 1.57) * s * 0.18} y2={hy + Math.sin(swing - 1.57) * s * 0.18} stroke="#6B4A2B" strokeWidth={s * 0.06} />
+      <Rect x={hx + dir * Math.cos(swing - 1.57) * s * 0.18 - s * 0.08} y={hy + Math.sin(swing - 1.57) * s * 0.18 - s * 0.05} width={s * 0.16} height={s * 0.1} fill="#7D7D7D" />
+      <Circle cx={x} cy={y - s * 0.84} r={s * 0.14} fill="#F2C9A0" />
+      <Polygon points={pts([[x - s * 0.19, y - s * 0.86], [x + s * 0.19, y - s * 0.86], [x + s * 0.13, y - s * 1.02], [x - s * 0.13, y - s * 1.02]])} fill="#FFC21A" stroke="#0003" strokeWidth={0.6} />
+      {spark ? (
+        <G>
+          <Circle cx={hx + dir * s * 0.3} cy={y - s * 0.08} r={s * 0.07} fill="#FFE27A" />
+          <Line x1={hx + dir * s * 0.3} y1={y - s * 0.08} x2={hx + dir * s * 0.52} y2={y - s * 0.3} stroke="#FFB020" strokeWidth={1.4} />
+          <Line x1={hx + dir * s * 0.3} y1={y - s * 0.08} x2={hx + dir * s * 0.12} y2={y - s * 0.34} stroke="#FFB020" strokeWidth={1.4} />
+        </G>
+      ) : null}
+    </G>
   );
 }

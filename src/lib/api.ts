@@ -1623,6 +1623,8 @@ export type GameState = {
   resources: GameRes;
   caps: { steel: number; rods: number };
   pending: { steel: number; rods: number };
+  /** 창고 자리가 없어 아직 못 들어온 공부 보상 (자리가 나면 들어옴) */
+  waiting?: { steel: number; rods: number };
   builders: { total: number; busy: number };
   run_today: boolean;
   hq_level: number;
