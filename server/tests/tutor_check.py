@@ -48,6 +48,8 @@ def fake_ask(model, system, text, max_tokens, timeout=180):
             return {"reply": "용접 공부 이야기를 해요.", "pages": [], "offtopic": True}
         if "따옴표" in text:  # JSON 이 깨진 대답도 살린다
             return '{"reply":"그건 "보호 가스"예요.","pages":[6],"quiz":false}'
+        if "가짜 쪽" in text:  # 대답과 상관없는 쪽·없는 쪽을 근거라고 함
+            return {"reply": "보호 가스는 공기를 막아 줘요.", "pages": [8, 3, 999]}
         if "로봇" in text:
             return {"reply": "교재에는 없지만 짧게 말하면...", "pages": [], "outside": True}
         return {"reply": "**보호 가스**는 공기를 막아 줘요.", "pages": [6, 999], "open_page": None,
@@ -270,6 +272,13 @@ def main():
     toc = [{"title": "Part 1", "page": 4, "chapters": [{"title": "Chapter 1 Basics", "page": 4, "sections": []},
                                                        {"title": "Chapter 2 Gas", "page": 6, "sections": []}]}]
     assert c.put(f"/admin/textbooks/{bid}", json={"toc": toc, "is_current": True}, headers=A).status_code == 200
+    # 쪽 글에 한국어 내용을 넣는다 (근거 쪽 확인은 대답 낱말이 그 쪽에 실제로 있어야 통과)
+    KO = {5: "아크 길이와 전류. 아크 전압이 높아진다.", 6: "보호 가스는 공기를 막아 줘요. 아르곤 가스 차폐 원리.",
+          7: "예열 온도는 균열을 막는다. 두꺼운 판 예열.", 8: "텅스텐 전극 TIG 전극 끝 모양."}
+    for r0 in db.TABLES["textbook_pages"]:
+        if r0["page"] in KO:
+            r0["text"] = f"{r0['text']}\n{KO[r0['page']]}"
+    tutor._cache.clear()
 
     # 쪽·장 열기 (AI 안 씀)
     r = ask("Chapter 2 보여줘").json()
@@ -310,6 +319,17 @@ def main():
     r = ask("이해가 안 돼, 더 쉽게", history=[{"q": "Chapter text body 가 뭐야?", "a": "보호 가스는"}], last_pages=[7]).json()
     assert not r["cached"] and r["reply"], r
     assert "[p.7]" in CALLS[-1] and "Explain it again more simply" in CALLS[-1], CALLS
+    # 근거 쪽은 실제로 준 쪽이고 대답 낱말이 들어 있는 쪽만 (지어낸 쪽·상관없는 쪽은 버림)
+    r = ask("가짜 쪽 대답 해줘", T1).json()
+    assert r["reply"] and r["pages"] == [], r
+    # 따지는 말: 대화 주제로 교재 전체를 다시 찾고, 찾은 쪽을 사실로 주고, 방금 본 쪽 글도 같이
+    CALLS.clear()
+    r = ask("이 페이지에는 내가 물어본 게 없잖아", T1, history=[{"q": "예열 온도는 왜 필요해?", "a": "균열을 막아요"}],
+            last_pages=[], seen_page=5).json()
+    assert not r["cached"] and r["reply"], r
+    pr = CALLS[-1]
+    assert "TEXTBOOK SEARCH" in pr and "p.7" in pr.split("TEXTBOOK SEARCH")[1].split("\n")[0], pr
+    assert "[p.7]" in pr and "[p.5] (the page the trainee just looked at)" in pr and "Do not just agree" in pr, pr
     # 외국어 질문은 한국어 찾기 낱말로 바꿔서 찾음 (같은 질문은 한 번만 바꿈)
     CALLS.clear()
     ask("What is shielding gas?", lang="en")
@@ -338,8 +358,14 @@ def main():
     assert r["open"] and r["key"].startswith("tutor_openThat"), r
     r = ask("그 내용이 들어가 있는 페이지 열어봐", last_pages=[7]).json()
     assert r["open"]["page"] == 7 and not r["reply"], r
-    r = ask("text body 나오는 페이지 보여줘", A).json()  # 쪽 번호 대신 내용으로 찾아 연다
-    assert r["open"] and r["key"].startswith("tutor_openThat"), r
+    r = ask("예열 온도 나오는 페이지 보여줘", A).json()  # 쪽 번호 대신 내용으로 찾아 연다 (그 내용이 실제로 있는 쪽)
+    assert r["open"]["page"] == 7, r
+    r = ask("본문 text body 나오는 페이지 보여줘", A).json()
+    assert r["key"] == "tutor_whichPage", r  # 어디에나 있는 말이면 못 찾음
+    # 바로 전 대답에 확인된 쪽이 없으면 더 앞 대화로 거슬러 가지 않는다 → 대화 주제로 찾거나 되묻는다
+    assert ask("그 페이지 펼쳐줘", last_pages=[]).json()["key"] == "tutor_whichPage"
+    r = ask("그 내용 있는 페이지 열어봐", last_pages=[], history=[{"q": "예열 온도는 왜 필요해?", "a": "균열을 막아요"}]).json()
+    assert r["open"]["page"] == 7, r
     r = ask("그 페이지 펼쳐줘", T1).json()  # 교사는 아직 대화가 없음
     assert r["key"] == "tutor_whichPage" and r["open"] is None, r
 
@@ -406,6 +432,22 @@ def main():
     assert top.get("chapter text body 가 뭐야?") == 2 and top.get("what is shielding gas?") == 2, faq
     assert c.get("/admin/tutor/faq", headers=S1).status_code == 403
 
+    # 웰디 점검 (관리자): 예시 만들기 → 직접 넣기 → 실행 → 판정
+    assert c.get("/admin/tutor/checks", headers=S1).status_code == 403
+    assert c.post("/admin/tutor/checks/seed", headers=A).json()["added"] == 2  # 장 2개
+    assert c.post("/admin/tutor/checks/seed", headers=A).json()["added"] == 0  # 같은 질문은 다시 안 넣음
+    good = c.post("/admin/tutor/checks", json={"question": "보호 가스가 하는 일은?", "page_from": 6}, headers=A).json()
+    bad = c.post("/admin/tutor/checks", json={"question": "보호 가스 원리", "page_from": 2, "page_to": 3}, headers=A).json()
+    assert c.post("/admin/tutor/checks", json={"question": " ", "page_from": 1}, headers=A).status_code == 400
+    r = c.post(f"/admin/tutor/checks/{good['id']}/run", headers=A).json()
+    assert r["last_verdict"] == "ok" and r["last_pages"] == [6] and 6 in r["last_found"], r
+    assert c.post(f"/admin/tutor/checks/{bad['id']}/run", headers=A).json()["last_verdict"] == "wrong_page"
+    assert tutor.judge([], "그 내용은 교재에는 없어요.", 6, 6) == "said_missing" and tutor.judge([], "음", 6, 6) == "no_page"
+    items = c.get("/admin/tutor/checks", headers=A).json()["items"]
+    assert len(items) == 4 and items[0]["note"].startswith("예시"), items
+    assert c.delete(f"/admin/tutor/checks/{bad['id']}", headers=A).json()["ok"]
+    assert len(c.get("/admin/tutor/checks", headers=A).json()["items"]) == 3
+
     # 하루 한도 (교육생만)
     db.SETTINGS["criteria"] = {**scoring.criteria(), "tutor_daily_limit": 5}
     scoring.clear_cache()
@@ -436,7 +478,7 @@ def main():
     assert r["key"] == "tutor_fail_other" and "boom" in r["params"]["code"], r
     assert db.TABLES["tutor_messages"][-1]["answer"].startswith("error: other"), db.TABLES["tutor_messages"][-1]
     tutor.stream_ai = fake_stream
-    r = ask("따옴표 대답 해줘").json()
+    r = ask("보호 가스 따옴표 대답 해줘").json()
     assert r["reply"] == '그건 "보호 가스"예요.' and r["pages"] == [{"page": 6, "printed": 6}], r
 
     # 신고 → 관리자 목록 → 지우기

@@ -19,6 +19,7 @@ export default function AdminHome() {
       <ListRow icon="book-outline" title={t("admin_textbooks")} desc={t("admin_textbooksDesc")} onPress={() => router.push("/manage/textbooks")} />
       <ListRow icon="help-circle-outline" title={t("qb_title")} desc={t("admin_quizDesc")} onPress={() => router.push("/manage/quiz")} />
       <ListRow icon="chatbubbles-outline" title={t("tutor_reportsTitle")} desc={t("admin_tutorDesc")} onPress={() => router.push("/manage/tutor-reports")} />
+      <ListRow icon="checkmark-done-outline" title={t("tc_title")} desc={t("admin_tutorChecksDesc")} onPress={() => router.push("/manage/tutor-checks")} />
       <ListRow icon="cloud-download-outline" title={t("admin_training")} desc={t("admin_trainingDesc")} onPress={() => router.push("/manage/training")} />
     </Screen>
   );
