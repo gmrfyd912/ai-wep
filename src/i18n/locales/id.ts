@@ -1390,6 +1390,8 @@ const id: Translation = {
   gm_err_dock: "Level dok kurang.",
   gm_err_not_busy: "Sudah selesai.",
   gm_err_network: "Tidak bisa terhubung ke server. Coba lagi sebentar lagi.",
+  gm_err_old_server: "Server belum diperbarui. Muat ulang setelah deploy selesai (5–10 menit).",
+  gm_err_need_sql: "Admin: jalankan step15-game.sql di Supabase.",
   gm_err_other: "Terjadi masalah. Silakan coba lagi.",
   gm_setTitle: "Pengaturan game",
   gm_setDesc: "Nyalakan/matikan Galangan Kapal Weldy, hadiah belajar, aturan bab",

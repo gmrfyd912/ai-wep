@@ -1405,6 +1405,8 @@ const ko = {
   gm_err_dock: "도크 레벨이 모자라요.",
   gm_err_not_busy: "이미 끝났어요.",
   gm_err_network: "서버에 연결하지 못했어요. 잠시 뒤 다시 해 보세요.",
+  gm_err_old_server: "서버가 아직 새 버전이 아니에요. 배포가 끝나면(5~10분) 다시 불러오세요.",
+  gm_err_need_sql: "관리자: Supabase에서 step15-game.sql을 실행해 주세요.",
   gm_err_other: "잠깐 문제가 생겼어요. 다시 해 보세요.",
   gm_setTitle: "게임 설정",
   gm_setDesc: "웰디의 조선소 켜기·공부 보상 숫자·장 완료 기준",

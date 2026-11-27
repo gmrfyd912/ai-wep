@@ -51,6 +51,7 @@ function gameError(t: TFunction, e: unknown) {
       if (msg !== key) return msg;
     }
     if (!e.status) return t("gm_err_network");
+    if (e.status === 404) return t("gm_err_old_server");
   }
   return t("gm_err_other");
 }

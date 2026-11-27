@@ -1390,6 +1390,8 @@ const fil: Translation = {
   gm_err_dock: "Kulang ang dock level.",
   gm_err_not_busy: "Tapos na.",
   gm_err_network: "Hindi maabot ang server. Subukan ulit mamaya.",
+  gm_err_old_server: "Hindi pa updated ang server. I-reload pagkatapos ng deploy (5–10 min).",
+  gm_err_need_sql: "Admin: patakbuhin ang step15-game.sql sa Supabase.",
   gm_err_other: "May nangyaring problema. Subukan ulit.",
   gm_setTitle: "Settings ng laro",
   gm_setDesc: "I-on/off ang Shipyard ni Weldy, gantimpala sa pag-aaral, patakaran sa kabanata",
