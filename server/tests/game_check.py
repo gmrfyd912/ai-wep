@@ -319,6 +319,36 @@ def main():
     assert d["resources"]["steel"] == 400 + dd and d["waiting"]["steel"] == 0, (d["resources"], d["waiting"])
     assert d["rewards"]["steel"] == dd
     assert game.clip_storage({"steel": 500, "rods": 100}, {"steel": 900, "rods": 600}, {"steel": 1000, "rods": 600}) == {"steel": 100, "rods": 0}
+    # 자재 조달: 문제 풀어 강판·용접봉 벌기 (기본 OX 3 + 객관식 2, 1문제 강판 40·용접봉 20, 하루 무제한)
+    s6, S6 = user("s6", "student")
+    d = c.get("/game/state", headers=S6).json()
+    assert d["supply"]["counts"] == {"ox": 3, "mc": 2, "word": 0} and d["supply"]["day_max"] == 0, d["supply"]
+    ans_of = {q["id"]: q.get("answer") for q in db.TABLES["quiz_questions"]}
+    sp = c.post("/game/supply/start", headers=S6, json={}).json()
+    assert sp["total"] == 5 and sp["steel"] == 40, sp
+    ids = [q["id"] for q in sp["questions"]]
+    answers = {qid: ans_of[qid] for qid in ids}
+    wrong = ids[0]
+    answers[wrong] = 1 - ans_of[wrong]
+    r = c.post("/game/supply/submit", headers=S6, json={"id": sp["id"], "answers": answers}).json()
+    assert r["right"] == 4 and r["got"] == {"steel": 160, "rods": 80} and r["full"] is False, r
+    assert r["state"]["resources"]["steel"] == 500 + 160 and r["state"]["supply"]["done_today"] == 1
+    assert next(x for x in r["results"] if x["id"] == wrong)["correct"] is False
+    # 같은 조달을 두 번 채점하면 안 됨
+    assert c.post("/game/supply/submit", headers=S6, json={"id": sp["id"], "answers": answers}).json()["detail"]["code"] == "exam_gone"
+    # 방금 나온 OX 3개는 다음 판에서 되도록 안 나옴 (OX가 12개라 충분)
+    sp2 = c.post("/game/supply/start", headers=S6, json={}).json()
+    ox_ids = lambda x: {q["id"] for q in x["questions"] if q["kind"] == "ox"}
+    assert not (ox_ids(sp) & ox_ids(sp2)), (ox_ids(sp), ox_ids(sp2))
+    # 창고가 가득이면 자리만큼만
+    db.insert_rows("game_ledger", {"user_id": s6, "key": "test_fill", "steel": 1000 - 660 - 20, "rods": 0})
+    r = c.post("/game/supply/submit", headers=S6, json={"id": sp2["id"], "answers": {q: ans_of[q] for q in ox_ids(sp2)}}).json()
+    assert r["right"] == 3 and r["got"]["steel"] == 20 and r["full"] is True, r
+    # 관리자: 하루 횟수 1번으로 → 오늘 더 못 함
+    assert c.put("/admin/game-settings", headers=A, json={"supply_ox": 0, "supply_mc": 0, "supply_word": 0}).status_code == 400
+    assert c.put("/admin/game-settings", headers=A, json={"supply_day_max": 1}).status_code == 200
+    e = c.post("/game/supply/start", headers=S6, json={}).json()["detail"]
+    assert e["code"] == "supply_day_max" and e["n"] == 1, e
     print("game_check OK")
 
 

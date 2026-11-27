@@ -27,7 +27,9 @@ const NUMBER_KEYS = [
 
 /** 본관 승급 시험 칸 (종류별 문제 수 + 합격 개수) */
 const EXAM_KEYS = ["hq_exam_ox", "hq_exam_mc", "hq_exam_word", "hq_exam_short", "hq_exam_pass"] as const;
-const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS];
+/** 자재 조달 칸 (종류별 문제 수 + 1문제 보상 + 하루 횟수) */
+const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "supply_rods", "supply_day_max"] as const;
+const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS, ...SUPPLY_KEYS];
 
 /** 관리자: 웰디의 조선소 게임 설정 (켜기·공부 보상 숫자·장 완료 기준) */
 export default function GameSettingsScreen() {
@@ -83,6 +85,11 @@ export default function GameSettingsScreen() {
       setMsg(t("gm_setExamBad"));
       return;
     }
+    const sTotal = SUPPLY_KEYS.slice(0, 3).reduce((a, k) => a + Number(next[k]), 0);
+    if (SUPPLY_KEYS.slice(0, 3).some((k) => Number(next[k]) > 20) || sTotal < 1) {
+      setMsg(t("gm_setSupplyBad"));
+      return;
+    }
     save(next);
   };
 
@@ -120,6 +127,24 @@ export default function GameSettingsScreen() {
       <Body muted>{t("gm_setExamHint", { total: examTotal })}</Body>
       <Card style={{ gap: space.sm }}>
         {EXAM_KEYS.map((k) => (
+          <View key={k} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>{t(`gm_set_${k}`)}</Text>
+              {defaults ? <Text style={styles.hint}>{t("gm_setDefault", { n: String(defaults[k]) })}</Text> : null}
+            </View>
+            <TextInput
+              style={styles.input}
+              value={text[k]}
+              onChangeText={(v) => setText((old) => ({ ...old, [k]: v.replace(/[^0-9]/g, "") }))}
+              keyboardType="number-pad"
+            />
+          </View>
+        ))}
+      </Card>
+      <Text style={styles.section}>{t("gm_setSupplyTitle")}</Text>
+      <Body muted>{t("gm_setSupplyHint")}</Body>
+      <Card style={{ gap: space.sm }}>
+        {SUPPLY_KEYS.map((k) => (
           <View key={k} style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>{t(`gm_set_${k}`)}</Text>

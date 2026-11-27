@@ -96,10 +96,21 @@ DEFAULTS = {
     "hq_exam_word": 0,                # 단답형
     "hq_exam_short": 0,               # 서술형
     "hq_exam_pass": 8,
+    # 자재 조달: 게임 안에서 문제를 풀어 강판·용접봉 벌기 (맞힌 문제마다)
+    "supply_ox": 3,
+    "supply_mc": 2,
+    "supply_word": 0,                 # 단답형
+    "supply_steel": 40,               # 1문제 맞힘 → 강판
+    "supply_rods": 20,                # 1문제 맞힘 → 용접봉
+    "supply_day_max": 0,              # 하루 최대 횟수 (0 = 무제한)
 }
 EXAM_KINDS = ("ox", "mc", "word", "short")
 EXAM_MAX_EACH = 20
 _exams: dict[str, dict] = {}         # 보는 중인 승급 시험 (메모리, 사람마다 하나)
+SUPPLY_KINDS = ("ox", "mc", "word")  # 서술형은 AI 채점이라 무제한 반복에 안 넣음
+SUPPLY_REPEAT_S = 3 * 24 * 3600      # 자재 조달에서 나온 문제는 3일 동안 다시 안 냄 (가능하면)
+_supplies: dict[str, dict] = {}      # 푸는 중인 자재 조달 (메모리, 사람마다 하나)
+_supply_seen: dict[str, dict] = {}   # 사람별 최근 낸 문제 {문제 id: 낸 시각}
 SETTING_KEYS = tuple(DEFAULTS)
 GAME_ROLES = ("student", "admin")
 
@@ -647,7 +658,8 @@ def view(s, lang="ko"):
         "speed_rule": {"tech_minutes": TECH_SECONDS // 60, "pass_hours": PASS_SECONDS // 3600},
         "earn": {k: st[k] for k in ("daily_done_steel", "daily_ok_rods", "daily_ok_rods_short", "redo_tech", "live_ok_rods",
                                      "tutor_ok_tech", "unit_done_tech", "practice_steel", "pass_day_max", "pass_high_score",
-                                     "pass_jump")},
+                                     "pass_jump", "supply_steel", "supply_rods", "supply_day_max")},
+        "supply": {**supply_spec(st), "done_today": supply_today(s["rows"], now)},
     }
     data["tips"] = tips(data, s)
     return data
@@ -720,6 +732,9 @@ def tips(d, s):
             out.append({"id": "ship_idle", "kind": free[-1]["kind"]})
     if d["resources"]["passes"] > 0 and any(b.get("busy_until") for b in d["buildings"]):
         out.append({"id": "pass", "n": d["resources"]["passes"]})
+    if d["builders"]["busy"] < d["builders"]["total"] and not any(t["id"] in ("idle", "exam", "collect") for t in out):
+        # 지을 것도 만들 배도 못 고를 만큼 자원이 모자람 → 자재 조달 문제로 벌기
+        out.append({"id": "supply", "steel": d["earn"]["supply_steel"], "rods": d["earn"]["supply_rods"]})
     if not out:
         out.append({"id": "study"})
     return out
@@ -1049,10 +1064,47 @@ class ExamStartBody(BaseModel):
     lang: str = "ko"
 
 
+def _pick(book, counts, avoid=None):
+    """지금 교재 문제 은행에서 종류별로 무작위로 뽑기. avoid 에 있는 문제는 되도록 빼고, 모자라면 섞어 채운다."""
+    import random
+    avoid = avoid or set()
+    picked = []
+    for k, n in counts.items():
+        if n <= 0:
+            continue
+        pool = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active",
+                                               "select": daily.QSEL, "limit": "2000"})
+        fresh = [q for q in pool if q["id"] not in avoid]
+        got = random.sample(fresh, min(n, len(fresh)))
+        if len(got) < n:
+            rest = [q for q in pool if q["id"] in avoid]
+            got += random.sample(rest, min(n - len(got), len(rest)))
+        picked += got
+    return picked
+
+
+def _grade_all(qids, answers, lang):
+    """여러 문제 채점 → (결과 목록, 맞힌 수, 채점 못 한 수)."""
+    qs = daily._questions(qids)
+    results, right, unsure = [], 0, 0
+    for qid in qids:
+        q = qs.get(qid)
+        if not q:
+            continue
+        ok, fb = _grade(q, answers.get(qid), lang)
+        right += 1 if ok else 0
+        unsure += 1 if ok is None else 0
+        tr = (q.get("translations") or {}).get(lang) if lang != "ko" else None
+        results.append({"id": qid, "correct": ok, "feedback": fb,
+                        "correct_choice": q.get("answer") if q["kind"] in daily.CHOICE_KINDS else None,
+                        "model_answer": (tr or {}).get("model_answer") or q.get("model_answer") or "",
+                        "explanation": (tr or {}).get("explanation") or q.get("explanation") or ""})
+    return results, right, unsure
+
+
 @router.post("/game/hq-exam/start")
 def hq_exam_start(body: ExamStartBody, user=Depends(need_player)):
     """지금 본관 다음 레벨 승급 시험 문제를 문제 은행에서 뽑는다 (볼 때마다 새로 뽑음)."""
-    import random
     uid = user["id"]
     st = settings()
     lang = daily._lang(body.lang)
@@ -1068,14 +1120,7 @@ def hq_exam_start(body: ExamStartBody, user=Depends(need_player)):
     if not book:
         _err(400, "no_questions")
     spec = exam_spec(st)
-    picked = []
-    for k in EXAM_KINDS:
-        n = spec["counts"][k]
-        if n <= 0:
-            continue
-        pool = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active",
-                                               "select": daily.QSEL, "limit": "2000"})
-        picked += random.sample(pool, min(n, len(pool)))
+    picked = _pick(book, spec["counts"])
     if not picked:
         _err(400, "no_questions")
     need = min(spec["pass"], len(picked))
@@ -1119,20 +1164,7 @@ def hq_exam_submit(body: ExamSubmitBody, user=Depends(need_player)):
         ex = _exams.get(uid)
     if not ex or ex["id"] != body.id:
         _err(400, "exam_gone")  # 서버가 다시 켜졌거나 다른 시험을 새로 시작함 → 다시 보기
-    qs = daily._questions(ex["qids"])
-    results, right, unsure = [], 0, 0
-    for qid in ex["qids"]:
-        q = qs.get(qid)
-        if not q:
-            continue
-        ok, fb = _grade(q, body.answers.get(qid), ex["lang"])
-        right += 1 if ok else 0
-        unsure += 1 if ok is None else 0
-        tr = (q.get("translations") or {}).get(ex["lang"]) if ex["lang"] != "ko" else None
-        results.append({"id": qid, "correct": ok, "feedback": fb,
-                        "correct_choice": q.get("answer") if q["kind"] in daily.CHOICE_KINDS else None,
-                        "model_answer": (tr or {}).get("model_answer") or q.get("model_answer") or "",
-                        "explanation": (tr or {}).get("explanation") or q.get("explanation") or ""})
+    results, right, unsure = _grade_all(ex["qids"], body.answers, ex["lang"])
     passed = right >= ex["pass"]
     with _lock(uid):
         if _exams.get(uid, {}).get("id") == ex["id"]:
@@ -1141,6 +1173,75 @@ def hq_exam_submit(body: ExamSubmitBody, user=Depends(need_player)):
             _add(uid, [{"key": f"hq_exam:{ex['target']}", "note": "hq_exam"}])
     return {"passed": passed, "right": right, "total": len(results), "pass": ex["pass"], "unsure": unsure,
             "target": ex["target"], "results": results, "state": _fresh(user)}
+
+
+# ---- 자재 조달 (게임 안에서 문제 풀어 강판·용접봉 벌기) ----
+
+def supply_spec(st):
+    counts = {k: int(st[f"supply_{k}"]) for k in SUPPLY_KINDS}
+    return {"counts": counts, "total": sum(counts.values()), "steel": int(st["supply_steel"]),
+            "rods": int(st["supply_rods"]), "day_max": int(st["supply_day_max"])}
+
+
+def supply_today(rows, now=None):
+    """오늘(한국 날짜) 자재 조달을 몇 번 했나 (장부 열쇠 supply:날짜:id)."""
+    pre = f"supply:{(now or _now()).astimezone(KST).date().isoformat()}:"
+    return sum(1 for r in rows if str(r.get("key", "")).startswith(pre))
+
+
+@router.post("/game/supply/start")
+def supply_start(body: ExamStartBody, user=Depends(need_player)):
+    """자재 조달 문제 뽑기. 하루 횟수(0 = 무제한)를 넘으면 day_max."""
+    uid = user["id"]
+    st = settings()
+    lang = daily._lang(body.lang)
+    spec = supply_spec(st)
+    if spec["total"] <= 0:
+        _err(400, "no_questions")
+    done = supply_today(ledger(uid))
+    if spec["day_max"] and done >= spec["day_max"]:
+        _err(400, "supply_day_max", n=spec["day_max"])
+    book = textbook.current_book()
+    if not book:
+        _err(400, "no_questions")
+    now = _now()
+    with _lock(uid):
+        seen = {q: t for q, t in _supply_seen.get(uid, {}).items() if (now - t).total_seconds() < SUPPLY_REPEAT_S}
+        _supply_seen[uid] = seen
+    picked = _pick(book, spec["counts"], set(seen))
+    if not picked:
+        _err(400, "no_questions")
+    daily.ensure_translations(picked, lang)
+    sid = str(uuid.uuid4())
+    with _lock(uid):
+        _supplies[uid] = {"id": sid, "qids": [q["id"] for q in picked], "lang": lang, "at": now}
+        for q in picked:
+            _supply_seen[uid][q["id"]] = now
+    off = book.get("page_offset") or 0
+    return {"id": sid, "total": len(picked), "short_of": spec["total"] - len(picked), "steel": spec["steel"],
+            "rods": spec["rods"], "done_today": done, "day_max": spec["day_max"],
+            "questions": [daily._public(q, None, lang, off) for q in picked]}
+
+
+@router.post("/game/supply/submit")
+def supply_submit(body: ExamSubmitBody, user=Depends(need_player)):
+    """채점하고 맞힌 만큼 강판·용접봉 (창고 자리만큼만)."""
+    uid = user["id"]
+    st = settings()
+    with _lock(uid):
+        sp = _supplies.get(uid)
+        if not sp or sp["id"] != body.id:
+            _err(400, "exam_gone")
+        _supplies.pop(uid, None)   # 한 번만 채점 (두 번 받기 막기)
+    results, right, unsure = _grade_all(sp["qids"], body.answers, sp["lang"])
+    earn = {"steel": right * int(st["supply_steel"]), "rods": right * int(st["supply_rods"])}
+    with _lock(uid):
+        buildings = _buildings(uid)
+        got = clip_storage(earn, balance(ledger(uid)), caps(buildings))
+        day = _now().astimezone(KST).date().isoformat()
+        _add(uid, [{"key": f"supply:{day}:{sp['id']}", **got, "note": "supply"}])
+    return {"right": right, "total": len(results), "unsure": unsure, "earn": earn, "got": got,
+            "full": got != earn, "results": results, "state": _fresh(user)}
 
 
 class TutorialBody(BaseModel):
@@ -1186,5 +1287,10 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         _err(400, "bad_value", key="hq_exam_ox")
     if not 1 <= cur["hq_exam_pass"] <= total:
         _err(400, "bad_value", key="hq_exam_pass")
+    for k in SUPPLY_KINDS:
+        if cur[f"supply_{k}"] > EXAM_MAX_EACH:
+            _err(400, "bad_value", key=f"supply_{k}")
+    if sum(cur[f"supply_{k}"] for k in SUPPLY_KINDS) < 1:
+        _err(400, "bad_value", key="supply_ox")
     _save_setting("game", cur)
     return {"settings": cur, "defaults": DEFAULTS}
