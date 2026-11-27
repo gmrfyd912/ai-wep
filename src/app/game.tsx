@@ -14,6 +14,8 @@ import {
   gameBuild,
   gameCollect,
   gameExamStart,
+  gameSupplyStart,
+  gameSupplySubmit,
   gameExamSubmit,
   gameMove,
   gameShipNext,
@@ -28,6 +30,9 @@ import {
   type GameCost,
   type GameExam,
   type GameExamResult,
+  type GameExamQuestion,
+  type GameSupply,
+  type GameSupplyResult,
   type GameShipKind,
   type GameState,
   type GameTip,
@@ -35,7 +40,7 @@ import {
 import { BUILDING_COLOR, GameMap, RES_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply";
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
 const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock"];
 const STAGES = 5;
@@ -55,7 +60,7 @@ function gameError(t: TFunction, e: unknown) {
     const code = e.detail?.code;
     if (code) {
       const key = `gm_err_${code}`;
-      const msg = t(key);
+      const msg = t(key, e.detail as Record<string, unknown>);
       if (msg !== key) return msg;
     }
     if (!e.status) return t("gm_err_network");
@@ -75,6 +80,8 @@ export default function GameScreen() {
   const [answers, setAnswers] = useState<Record<string, string | number>>({});
   const [examRes, setExamRes] = useState<GameExamResult | null>(null);
   const [examErr, setExamErr] = useState("");
+  const [supply, setSupply] = useState<GameSupply | null>(null);
+  const [supplyRes, setSupplyRes] = useState<GameSupplyResult | null>(null);
   const [data, setData] = useState<GameState | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -288,6 +295,39 @@ export default function GameScreen() {
     setExamRes(null);
   };
 
+  // 자재 조달: 문제 풀어 강판·용접봉 벌기
+  const openSupply = async () => {
+    setSelected(null);
+    setInfo(null);
+    setMode("supply");
+    setSupply(null);
+    setSupplyRes(null);
+    setAnswers({});
+    setExamErr("");
+    setBusy(true);
+    try {
+      setSupply(await gameSupplyStart(i18n.language));
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submitSupply = async () => {
+    if (!supply || busy) return;
+    setBusy(true);
+    setExamErr("");
+    try {
+      const r = await gameSupplySubmit(supply.id, answers);
+      setSupplyRes(r);
+      apply(r.state);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // 자원 칩을 누르면: 무엇인지·어떻게 얻는지·어디에 쓰는지 (+ 쓸 곳으로 가기)
   const busyB = data.buildings.find((b) => b.busy_until) ?? null;
   const shipBusy = data.ship && !data.ship.ready ? data.ship : null;
@@ -297,7 +337,7 @@ export default function GameScreen() {
       if (shipBusy) return { label: t("gm_infoUseOn", { name: t(`gm_ship_${shipBusy.kind}`) }), onPress: () => { setInfo(null); setSelected(null); setMode("ship"); } };
       return null;
     }
-    if (k === "steel" || k === "rods") return { label: t("gm_earnTitle"), onPress: () => { setInfo(null); setSelected(null); setMode("earn"); } };
+    if (k === "steel" || k === "rods") return { label: t("gm_supplyGo"), onPress: openSupply };
     return null;
   };
 
@@ -323,6 +363,8 @@ export default function GameScreen() {
         return { label: t("gm_collectAll"), onPress: doCollect };
       case "exam":
         return { label: t("gm_examStart"), onPress: openExam };
+      case "supply":
+        return { label: t("gm_supplyGo"), onPress: openSupply };
       case "full": {
         const store = Number(x.steel) >= Number(x.rods) ? "yard" : "rodstore";
         const b = data.buildings.find((k) => k.type === store);
@@ -532,6 +574,7 @@ export default function GameScreen() {
           <Fab icon="hammer" label={t("gm_build")} onPress={() => setMode("build")} />
           <Fab icon="boat" label={t("gm_ships")} onPress={() => setMode("ship")} badge={data.ship?.ready ? "!" : undefined} />
           <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
+          <Fab icon="cart" label={t("gm_supplyShort")} onPress={openSupply} />
           <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
           <Fab
             icon="book"
@@ -609,6 +652,18 @@ export default function GameScreen() {
                 canUpgrade={!!hqB && !!hqB.next && canPay(hqB.next.cost) && data.builders.busy < data.builders.total}
                 upgradeNote={!hqB?.next ? "" : data.builders.busy >= data.builders.total ? t("gm_err_builders") : !canPay(hqB.next.cost) ? `${t("gm_err_money")} (${costLine(t, hqB.next.cost)})` : costLine(t, hqB.next.cost)}
                 onClose={closeExam}
+              />
+            ) : mode === "supply" ? (
+              <SupplyPanel
+                supply={supply}
+                answers={answers}
+                setAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))}
+                result={supplyRes}
+                error={examErr}
+                busy={busy}
+                onSubmit={submitSupply}
+                onAgain={openSupply}
+                onClose={() => { setMode("home"); setSupply(null); setSupplyRes(null); }}
               />
             ) : mode === "ship" ? (
               <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} onClose={() => setMode("home")} onStart={(k) => run(() => gameShipStart(k))}
@@ -973,6 +1028,7 @@ function EarnPanel({ data, onClose }: { data: GameState; onClose: () => void }) 
   const { t } = useTranslation();
   const e = data.earn;
   const rows: [string, string][] = [
+    [t("gm_earn_supply"), `${t("gm_steel")} +${e.supply_steel} · ${t("gm_rods")} +${e.supply_rods}`],
     [t("gm_earn_dailyDone"), `${t("gm_steel")} +${e.daily_done_steel} · ${t("gm_earn_factory")}`],
     [t("gm_earn_dailyOk"), `${t("gm_rods")} +${e.daily_ok_rods} (${t("gm_earn_short")} +${e.daily_ok_rods_short})`],
     [t("gm_earn_redo"), `${t("gm_tech")} +${e.redo_tech}`],
@@ -1034,7 +1090,6 @@ function ExamPanel({
 }) {
   const { t } = useTranslation();
   const done = exam ? exam.questions.filter((q) => String(answers[q.id] ?? "").trim() !== "").length : 0;
-  const res = result ? Object.fromEntries(result.results.map((r) => [r.id, r])) : {};
   return (
     <Card style={{ gap: space.sm }}>
       <PanelHead title={t("gm_examTitle", { n: exam?.target ?? result?.target ?? "" })} onClose={onClose} />
@@ -1047,7 +1102,56 @@ function ExamPanel({
           {result.passed ? t("gm_examPassed") : t("gm_examFailed")} {t("gm_examScore", { right: result.right, total: result.total, pass: result.pass })}
         </Text>
       ) : null}
-      {exam?.questions.map((q, i) => {
+      {exam ? <QuizList questions={exam.questions} answers={answers} setAnswer={setAnswer} result={result} /> : null}
+      {exam && !result ? (
+        <AppButton
+          label={t("gm_examSubmit", { done, total: exam.total })}
+          icon="checkmark-done-outline"
+          disabled={busy || done < exam.total}
+          onPress={onSubmit}
+        />
+      ) : null}
+      {busy && exam && !result ? <Text style={styles.small}>{t("gm_examGrading")}</Text> : null}
+      {result ? (
+        <View style={[styles.examResult, { borderColor: result.passed ? colors.success : colors.warning }]}>
+          <Text style={[styles.cardTitle, { color: result.passed ? colors.success : colors.warning }]}>
+            {result.passed ? t("gm_examPassed") : t("gm_examFailed")}
+          </Text>
+          <Text style={styles.text}>{t("gm_examScore", { right: result.right, total: result.total, pass: result.pass })}</Text>
+          {result.unsure ? <Text style={styles.small}>{t("gm_examUnsure", { n: result.unsure })}</Text> : null}
+          {result.passed ? (
+            <>
+              <AppButton label={t("gm_examUpgrade", { n: result.target })} icon="arrow-up-circle-outline" disabled={busy || !canUpgrade} onPress={onUpgrade} />
+              {upgradeNote ? <Text style={styles.small}>{upgradeNote}</Text> : null}
+            </>
+          ) : (
+            <AppButton label={t("gm_examRetry")} icon="refresh-outline" disabled={busy} onPress={onRetry} />
+          )}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+type QuizResult = { results: { id: string; correct: boolean | null; feedback: string; correct_choice: number | null; model_answer: string }[] };
+
+/** 문제 목록 (승급 시험·자재 조달 같이 씀): OX 단추, 객관식 목록, 단답형·서술형 입력, 채점 뒤 ✅❌·정답 표시 */
+function QuizList({
+  questions,
+  answers,
+  setAnswer,
+  result,
+}: {
+  questions: GameExamQuestion[];
+  answers: Record<string, string | number>;
+  setAnswer: (id: string, v: string | number) => void;
+  result: QuizResult | null;
+}) {
+  const { t } = useTranslation();
+  const res = result ? Object.fromEntries(result.results.map((r) => [r.id, r])) : {};
+  return (
+    <>
+      {questions.map((q, i) => {
         const r = res[q.id];
         const text = q.tr?.question || q.question;
         const choices = q.tr?.choices?.length ? q.tr.choices : q.choices;
@@ -1102,29 +1206,66 @@ function ExamPanel({
           </View>
         );
       })}
-      {exam && !result ? (
-        <AppButton
-          label={t("gm_examSubmit", { done, total: exam.total })}
-          icon="checkmark-done-outline"
-          disabled={busy || done < exam.total}
-          onPress={onSubmit}
-        />
+    </>
+  );
+}
+
+function SupplyPanel({
+  supply,
+  answers,
+  setAnswer,
+  result,
+  error,
+  busy,
+  onSubmit,
+  onAgain,
+  onClose,
+}: {
+  supply: GameSupply | null;
+  answers: Record<string, string | number>;
+  setAnswer: (id: string, v: string | number) => void;
+  result: GameSupplyResult | null;
+  error: string;
+  busy: boolean;
+  onSubmit: () => void;
+  onAgain: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const done = supply ? supply.questions.filter((q) => String(answers[q.id] ?? "").trim() !== "").length : 0;
+  const left = supply && supply.day_max ? supply.day_max - supply.done_today - (result ? 1 : 0) : null;
+  return (
+    <Card style={{ gap: space.sm }}>
+      <PanelHead title={t("gm_supplyTitle")} onClose={onClose} />
+      <Text style={styles.small}>
+        {supply ? t("gm_supplyRule", { steel: supply.steel, rods: supply.rods }) : ""}
+        {left !== null ? ` ${t("gm_supplyLeft", { n: Math.max(0, left) })}` : ""}
+      </Text>
+      {error ? <Text style={styles.warn}>{error}</Text> : null}
+      {!supply && !error ? <ActivityIndicator color={colors.primary} /> : null}
+      {supply && supply.short_of > 0 ? <Text style={styles.small}>{t("gm_examShortOf", { n: supply.total })}</Text> : null}
+      {supply ? <QuizList questions={supply.questions} answers={answers} setAnswer={setAnswer} result={result} /> : null}
+      {supply && !result ? (
+        <AppButton label={t("gm_examSubmit", { done, total: supply.total })} icon="checkmark-done-outline" disabled={busy || done < supply.total} onPress={onSubmit} />
       ) : null}
-      {busy && exam && !result ? <Text style={styles.small}>{t("gm_examGrading")}</Text> : null}
+      {busy && supply && !result ? <Text style={styles.small}>{t("gm_examGrading")}</Text> : null}
       {result ? (
-        <View style={[styles.examResult, { borderColor: result.passed ? colors.success : colors.warning }]}>
-          <Text style={[styles.cardTitle, { color: result.passed ? colors.success : colors.warning }]}>
-            {result.passed ? t("gm_examPassed") : t("gm_examFailed")}
+        <View style={[styles.examResult, { borderColor: result.right > 0 ? colors.success : colors.warning }]}>
+          <Text style={[styles.cardTitle, { color: result.right > 0 ? colors.success : colors.warning }]}>
+            {t("gm_supplyScore", { right: result.right, total: result.total })}
           </Text>
-          <Text style={styles.text}>{t("gm_examScore", { right: result.right, total: result.total, pass: result.pass })}</Text>
+          <View style={styles.rowStart}>
+            <View style={[styles.dot, { backgroundColor: RES_COLOR.steel }]} />
+            <Text style={styles.text}>{t("gm_steel")} +{result.got.steel}</Text>
+            <View style={[styles.dot, { backgroundColor: RES_COLOR.rods, marginLeft: 10 }]} />
+            <Text style={styles.text}>{t("gm_rods")} +{result.got.rods}</Text>
+          </View>
+          {result.full ? <Text style={[styles.small, { color: "#FFD166" }]}>{t("gm_supplyFull")}</Text> : null}
           {result.unsure ? <Text style={styles.small}>{t("gm_examUnsure", { n: result.unsure })}</Text> : null}
-          {result.passed ? (
-            <>
-              <AppButton label={t("gm_examUpgrade", { n: result.target })} icon="arrow-up-circle-outline" disabled={busy || !canUpgrade} onPress={onUpgrade} />
-              {upgradeNote ? <Text style={styles.small}>{upgradeNote}</Text> : null}
-            </>
+          {left === null || left > 0 ? (
+            <AppButton label={t("gm_supplyAgain")} icon="refresh-outline" disabled={busy} onPress={onAgain} />
           ) : (
-            <AppButton label={t("gm_examRetry")} icon="refresh-outline" disabled={busy} onPress={onRetry} />
+            <Text style={styles.small}>{t("gm_supplyDone")}</Text>
           )}
         </View>
       ) : null}
@@ -1133,7 +1274,7 @@ function ExamPanel({
 }
 
 const HUD = "#0B2033D9";
-const FAB_ROW = 5 * 64 + 8;   // 아래 오른쪽 메뉴 단추 5개 자리
+const FAB_ROW = 6 * 64 + 8;   // 아래 오른쪽 메뉴 단추 6개 자리
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#1F6FA8" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },

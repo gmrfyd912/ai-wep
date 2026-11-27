@@ -1645,6 +1645,7 @@ export type GameState = {
   tutorial: { done: boolean; step: number | null; steps: { id: string; ok: boolean }[]; spot: { x: number; y: number } | null };
   speed_rule: { tech_minutes: number; pass_hours: number };
   earn: Record<string, number>;
+  supply?: { counts: Record<string, number>; total: number; steel: number; rods: number; day_max: number; done_today: number };
   tips: GameTip[];
   collected?: { steel: number; rods: number };
   /** 처음 따라 하기 첫 '생산분 받기' 선물이면 true */
@@ -1686,6 +1687,33 @@ export type GameExamResult = {
 export const gameExamStart = (lang: string) => post<GameExam>("/game/hq-exam/start", { lang }, GAME_TIMEOUT);
 export const gameExamSubmit = (id: string, answers: Record<string, string | number>) =>
   post<GameExamResult>("/game/hq-exam/submit", { id, answers }, GAME_TIMEOUT);
+
+/** 자재 조달: 게임 안에서 문제 풀어 강판·용접봉 벌기 */
+export type GameSupply = {
+  id: string;
+  total: number;
+  short_of: number;
+  steel: number;
+  rods: number;
+  done_today: number;
+  /** 하루 최대 횟수 (0 = 무제한) */
+  day_max: number;
+  questions: GameExamQuestion[];
+};
+export type GameSupplyResult = {
+  right: number;
+  total: number;
+  unsure: number;
+  earn: { steel: number; rods: number };
+  got: { steel: number; rods: number };
+  /** 창고가 가득 차서 다 못 받았으면 true */
+  full: boolean;
+  results: GameExamResult["results"];
+  state: GameState;
+};
+export const gameSupplyStart = (lang: string) => post<GameSupply>("/game/supply/start", { lang }, GAME_TIMEOUT);
+export const gameSupplySubmit = (id: string, answers: Record<string, string | number>) =>
+  post<GameSupplyResult>("/game/supply/submit", { id, answers }, GAME_TIMEOUT);
 
 export type GameSettings = Record<string, number | boolean>;
 export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings");
