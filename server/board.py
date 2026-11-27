@@ -97,6 +97,17 @@ def _gather(book, period):
                              "score": 10 if ok else 0, "correct": ok, "at": r.get("created_at") or ""})
     except Exception as e:  # noqa: BLE001  (step9 SQL 전)
         print("[board] 웰디 문제 기록 못 읽음", str(e)[:160], flush=True)
+    try:  # T5 수업 중 돌발 OX (맞으면 10점)
+        for r in select_all("live_ox_answers", {"book_id": bid, **since,
+                                                "select": "user_id,question_id,answer,correct,created_at"}):
+            if not r.get("question_id"):
+                continue
+            ok = bool(r.get("correct"))
+            attempts.append({"user_id": r["user_id"], "qid": r["question_id"], "src": "live", "kind": "ox",
+                             "answer": None if r.get("answer") is None else str(r["answer"]),
+                             "score": 10 if ok else 0, "correct": ok, "at": r.get("created_at") or ""})
+    except Exception as e:  # noqa: BLE001  (step13 SQL 전)
+        print("[board] 돌발 OX 기록 못 읽음", str(e)[:160], flush=True)
     attempts.sort(key=lambda a: a["at"])
     # 🔥 연속 일수용: 최근 60일 매일 문제 푼 날 (교재 상관없이, daily.streak_of 와 같은 기준)
     day0 = (daily.today() - timedelta(days=STREAK_DAYS)).isoformat()
@@ -125,8 +136,9 @@ def _gather(book, period):
 
 def _start(period):
     """기간 시작 (한국 시간). '2weeks' = 지난주 월요일부터 (성장왕 비교용)."""
-    if period == "2weeks":
-        return (datetime.fromisoformat(social.period_start("week")) - timedelta(days=7)).isoformat()
+    if period in ("2weeks", "3weeks"):
+        n = 7 if period == "2weeks" else 14
+        return (datetime.fromisoformat(social.period_start("week")) - timedelta(days=n)).isoformat()
     return social.period_start(period)
 
 
@@ -191,8 +203,8 @@ def course_battle(firsts_all, students):
     return out
 
 
-def staff_view(firsts_all, who, students, days, qinfo, units, course):
-    """교사·관리자 전용: 기간 안 안 푼 학생, 반별 약한 장, 최근 신고."""
+def staff_view(firsts_all, who, students, days, qinfo, units, course, period="week"):
+    """교사·관리자 전용: 기간 안 안 푼 학생, 반별 약한 장, 최근 신고, 돌발 OX 놓친 학생."""
     solved = {a["user_id"] for a in firsts_all}
     idle = []
     for u in sorted(who - solved, key=lambda u: students[u]["name"]):
@@ -222,7 +234,13 @@ def staff_view(firsts_all, who, students, days, qinfo, units, course):
     question_reports = [{"question_id": r["question_id"], "question": (qtext.get(r["question_id"]) or {}).get("question") or "",
                          "book_id": (qtext.get(r["question_id"]) or {}).get("book_id"), "reason": r.get("reason") or "",
                          "created_at": r.get("created_at")} for r in reps]
-    return {"idle": idle, "weak": weak, "tutor_reports": tutor_reports, "question_reports": question_reports}
+    import live
+    missed = live.missed_counts([c["id"] for c in courses], _start(period))
+    live_missed = sorted(({"user_id": u, "name": students[u]["name"], "missed": m, "total": n}
+                          for u, (m, n) in missed.items() if m and u in who and u in students),
+                         key=lambda x: (-x["missed"], x["name"]))
+    return {"idle": idle, "weak": weak, "tutor_reports": tutor_reports, "question_reports": question_reports,
+            "live_missed": live_missed[:30]}
 
 
 def _students():
@@ -435,7 +453,7 @@ def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", 
     for a in firsts:
         u = students[a["user_id"]]
         s = stats.setdefault(a["user_id"], {"user_id": a["user_id"], "name": u["name"], "solved": 0, "correct": 0,
-                                            "score": 0, "daily": 0, "tutor": 0})
+                                            "score": 0, "daily": 0, "tutor": 0, "live": 0})
         s["solved"] += 1
         s["correct"] += 1 if a["correct"] else 0
         s["score"] += a["score"]
@@ -466,7 +484,7 @@ def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", 
     elif user["role"] == "student" and user["id"] in who:
         st = streak(data["days"].get(user["id"]), need, today)
         rows.append({"user_id": user["id"], "name": user.get("name") or "", "solved": 0, "correct": 0, "score": 0,
-                     "daily": 0, "tutor": 0, "rate": 0, "streak": st, "rank": None, "courses": [], "weak_unit": None})
+                     "daily": 0, "tutor": 0, "live": 0, "rate": 0, "streak": st, "rank": None, "courses": [], "weak_unit": None})
 
     # 많이 틀린 문제
     wrong = wrong_stats(firsts, data["qinfo"])
@@ -498,7 +516,7 @@ def study_board(bg: BackgroundTasks, course: str = "all", period: str = "week", 
     staff = None
     if user["role"] in STAFF_ROLES:
         staff = staff_view(firsts_all, who, students, data["days"], data["qinfo"], units,
-                           "all" if members is None else str(uuid.UUID(course)))
+                           "all" if members is None else str(uuid.UUID(course)), period)
     return {**base, "book": {"id": book["id"], "title": book.get("title") or ""},
             "rows": rows[:len(top)],
             "me": me_out, "total": len(ordered), "topics": topics, "tagging": waiting,
@@ -521,3 +539,64 @@ def user_units(uid: str, period: str = "week", user=Depends(accounts.current_use
     data = _gather(book, period)
     firsts = first_attempts(data["attempts"], {uid})
     return {"units": unit_stats(firsts, data["qinfo"], daily.book_units(book))}
+
+
+# ---- 월요일 인사말: 지난주 결산 ----
+
+RECAP_COURSES = 3
+
+
+def last_week_recap(book, user):
+    """지난주(월~일, 한국 시간) 결산. 교육생: 내 기록, 교사·관리자: 맡은 반. 모두: 지난주 가장 많이 푼 교육생."""
+    students = _students()
+    data = _gather(book, "3weeks")
+    this_start = datetime.fromisoformat(social.period_start("week"))
+    last_start = this_start - timedelta(days=7)
+    weeks = {"last": [], "prev": []}
+    for a in data["attempts"]:
+        w = _when(a["at"])
+        if w is None or w >= this_start:
+            continue
+        weeks["last" if w >= last_start else "prev"].append(a)
+    firsts = first_attempts(weeks["last"], set(students))
+    per = {}
+    for a in firsts:
+        x = per.setdefault(a["user_id"], {"solved": 0, "correct": 0, "score": 0, "live": 0})
+        x["solved"] += 1
+        x["correct"] += 1 if a["correct"] else 0
+        x["score"] += a["score"]
+        x["live"] += 1 if a["src"] == "live" else 0
+    ordered = sorted(per.items(), key=lambda kv: (-kv[1]["solved"], -kv[1]["score"], students[kv[0]]["name"]))
+    out = {"monday": daily.today().weekday() == 0, "start": last_start.date().isoformat(),
+           "end": (this_start - timedelta(days=1)).date().isoformat(), "me": None, "courses": [],
+           "top": ({"name": students[ordered[0][0]]["name"], "solved": ordered[0][1]["solved"]} if ordered else None)}
+    if user["role"] == "student":
+        mine = per.get(user["id"])
+        prev = first_attempts(weeks["prev"], {user["id"]})
+        me = {"solved": 0, "rate": 0, "score": 0, "live": 0, "rank": None, "ranked": len(ordered),
+              "prev_solved": len(prev), "prev_rate": round(sum(1 for a in prev if a["correct"]) * 100 / len(prev)) if prev else None,
+              "weak_unit": None}
+        if mine:
+            me.update({"solved": mine["solved"], "rate": round(mine["correct"] * 100 / mine["solved"]),
+                       "score": mine["score"], "live": mine["live"],
+                       "rank": next(i + 1 for i, (u, _) in enumerate(ordered) if u == user["id"])})
+            st = unit_stats([a for a in firsts if a["user_id"] == user["id"]], data["qinfo"], daily.book_units(book))
+            weak = sorted([u for u in st if u["attempts"] >= MIN_WEAK and u["rate"] < 100], key=lambda u: (u["rate"], -u["attempts"]))
+            me["weak_unit"] = weak[0]["title"] if weak else None
+        out["me"] = me
+    elif user["role"] in STAFF_ROLES:
+        if user["role"] == "teacher":
+            cs = accounts._courses_of(user["id"])
+        else:
+            cs = store.select("courses", {"active": "is.true", "select": "id,name,sort", "order": "sort.asc"})
+        battle = {c["course_id"]: c for c in course_battle(firsts, students)}
+        out["courses"] = [battle[c["id"]] for c in cs if c["id"] in battle][:RECAP_COURSES]
+    return out
+
+
+@router.get("/study-board/last-week")
+def last_week(user=Depends(accounts.current_user)):
+    book = textbook.current_book()
+    if not book or not textbook.can_view(user, book):
+        return {"monday": daily.today().weekday() == 0, "me": None, "courses": [], "top": None}
+    return last_week_recap(book, user)

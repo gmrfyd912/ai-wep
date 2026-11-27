@@ -1379,6 +1379,8 @@ export type BoardRow = {
   /** 매일 문제 / 웰디 대화 중 푼 수 */
   daily: number;
   tutor: number;
+  /** 수업 중 돌발 OX */
+  live?: number;
   /** 🔥 매일 문제 연속 일수 */
   streak: number;
   /** 정답률 순에서 아직 문제 수가 모자라면 null */
@@ -1444,8 +1446,138 @@ export type BoardStaff = {
   weak: { course_id: string; name: string; units: BoardUnit[] }[];
   tutor_reports: { id: string; question: string; answer: string; report_note: string; reported_at: string }[];
   question_reports: { question_id: string; question: string; book_id: string | null; reason: string; created_at: string }[];
+  /** 기간 안 돌발 OX 를 놓친 교육생 (놓친 수 / 낸 수) */
+  live_missed?: { user_id: string; name: string; missed: number; total: number }[];
 };
 export const getStudyBoard = (q: { course: string; period: RankPeriod; sort: BoardSort; lang: string }) =>
   request<StudyBoard>(`/study-board?${new URLSearchParams(q).toString()}`, {}, BOARD_TIMEOUT);
 export const getStudyBoardUser = (userId: string, period: RankPeriod) =>
   request<{ units: BoardUnit[] }>(`/study-board/user/${userId}?period=${period}`, {}, BOARD_TIMEOUT);
+
+
+// ---- 월요일 인사말: 지난주 결산 ----
+
+export type LastWeek = {
+  /** 오늘이 월요일(한국 시간)인지 */
+  monday: boolean;
+  start?: string;
+  end?: string;
+  /** 교육생 본인 */
+  me: {
+    solved: number;
+    rate: number;
+    score: number;
+    live: number;
+    rank: number | null;
+    ranked: number;
+    prev_solved: number;
+    prev_rate: number | null;
+    weak_unit: string | null;
+  } | null;
+  /** 교사·관리자: 맡은 반 */
+  courses: BoardCourse[];
+  top: { name: string; solved: number } | null;
+};
+export const getLastWeek = () => request<LastWeek>("/study-board/last-week", {}, BOARD_TIMEOUT);
+
+// ---- T5 수업 중 돌발 OX ----
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+export type LivePhase = "prep" | "open" | "ended";
+/** 교육생 화면 (3초마다) */
+export type LiveNow = {
+  id: string;
+  phase: LivePhase;
+  question: string;
+  tr: string | null;
+  seconds: number;
+  /** 남은 초 (열려 있을 때만) */
+  left: number | null;
+  /** 0 = O, 1 = X */
+  my_answer: number | null;
+  result: {
+    answer: number;
+    correct: boolean | null;
+    explanation: string;
+    tr_explanation: string | null;
+    page: number | null;
+    printed_page?: number;
+    book_id: string | null;
+    rate: number;
+    answered: number;
+    explain_status: "none" | "making" | "ready" | "failed";
+    explain: string | null;
+  } | null;
+};
+export const getLiveNow = (lang: string) => request<{ quiz: LiveNow | null }>(`/live/now?lang=${lang}`, {}, 8000);
+export const answerLive = (quiz_id: string, answer: number) =>
+  request<{ ok: boolean }>("/live/answer", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ quiz_id, answer }) }, 8000);
+
+/** 교사 실시간 화면 */
+export type LiveTeacher = {
+  id: string;
+  course_id: string;
+  phase: LivePhase;
+  question: string;
+  answer: number;
+  explanation: string;
+  page: number | null;
+  seconds: number;
+  left: number | null;
+  targets: number;
+  answered: number;
+  o: number;
+  x: number;
+  /** 아직 안 답한 교육생 이름 */
+  waiting: string[];
+  /** 끝난 뒤 틀린 교육생 이름 */
+  wrong: string[];
+  stats: { answered: number; correct: number; targets: number; rate: number } | null;
+  explain_status: "none" | "making" | "ready" | "failed";
+  explain: string | null;
+};
+export type LiveBankItem = {
+  id: string;
+  question: string;
+  answer: number;
+  explanation: string;
+  unit_title: string;
+  page: number | null;
+  printed_page: number | null;
+};
+export type LiveSetup = {
+  courses: Course[];
+  book: { id: string; title: string } | null;
+  units: { unit_key: string; title: string; ox: number }[];
+  seconds: number[];
+  default_seconds: number;
+  /** 반 id → 지금 열려 있는 문제 id */
+  live: Record<string, string>;
+};
+export type LiveHistoryItem = {
+  id: string;
+  question: string;
+  answer: number;
+  seconds: number;
+  started_at: string;
+  ended_at: string | null;
+  answered: number;
+  correct: number;
+  targets: number;
+  rate: number | null;
+  explain: string;
+};
+const post = <T>(path: string, body: unknown = {}, timeout = 30000) =>
+  request<T>(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, timeout);
+export const getLiveSetup = () => request<LiveSetup>("/live/setup");
+export const pickLive = (body: { course_id: string; unit_key: string; exclude: string[]; make?: boolean }) =>
+  post<{ question: LiveBankItem | null; left?: number; made?: boolean; can_make?: boolean }>("/live/pick", body, 90000);
+export const getLiveBank = (unitKey: string) => request<{ items: LiveBankItem[] }>(`/live/bank?unit_key=${encodeURIComponent(unitKey)}`);
+export const startLive = (body: { course_id: string; question_id?: string; text?: string; answer?: number; seconds: number }) =>
+  post<{ quiz: LiveTeacher }>("/live/start", body);
+export const getLiveStatus = (id: string) => request<{ quiz: LiveTeacher }>(`/live/status/${id}`, {}, 8000);
+export const endLive = (id: string) => post<{ quiz: LiveTeacher }>(`/live/end/${id}`);
+export const explainLive = (id: string) => post<{ quiz: LiveTeacher }>(`/live/explain/${id}`);
+export const getLiveHistory = (courseId: string) =>
+  request<{ day: string; items: LiveHistoryItem[] }>(`/live/history?course_id=${courseId}`);

@@ -3,10 +3,11 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton, Body, Card, Screen, SectionTitle } from "@/components/ui";
-import { getMyDaily, getMyTextbookAfterSave, type MyDaily, type MyTextbook, type TocPart } from "@/lib/api";
+import { getLastWeek, getMyDaily, getMyTextbookAfterSave, type LastWeek, type MyDaily, type MyTextbook, type TocPart } from "@/lib/api";
 import { ProgressBar, textbookError } from "@/screens/TextbookParts";
 import { useSession } from "@/state/session";
 import { colors, space } from "@/theme";
@@ -20,6 +21,8 @@ export function TheoryHome() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState<number | null>(null);
   const [greeted, setGreeted] = useState("");
+  // 월요일이면 인사말로 지난주 결산 (실패하면 보통 인사말)
+  const [recap, setRecap] = useState<LastWeek | null | "none">(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -32,6 +35,9 @@ export function TheoryHome() {
       getMyDaily(i18n.language)
         .then(setDaily)
         .catch(() => setDaily((d) => d ?? "failed"));
+      getLastWeek()
+        .then((r) => setRecap((old) => old ?? (r.monday ? r : "none")))
+        .catch(() => setRecap((old) => old ?? "none"));
     }, [t, i18n.language]),
   );
 
@@ -40,8 +46,10 @@ export function TheoryHome() {
   // 인사말: 처음 받은 내용으로 한 번 정한다 (돌아올 때마다 말이 바뀌지 않게)
   let line = greeted;
   const todayQ = daily && daily !== "failed" && daily.ready ? daily : null;
-  if (!line && data && daily) {
-    if (!data.book) line = t("buddy_helloNoBook", { name });
+  if (!line && data && daily && recap) {
+    const week = recap !== "none" && book?.can_view ? recapLine(t, recap, name, user?.role) : "";
+    if (week) line = week;
+    else if (!data.book) line = t("buddy_helloNoBook", { name });
     else if (!book?.can_view) line = t("buddy_helloHidden", { name });
     else if (book.last_page) line = t("buddy_helloContinue", { name, page: printed(book.last_page, book.book.page_offset) });
     else line = t("buddy_helloFirst", { name });
@@ -87,6 +95,10 @@ export function TheoryHome() {
             onPress={() => router.push("/daily")}
           />
         </Card>
+      ) : null}
+
+      {user && (user.role === "teacher" || user.role === "admin") ? (
+        <AppButton label={t("lo_teacherTitle")} icon="flash-outline" onPress={() => router.push("/live-ox")} />
       ) : null}
 
       {data?.book ? (
@@ -188,6 +200,32 @@ function Legend() {
       <Text style={styles.small}>{t("theory_legendRule")}</Text>
     </View>
   );
+}
+
+/** 월요일 인사말: 지난주 결산 (교육생은 내 기록, 교사·관리자는 맡은 반) */
+function recapLine(t: TFunction, r: LastWeek, name: string, role?: string): string {
+  const parts: string[] = [];
+  if (r.me) {
+    const m = r.me;
+    if (!m.solved) return t("recap_none", { name });
+    parts.push(t("recap_student", { name, solved: m.solved, rate: m.rate }));
+    if (m.prev_rate != null && m.prev_solved > 0 && m.prev_rate !== m.rate) {
+      parts.push(m.rate > m.prev_rate ? t("recap_up", { n: m.rate - m.prev_rate }) : t("recap_down", { n: m.prev_rate - m.rate }));
+    }
+    if (m.live) parts.push(t("recap_live", { n: m.live }));
+    if (m.rank) parts.push(t("recap_rank", { rank: m.rank, total: m.ranked }));
+    if (m.weak_unit) parts.push(t("recap_weak", { unit: m.weak_unit.split("›").pop()!.trim() }));
+    parts.push(t("recap_cheer"));
+    return parts.join(" ");
+  }
+  if (role === "teacher" || role === "admin" || role === "staff") {
+    if (!r.courses.length && !r.top) return "";
+    parts.push(t("recap_teacherHello", { name }));
+    r.courses.forEach((c) => parts.push(t("recap_course", { course: c.name, p: c.participation, rate: c.avg_rate })));
+    if (r.top) parts.push(t("recap_top", { top: r.top.name, n: r.top.solved }));
+    return parts.join(" ");
+  }
+  return "";
 }
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);

@@ -256,7 +256,7 @@ function SolverRow({ r, me, sort, period }: { r: BoardRow; me: boolean; sort: Bo
             {r.courses.join(", ")}
           </Text>
           <Text style={styles.meta} numberOfLines={1}>
-            {t("sb_src", { daily: r.daily, tutor: r.tutor })}
+            {t("sb_src", { daily: r.daily, tutor: r.tutor, live: r.live ?? 0 })}
           </Text>
         </View>
         <View style={{ alignItems: "flex-end" }}>
@@ -375,6 +375,18 @@ function StaffTab({ staff }: { staff: BoardStaff }) {
           </Pressable>
         ))}
       </Card>
+      {staff.live_missed ? (
+        <Card style={styles.row}>
+          <Text style={styles.sectionHead}>{t("sb_liveMissedTitle", { n: staff.live_missed.length })}</Text>
+          {staff.live_missed.length === 0 ? <Text style={styles.small}>{t("sb_liveMissedNone")}</Text> : null}
+          {staff.live_missed.map((u) => (
+            <Pressable key={u.user_id} style={styles.rowBetween} onPress={() => router.push({ pathname: "/student-view/[id]", params: { id: u.user_id } })}>
+              <Text style={styles.name}>{u.name}</Text>
+              <Text style={styles.meta}>{t("sb_liveMissed", { n: u.missed, total: u.total })}</Text>
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
       <Card style={styles.row}>
         <Text style={styles.sectionHead}>{t("sb_weakTitle")}</Text>
         {staff.weak.length === 0 ? <Text style={styles.small}>{t("sb_emptyUnits")}</Text> : null}
