@@ -238,10 +238,61 @@ def check_stream_ai():
     tutor._cache.pop("b-stream", None)
 
 
+def check_grounding():
+    """근거 쪽 찾기: 문제 쪽은 뒤로, 목차 제목이면 그 장 먼저, 대답 전체와 겹치는 쪽을 근거로."""
+    texts = {
+        1: "머리말 이 책은 용접 기술사 시험을 준비하는 사람을 위한 책이다.",
+        2: "용접 개요 용접은 두 금속을 열이나 압력으로 접합하는 방법이다. 융접 압접 납땜으로 분류한다.",
+        3: "융접은 모재를 녹여서 접합한다. 아크 용접 가스 용접이 대표적이다. 용융지가 만들어진다.",
+        4: "압접은 압력을 가해 접합하고 납땜은 모재보다 녹는점이 낮은 납재를 쓴다.",
+        5: "용접의 장점은 이음 효율이 높고 재료가 절약된다. 단점은 잔류응력과 변형이 생긴다.",
+        6: "핵심 문제 1. 용접 개요와 분류를 설명하시오. 2. 아크 쏠림의 원인과 방지 대책을 설명하시오. "
+           "3. 고에너지밀도 용접인 전자빔 용접과 레이저빔 용접을 비교하시오.",
+        7: "고에너지밀도 용접 에너지를 아주 좁은 곳에 모아 용접한다. 전자빔 용접과 레이저빔 용접이 있다.",
+        8: "전자빔 용접은 고진공에서 전자를 가속해 용접한다. 입열이 작아도 깊게 용입되고 열영향부가 좁아 변형이 적다.",
+        9: "레이저빔 용접은 빛을 렌즈로 모아 용접한다. 대기 중에서도 할 수 있고 정밀한 용접이 가능하다.",
+        10: "제113회 1. 전자빔 용접과 레이저빔 용접을 비교 설명하시오. 2. 아크 쏠림을 설명하시오. "
+            "3. 용접 개요와 고에너지밀도 용접 특징을 설명하시오. 4. 잔류응력 완화 방법을 설명하시오.",
+        11: "잔류응력은 용접 후 남는 응력이다. 피닝 응력 제거 풀림으로 줄인다.",
+        12: "용접 변형은 수축 때문에 생긴다. 역변형과 구속으로 줄인다.",
+    }
+    book = {"id": "b-ground", "updated_at": "g", "page_offset": 0, "pages": 12}
+    tutor._cache["b-ground"] = ("g", texts, tutor.build_index(texts))
+    old_units = daily.book_units
+    daily.book_units = lambda b: [("u1", "1장 용접 개요", 2, 6), ("u2", "2장 고에너지밀도 용접", 7, 10), ("u3", "3장 잔류응력", 11, 12)]
+    try:
+        assert tutor._index(book)[1]["quiz"] == {6, 10}, tutor._index(book)[1]["quiz"]
+        # 문제 쪽(6·10)은 모든 낱말이 몰려 있어도 본문 쪽 뒤로
+        top = tutor.find_pages(book, "전자빔 용접과 레이저빔 용접", ranked=True)
+        assert top[0] in (7, 8, 9) and top.index(10) > top.index(8), top
+        # 목차 제목과 맞으면 그 장
+        assert tutor.toc_range(book, "용접 개요에 대해 설명해 줘") == (2, 6)
+        assert tutor.toc_range(book, "고에너지밀도 용접이 뭐야") == (7, 10)
+        assert tutor.toc_range(book, "피닝이 뭐야") is None
+        m = tutor.mentions(book, "용접 개요에 대해 설명해 줘")
+        assert m and 2 <= m[0] <= 5, m
+        m = tutor.mentions(book, "고에너지밀도 용접에 대해 설명해 줘")
+        assert m and 7 <= m[0] <= 9, m
+        # 근거 쪽: 대답이 교재를 풀어 말해도 그 쪽을 근거로 인정
+        reply = ("전자빔 용접은 고진공에서 전자를 가속해서 용접해요. 입열이 작아도 깊게 용입되고 "
+                 "열영향부가 좁아서 변형이 적어요.")
+        given = {6, 7, 8, 9}
+        assert tutor.verified(book, [8], reply, given) == [8]
+        assert tutor.verified(book, [], reply, given) == [8]          # 쪽을 안 적어도 가장 많이 겹치는 쪽을 붙임
+        assert tutor.verified(book, [11], reply, given) == [8]        # 안 준 쪽은 버리고 맞는 쪽으로
+        assert tutor.verified(book, [], reply, {11, 12}) == []        # 겹치는 쪽이 없으면 안 붙임
+        assert tutor.verified(book, [], "교재에서 찾지 못했어요. " + reply, given) == []  # 못 찾았다고 했으면 안 붙임
+        assert tutor.verified(book, [8], "오늘 날씨가 좋아요 점심 맛있게 드세요", given) == []
+    finally:
+        daily.book_units = old_units
+        tutor._cache.pop("b-ground", None)
+
+
 def main():
     check_helpers()
     check_call_ai()
     check_stream_ai()
+    check_grounding()
     db.install()
     db.SETTINGS["signup"] = {"avatar_required": False}
     report.configured = lambda: True
