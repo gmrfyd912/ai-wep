@@ -203,6 +203,28 @@ def main():
     # 끝나고 15분 지나면 교육생 화면에서 사라짐
     CLOCK[0] += live.KEEP_ENDED + 1
     assert c.get("/live/now", headers=S1).json()["quiz"] is None
+    # 반 정답률이 낮았던 돌발 OX → 다음 매일 문제에 다시 (맞힌 사람은 빼고)
+    db.SETTINGS["daily"] = {"ox": 1, "mc": 0, "word": 0, "short": 0}
+    r = c.post("/live/start", headers=T1, json={"course_id": ca, "question_id": newq["id"], "seconds": 10}).json()
+    q3 = r["quiz"]["id"]
+    wait(lambda: live._get_quiz(q3)["ready"])
+    c.get("/live/now", headers=S1)
+    for hdr, a in ((S1, 0), (S2, 1), (S3, 1)):
+        assert c.post("/live/answer", headers=hdr, json={"quiz_id": q3, "answer": a}).status_code == 200
+    c.post(f"/live/end/{q3}", headers=T1)
+    wait(lambda: (next(x for x in db.TABLES["live_ox"] if x["id"] == q3).get("answered") or 0) == 3)
+    d2 = c.get("/daily", headers=S2).json()
+    assert d2["ready"] and d2["items"][0]["id"] == newq["id"] and d2["items"][0]["review"] is True, d2["items"]
+    assert len(d2["items"]) == 2 and d2["items"][1]["review"] is False and d2["items"][1]["id"] == q0
+    d1 = c.get("/daily", headers=S1).json()
+    assert all(not i["review"] for i in d1["items"])  # 맞힌 s1 은 다시 풀기 없음
+    # 다시 불러도(개수 맞추기) 다시 풀기 문제는 그대로
+    d2b = c.get("/daily", headers=S2).json()
+    assert [i["id"] for i in d2b["items"]] == [i["id"] for i in d2["items"]]
+    ok = c.post("/daily/answer", headers=S2, json={"question_id": newq["id"], "answer": 0}).json()
+    assert ok["result"]["correct"] is True
+    assert live.review_for(s3, bid, exclude=[newq["id"]]) == []
+    assert live.review_for(s3, bid) == [newq["id"]]
     print("live_check OK", {"ai_calls": len(CALLS)})
 
 

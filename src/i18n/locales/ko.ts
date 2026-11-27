@@ -1159,6 +1159,7 @@ const ko = {
   sb_noReports: "신고가 없어요.",
   sb_ruleStaff: "과정·기간 선택을 따름 · 이름을 누르면 그 사람의 기록 · 신고 처리는 관리자 화면에서",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ 수업 중 돌발 OX 다시 풀기",
   lo_title: "⚡ 돌발 OX!",
   lo_left: "남은 시간 {{n}}초",
   lo_pick: "맞으면 O, 틀리면 X 를 누르세요",

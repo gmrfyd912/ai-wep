@@ -1144,6 +1144,7 @@ const vi: Translation = {
   sb_noReports: "Không có báo cáo.",
   sb_ruleStaff: "Theo bộ lọc lớp và kỳ · chạm tên để xem hồ sơ · xử lý báo cáo ở màn hình quản trị",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ Làm lại OX bất ngờ trên lớp",
   lo_title: "⚡ Câu hỏi OX bất ngờ!",
   lo_left: "Còn {{n}} giây",
   lo_pick: "Đúng thì bấm O, sai thì bấm X",

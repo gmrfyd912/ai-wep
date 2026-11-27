@@ -484,12 +484,13 @@ def pick_questions(user_id, book, day, rng=random, counts=None, exclude=()):
 def fit_set(user, book, day, row):
     """관리자가 매일 문제 개수를 바꾸면 오늘 문제에도 바로 맞춘다: 이미 푼 문제는 그대로 두고,
     안 푼 문제를 종류별 새 개수에 맞게 빼거나 새로 골라 더한다."""
-    ids = list(row.get("question_ids") or [])
+    review = [i for i in (row.get("review_ids") or []) if i in (row.get("question_ids") or [])]
+    ids = [i for i in (row.get("question_ids") or []) if i not in review]
     kinds = {q["id"]: q["kind"] for q in store.select("quiz_questions", {"id": f"in.({','.join(ids)})", "select": "id,kind"})} if ids else {}
     st = settings()
     have = {k: [i for i in ids if kinds.get(i) == k] for k in KINDS}
     if all(len(have[k]) == st[k] for k in KINDS) and len(kinds) == len(ids):
-        return row
+        return row  # (돌발 OX 다시 풀기 문제는 개수와 상관없이 그대로 둔다)
     answered = set(_answers(user["id"], day))
     keep, need = {}, {}
     for k in KINDS:
@@ -498,13 +499,14 @@ def fit_set(user, book, day, row):
         n = max(st[k] - len(done), 0)
         keep[k] = done + left[:n]
         need[k] = n - len(left[:n])
-    extra = pick_questions(user["id"], book, day, counts=need, exclude=ids) if any(need.values()) else []
+    extra = pick_questions(user["id"], book, day, counts=need, exclude=ids + review) if any(need.values()) else []
     extra_kinds = {q["id"]: q["kind"] for q in store.select("quiz_questions", {"id": f"in.({','.join(extra)})", "select": "id,kind"})} if extra else {}
     new = []
     for k in KINDS:
         new += keep[k] + [i for i in extra if extra_kinds.get(i) == k]
     new += [i for i in ids if i in answered and i not in new]  # 지워진 문제라도 이미 푼 것은 남김
-    if not new or new == ids:
+    new = review + new
+    if not new or new == list(row.get("question_ids") or []):
         return row
     store.patch("daily_sets", {"user_id": f"eq.{user['id']}", "day": f"eq.{day.isoformat()}"}, {"question_ids": new})
     return {**row, "question_ids": new}
@@ -514,11 +516,22 @@ def get_or_make_set(user, book, day):
     rows = store.select("daily_sets", {"user_id": f"eq.{user['id']}", "day": f"eq.{day.isoformat()}", "select": "*"})
     if rows:
         return fit_set(user, book, day, rows[0])
-    ids = pick_questions(user["id"], book, day)
-    if not ids:
+    # T5: 반 정답률이 낮았던 돌발 OX 를 맨 앞에 더한다 (맞힌 사람은 빼고, 최근 30일 안에 매일 문제로 받은 것도 빼고)
+    import live
+    review = live.review_for(user["id"], book["id"], exclude=_recent_ids(user["id"], day))
+    ids = pick_questions(user["id"], book, day, exclude=review)
+    if not ids and not review:
         return None
     row = {"user_id": user["id"], "day": day.isoformat(), "book_id": book["id"], "question_ids": ids}
-    store.upsert("daily_sets", [row], on_conflict="user_id,day", ignore=True)
+    if review:
+        try:
+            store.upsert("daily_sets", [{**row, "question_ids": review + ids, "review_ids": review}],
+                         on_conflict="user_id,day", ignore=True)
+        except Exception as e:  # noqa: BLE001  (step14 SQL 전: review_ids 칸이 없음)
+            print("[daily] 돌발 OX 다시 풀기 못 넣음", str(e)[:160], flush=True)
+            store.upsert("daily_sets", [row], on_conflict="user_id,day", ignore=True)
+    else:
+        store.upsert("daily_sets", [row], on_conflict="user_id,day", ignore=True)
     rows = store.select("daily_sets", {"user_id": f"eq.{user['id']}", "day": f"eq.{day.isoformat()}", "select": "*"})
     return rows[0] if rows else row
 
@@ -590,12 +603,15 @@ def my_daily(lang: str = "ko", user=Depends(accounts.current_user)):
     ensure_translations(ordered, lang)
     answers = _answers(user["id"], day)
     items = [_public(q, answers.get(q["id"]), lang, book.get("page_offset") or 0) for q in ordered]
+    review = set(s.get("review_ids") or [])
+    for i in items:
+        i["review"] = i["id"] in review  # 수업 중 돌발 OX 다시 풀기
     answered = [i for i in items if i["result"]]
     return {
         "ready": True, "day": day.isoformat(), "book_id": book["id"], "items": items,
         "done": len(answered), "total": len(items),
         "score": sum((i["result"]["score"] or 0) for i in answered), "max_score": 10 * len(items),
-        "streak": streak_of(user["id"], day, len(items) or daily_total(st)),
+        "streak": streak_of(user["id"], day, (len(items) - len(review & {i["id"] for i in items})) or daily_total(st)),
     }
 
 

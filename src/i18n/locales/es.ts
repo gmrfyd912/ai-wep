@@ -1144,6 +1144,7 @@ const es: Translation = {
   sb_noReports: "No hay reportes.",
   sb_ruleStaff: "Sigue los filtros de grupo y periodo · toca un nombre para ver su historial · gestiona los reportes en las pantallas de administración",
   // T5 수업 중 돌발 OX · 월요일 지난주 결산
+  dq_liveReview: "⚡ Repaso del OX sorpresa de clase",
   lo_title: "⚡ ¡OX sorpresa!",
   lo_left: "Quedan {{n}} s",
   lo_pick: "Toca O si es verdad, X si es falso",

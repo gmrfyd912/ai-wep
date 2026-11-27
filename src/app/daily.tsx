@@ -231,7 +231,7 @@ function QuestionCard({
           {index + 1}. {t(kindKey[item.kind])}
         </Text>
         <Text style={styles.unit} numberOfLines={1}>
-          {item.unit_title}
+          {item.review ? t("dq_liveReview") : item.unit_title}
         </Text>
       </View>
       <Text style={styles.question}>{q}</Text>
