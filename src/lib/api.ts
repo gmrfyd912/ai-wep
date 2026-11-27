@@ -1583,3 +1583,81 @@ export const endLive = (id: string) => post<{ quiz: LiveTeacher }>(`/live/end/${
 export const explainLive = (id: string) => post<{ quiz: LiveTeacher }>(`/live/explain/${id}`);
 export const getLiveHistory = (courseId: string) =>
   request<{ day: string; items: LiveHistoryItem[] }>(`/live/history?course_id=${courseId}`);
+
+// ---- G1 게임: 웰디의 조선소 ----
+
+export type GameBuildingType = "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock";
+export type GameCost = { steel: number; rods: number };
+export type GameRes = { steel: number; rods: number; tech: number; passes: number; fame: number };
+export type GameBlock = "busy" | "max" | "units" | "hq_level" | null;
+export type GameBuilding = {
+  id: string;
+  type: GameBuildingType;
+  level: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fixed: boolean;
+  busy_until: string | null;
+  /** 공사 남은 초 (공사 중일 때만) */
+  left?: number;
+  speed?: { tech: number; passes: number };
+  pending: number;
+  just_done: boolean;
+  block: GameBlock;
+  next?: { level: number; cost: GameCost; seconds: number; units_need?: number };
+  rate?: number;
+  cap?: number;
+};
+export type GameShipKind = "barge" | "bulk" | "container" | "lng" | "offshore";
+export type GameTip = { id: string; [k: string]: string | number };
+export type GameState = {
+  enabled: boolean;
+  now: string;
+  resources: GameRes;
+  caps: { steel: number; rods: number };
+  pending: { steel: number; rods: number };
+  builders: { total: number; busy: number };
+  run_today: boolean;
+  hq_level: number;
+  grid: number;
+  buildings: GameBuilding[];
+  catalog: { type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number }[];
+  ships: { kind: GameShipKind; cost: GameCost; fame: number; dock: number; units: number; lock: "dock" | "units" | null; seconds: number }[];
+  ship: { id: string; kind: GameShipKind; stage: number; left: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
+  delivered: GameShipKind[];
+  units: {
+    done: number;
+    total: number;
+    next: { key: string; title: string; pdf_page: number; seen: number; pages: number; correct: number } | null;
+    rule: { pages_pct: number; correct: number };
+  };
+  book_id: string | null;
+  rewards: { steel: number; rods: number; tech: number; passes: number; why: Record<string, number> } | null;
+  tutorial: { done: boolean; step: number | null; steps: { id: string; ok: boolean }[]; spot: { x: number; y: number } | null };
+  speed_rule: { tech_minutes: number; pass_hours: number };
+  earn: Record<string, number>;
+  tips: GameTip[];
+  collected?: { steel: number; rods: number };
+  delivered_now?: { kind: GameShipKind; fame: number };
+};
+const GAME_TIMEOUT = 90000;
+export const getGame = (lang: string) => request<GameState>(`/game/state?lang=${lang}`, {}, GAME_TIMEOUT);
+export const gameBuild = (type: GameBuildingType, x: number, y: number) => post<GameState>("/game/build", { type, x, y }, GAME_TIMEOUT);
+export const gameUpgrade = (id: string) => post<GameState>("/game/upgrade", { id }, GAME_TIMEOUT);
+export const gameMove = (id: string, x: number, y: number) => post<GameState>("/game/move", { id, x, y }, GAME_TIMEOUT);
+export const gameCollect = () => post<GameState>("/game/collect", {}, GAME_TIMEOUT);
+export const gameSpeedup = (target: string, using: "tech" | "pass") => post<GameState>("/game/speedup", { target, using }, GAME_TIMEOUT);
+export const gameShipStart = (kind: GameShipKind) => post<GameState>("/game/ship/start", { kind }, GAME_TIMEOUT);
+export const gameShipNext = () => post<GameState>("/game/ship/next", {}, GAME_TIMEOUT);
+export const gameTutorial = (done: boolean) => post<GameState>("/game/tutorial", { done }, GAME_TIMEOUT);
+
+export type GameSettings = Record<string, number | boolean>;
+export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings");
+export const putGameSettings = (s: GameSettings) =>
+  request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(s),
+  });
