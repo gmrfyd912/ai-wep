@@ -194,7 +194,7 @@ export default function GameScreen() {
   const [names, setNames] = useState(false);          // 모든 건물 이름표 보기 (기본: 고른 건물만)
   const [detail, setDetail] = useState(false);        // 고른 건물 자세한 창 (기본: 아래 단추 줄만)
   const [trayOpen, setTrayOpen] = useState(true);     // 아래 왼쪽 서랍
-  const [weldyBig, setWeldyBig] = useState(false);    // 웰디 말풍선 크게
+  const [weldyBig, setWeldyBig] = useState(true);    // 웰디 말풍선 크게
   const [pageAt, setPageAt] = useState({ line: "", at: 0 });   // 웰디 말풍선 몇 번째 장 (말이 바뀌면 처음 장)
   const [bubbleW, setBubbleW] = useState(0);          // 말풍선 글 자리 너비 (장 나누기용)
   const [focus, setFocus] = useState<{ x: number; y: number; n: number } | null>(null);
@@ -487,6 +487,24 @@ export default function GameScreen() {
         if ((!best || d < best.d) && canPlace(obst, rule, data.grid, sea, x, y)) best = { x, y, d };
       }
     if (best && (best.x !== pick.x || best.y !== pick.y)) setPick({ x: best.x, y: best.y });
+  };
+  // 놓기: 초록 땅을 톡 누르면 건물이 그 칸으로 (누른 칸이 건물 가운데쯤 오게, 막혔으면 가까운 놓을 수 있는 칸)
+  const onTapPlace = (px: number, py: number) => {
+    const c = cellAt(px, py, data.grid, W);
+    placeAtCell(Math.floor(c.x), Math.floor(c.y));
+  };
+  const placeAtCell = (cx: number, cy: number) => {
+    if (!placeType || placeType === "wall") return;
+    const rule = ruleOf(placeType, moveId ? data.buildings.find((b) => b.id === moveId) ?? null : null);
+    const fx = cx + 0.5 - rule.w / 2, fy = cy + 0.5 - rule.h / 2;
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = Math.round(fx) + dx, y = Math.round(fy) + dy;
+        const d = (x - fx) ** 2 + (y - fy) ** 2;
+        if ((!best || d < best.d) && canPlace(obst, rule, data.grid, sea, x, y)) best = { x, y, d };
+      }
+    if (best) setPick({ x: best.x, y: best.y });
   };
   const placeSpec = (() => {
     if ((mode !== "place" && !(mode === "layout" && layoutSel)) || !placeType) return null;
@@ -892,7 +910,7 @@ export default function GameScreen() {
     if (typeof x.stage === "number") p.stage = t(stageKey(x.stage, typeof x.kind === "string" && WAR_KINDS.includes(x.kind)));
     return t(`gm_tip_${x.id === "ship_ready" ? "ship_done" : x.id}`, p);
   };
-  const buddyLine = tutStep ? t(`gm_tut_${tutStep}`, { steel: data.earn.daily_done_steel }) : tip ? tipText(tip) : "";
+  const buddyLine = tutStep ? t(`gm_tut_${tutStep}`, { steel: data.earn.daily_done_steel }) : tip ? tipText(tip) : t("gm_tip_none");
   // 말풍선은 BUBBLE_LINES 줄 크기로 고정, 넘치면 장으로 나눠 눌러서 넘김
   const pages = splitPages(buddyLine, bubbleW, BUBBLE_LINES);
   const page = Math.min(pageAt.line === buddyLine ? pageAt.at : 0, pages.length - 1);
@@ -1027,6 +1045,7 @@ export default function GameScreen() {
           ? cellBox(data.grid, 0, sea, data.grid, data.grid, W, 0)
           : placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
         onGrab={onGrab}
+        onTapAt={mode === "place" && placeType && pick ? onTapPlace : undefined}
         focus={focus}>
             <GameMap
               grid={data.grid}
@@ -1058,7 +1077,7 @@ export default function GameScreen() {
                 if (!tapOk()) return;
                 // 방파 장벽: 칸을 누를 때마다 바로 한 칸씩 (작업 반장 없이)
                 if (placeType === "wall" && !moveId) queueWall(x, y);
-                else setPick({ x, y });
+                else placeAtCell(x, y);
               }}
               now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
             />
@@ -1219,7 +1238,7 @@ export default function GameScreen() {
                 <StudyBuddy compact text={pages[page] ?? ""} size={42} lines={BUBBLE_LINES} boxLines={BUBBLE_LINES} onPress={bubbleNext} />
                 {pages.length > 1 ? (
                   <Text style={styles.pageTag}>
-                    {page < pages.length - 1 ? `${page + 1}/${pages.length} ▶` : `${page + 1}/${pages.length}`}
+                    {page < pages.length - 1 ? `${t("gm_bubbleNextShort")} ${page + 1}/${pages.length} ▶` : `${page + 1}/${pages.length}`}
                   </Text>
                 ) : null}
               </Pressable>
@@ -1242,8 +1261,7 @@ export default function GameScreen() {
               <StudyBuddy compact text={buddyLine} size={36} lines={1} onPress={() => setWeldyBig(true)} />
             </Pressable>
           )}
-          {(weldyBig || tutStep) && pages.length > 1 ? <Text style={styles.hint}>{page < pages.length - 1 ? t("gm_bubbleNext") : " "}</Text> : null}
-          {weldyBig && !tutStep && tips.length > 1 && page >= pages.length - 1 ? <Text style={styles.hint}>{t("gm_tipNext")}</Text> : null}
+          {weldyBig && !tutStep && tips.length > 1 && page >= pages.length - 1 ? <Text style={[styles.hint, styles.hintOver]}>{t("gm_tipNext")}</Text> : null}
         </View>
       ) : null}
 
@@ -3080,56 +3098,57 @@ const BR_W = 120 + 16;                     // 아래 오른쪽 [짓기]·작업 
 const BUBBLE_LINES = 3;                    // 웰디 말풍선 고정 줄 수
 const BUBBLE_PAD = 42 + 8 + 20 + 21 + 4;   // 얼굴·간격·말풍선 안쪽·소리 단추 (글 자리 = 너비 - 이만큼)
 
-/** 말을 말풍선 장으로 나눔: 한 장 = lines 줄 (글자 너비를 어림해 단어 단위로 줄바꿈, 문장 끝에서 끊기를 좋아함) */
+/** 말을 말풍선 장으로 나눔: 한 장 = lines 줄. 문장 단위로만 끊음 (한 문장이 두 장에 걸치지 않게).
+ *  한 문장이 혼자서도 lines 줄을 넘을 때만 쉼표·띄어쓰기에서 나눔. 글자 너비는 어림값. */
 function splitPages(text: string, width: number, lines: number): string[] {
   if (!text) return [""];
   if (width < 60) return [text];
-  const cw = (ch: string) => (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3000-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 13.2 : /[A-Z0-9MW]/.test(ch) ? 8.4 : 7.2);
+  const cw = (ch: string) => (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3000-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 13 : /[A-Z0-9MW]/.test(ch) ? 8.2 : 7);
   const w = (str: string) => [...str].reduce((a, ch) => a + cw(ch), 0);
-  const words = text.split(/(\s+)/).filter((x) => x.length);
-  const out: string[] = [];
-  let cur = "";
-  let line = 0;
-  let row = 1;
-  for (const tok of words) {
-    if (/^\s+$/.test(tok)) {
-      if (tok.includes("\n")) {
-        row += 1;
-        line = 0;
-        cur += "\n";
-      } else if (line > 0) {
-        cur += " ";
-        line += cw(" ");
-      }
-      continue;
-    }
-    const tw = w(tok);
-    if (line > 0 && line + tw > width) {
-      row += Math.ceil(tw / width);
-      line = tw % width;
-    } else {
-      line += tw;
-      if (line > width) {
-        row += Math.floor(line / width);
-        line = line % width;
+  // 단어 단위 줄바꿈으로 몇 줄이 되는지
+  const rows = (str: string) => {
+    let n = 1, line = 0;
+    for (const word of str.split(/\s+/).filter(Boolean)) {
+      const ww = w(word);
+      if (line > 0 && line + cw(" ") + ww > width) {
+        n += 1;
+        line = ww;
+      } else line += (line > 0 ? cw(" ") : 0) + ww;
+      while (line > width) {
+        n += 1;
+        line -= width;
       }
     }
-    if (row > lines && cur.trim()) {
-      // 넘침: 이 장 안에 문장 끝이 있으면 거기서 끊음
-      const m = cur.match(/^([\s\S]*[.!?。！？](?:\s|$))/);
-      const head = m && m[1].trim().length > cur.trim().length * 0.4 ? m[1] : cur;
-      out.push(head.trim());
-      cur = cur.slice(head.length).trimStart();
-      const rest = cur.trim() ? cur.trimEnd() + " " + tok : tok;
-      cur = rest;
-      const rw = w(rest);
-      row = 1 + Math.floor(rw / width);
-      line = rw % width;
+    return n;
+  };
+  const sentences = text.split(/(?<=[.!?。！？])\s+/).map((x) => x.trim()).filter(Boolean);
+  // 너무 긴 문장만 쉼표 → 띄어쓰기 순으로 나눔
+  const parts: string[] = [];
+  for (const sn of sentences) {
+    if (rows(sn) <= lines) {
+      parts.push(sn);
       continue;
     }
-    cur += tok;
+    let cur = "";
+    for (const piece of sn.split(/(?<=,)\s+|\s+/)) {
+      const next = cur ? `${cur} ${piece}` : piece;
+      if (cur && rows(next) > lines) {
+        parts.push(cur);
+        cur = piece;
+      } else cur = next;
+    }
+    if (cur) parts.push(cur);
   }
-  if (cur.trim()) out.push(cur.trim());
+  const out: string[] = [];
+  let page = "";
+  for (const part of parts) {
+    const next = page ? `${page} ${part}` : part;
+    if (page && rows(next) > lines) {
+      out.push(page);
+      page = part;
+    } else page = next;
+  }
+  if (page) out.push(page);
   return out.length ? out : [text];
 }
 const styles = StyleSheet.create({
@@ -3153,7 +3172,7 @@ const styles = StyleSheet.create({
   tray: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, padding: 3 },
   trayArrow: { width: 20, height: 39, alignItems: "center", justifyContent: "center" },
   weldy: { position: "absolute", gap: 4, alignItems: "stretch" },
-  weldySmall: { maxWidth: "100%", alignSelf: "flex-start" },
+  weldySmall: { alignSelf: "stretch" },
   builderChip: { color: "#fff", fontSize: 9, fontWeight: "700", backgroundColor: HUD, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3, overflow: "hidden", borderWidth: 1, borderColor: "transparent" },
   big: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center", gap: 0, borderBottomWidth: 3 },
   bigText: { color: "#fff", fontSize: 9, fontWeight: "800" },
@@ -3203,6 +3222,7 @@ const styles = StyleSheet.create({
   text: { color: colors.text, fontSize: 14 },
   small: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   hint: { color: "#FFFFFFAA", fontSize: 11, marginLeft: 52 },
+  hintOver: { position: "absolute", top: -16, left: 0 },
   warn: { color: colors.warning, fontSize: 13 },
   warnSm: { color: colors.warning, fontSize: 12 },
   textB: { color: colors.text, fontSize: 14, fontWeight: "700" },

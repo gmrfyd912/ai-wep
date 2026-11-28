@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { GestureDetector, usePanGesture, usePinchGesture, useSimultaneousGestures } from "react-native-gesture-handler";
+import { GestureDetector, usePanGesture, usePinchGesture, useSimultaneousGestures, useTapGesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 /**
@@ -24,6 +24,7 @@ export function PanZoom({
   zoomNonce = 0,
   grab = null,
   onGrab,
+  onTapAt,
   focus = null,
   edge = 0.35,
   children,
@@ -47,6 +48,8 @@ export function PanZoom({
   grab?: { x1: number; y1: number; x2: number; y2: number } | null;
   /** grab 을 끄는 중: 지도 그림 안의 손가락 위치 (시작 start → 움직임 move → 끝 end) */
   onGrab?: (phase: "start" | "move" | "end", x: number, y: number) => void;
+  /** 지도를 톡 누른 곳 (지도 그림 안 좌표). 놓기 모드에서 누른 칸으로 옮길 때 (그림 칸 누르기가 안 먹는 휴대폰이 있어서) */
+  onTapAt?: (x: number, y: number) => void;
   /** 지도 그림 안의 이 점(x, y)이 화면 가운데에 오게 부드럽게 옮김 (n 이 바뀔 때마다) */
   focus?: { x: number; y: number; n: number } | null;
   /** 지도 그림 끝을 넘어 더 끌 수 있는 여유 (화면 크기 비율). 0 = 그림 끝이 화면 끝에 닿으면 멈춤 */
@@ -72,6 +75,9 @@ export function PanZoom({
   const grabRef = useRef(onGrab);
   grabRef.current = onGrab;
   const grabJS = (phase: "start" | "move" | "end", x: number, y: number) => grabRef.current?.(phase, x, y);
+  const tapRef = useRef(onTapAt);
+  tapRef.current = onTapAt;
+  const tapJS = (x: number, y: number) => tapRef.current?.(x, y);
 
   useEffect(() => {
     dim.value = { w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom, e: edge };
@@ -195,7 +201,16 @@ export function PanZoom({
       runOnJS(moved)(false);
     },
   });
-  const gesture = useSimultaneousGestures(pinch, pan);
+  const tap = useTapGesture({
+    enabled: !!onTapAt,
+    maxDistance: 10,
+    onActivate: (e) => {
+      "worklet";
+      const p = toContent(e.x, e.y);
+      runOnJS(tapJS)(p.x, p.y);
+    },
+  });
+  const gesture = useSimultaneousGestures(pinch, pan, tap);
 
   const style = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: s.value }],

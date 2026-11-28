@@ -2157,6 +2157,8 @@ const es: Translation = {
   gm_gs_low: "{{n}} jugadores con menos de {{steel}} de acero y {{rods}} varillas",
   gm_gs_repair: "{{ships}} barcos necesitan reparación ({{n}} jugadores)",
   gm_bubbleNext: "Toca la burbuja para seguir",
+  gm_bubbleNextShort: "Toca para seguir",
+  gm_tip_none: "Nada urgente ahora. ¡Estudia con las preguntas de hoy o el libro para ganar más recursos!",
   gm_err_students_only: "El astillero de Weldy es solo para aprendices.",
   gm_err_game_off: "El juego está apagado ahora.",
   gm_err_money: "No hay recursos suficientes",
