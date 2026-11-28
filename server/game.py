@@ -183,7 +183,7 @@ DEFAULTS = {
     "raid_day_max": 3,                # 한 사람이 하루에 다른 교육생을 공격하는 최대 횟수 (같은 친구는 하루 1번)
     "raid_shield_hours": 8,           # 공격받은 조선소 보호막 시간
     "raid_defend_rods": 20,           # 막아 냄(상대 별 0~1개) 보상 용접봉
-    "raid_time_lock": True,           # 수업 시간·밤에는 친구 공격 잠금
+    "raid_time_lock": False,          # 수업 시간·밤에는 친구 공격 잠금 (박사 결정 2026-11-28: 기본은 24시간 365일 가능, 관리자에서 켬)
     "raid_class_from": 9,             # 수업 시간 (평일) 시작 시
     "raid_class_to": 18,              # 수업 시간 끝 시
     "raid_night_from": 22,            # 밤 잠금 시작 시

@@ -77,6 +77,10 @@ def main():
 
     # 시간 잠금: 평일 10시(수업) / 23시(밤)
     st = game.settings()
+    # 기본은 24시간 365일 공격 가능 (박사 결정), 관리자가 켜면 수업 시간·밤 잠금
+    assert st["raid_time_lock"] is False and gp.time_locked(st, datetime(2026, 12, 1, 1, 0, tzinfo=timezone.utc)) is None
+    setst(raid_time_lock=True)
+    st = game.settings()
     assert gp.time_locked(st, datetime(2026, 12, 1, 1, 0, tzinfo=timezone.utc)) == "class"
     assert gp.time_locked(st, datetime(2026, 12, 1, 14, 0, tzinfo=timezone.utc)) == "night"
     assert gp.time_locked(st, datetime(2026, 12, 5, 1, 0, tzinfo=timezone.utc)) is None    # 토요일 낮
