@@ -48,8 +48,8 @@ def main():
     assert all(b["level"] == min(6, game.BUILDINGS[b["type"]]["max"]) for b in blds), [(b["type"], b["level"]) for b in blds]
     assert sum(1 for b in blds if b["type"] == "mine") == game.defense_max("mine", 6)
     # 겹치는 건물 없음, 놓을 수 있는 자리
-    grid, sea = st["reclaim"]["grid"], st["reclaim"]["sea"]
-    assert grid == game.RECLAIM[game.RECLAIM_OPEN][0], grid
+    grid, sea = st["grid"], st["sea"]
+    assert grid == game.GRID and st["reclaim"] is None, grid
     raw = [b for b in db.TABLES["game_buildings"] if b["user_id"] == s1]
     for b in raw:
         assert game._free(raw, b["type"], b["x"], b["y"], skip_id=b["id"], grid=grid, sea=sea), (b["type"], b["x"], b["y"])
@@ -71,7 +71,7 @@ def main():
     # 1레벨: 땅 14, 방어 시설 없음
     r = c.post("/admin/game/preset", headers=hd["ad"], json={"user_id": s1, "level": 1})
     st = c.get("/game/state", headers=hd["s1"]).json()
-    assert st["reclaim"]["grid"] == 14 and not any(game.BUILDINGS[b["type"]].get("defense") for b in st["buildings"])
+    assert st["grid"] == game.GRID and not any(game.BUILDINGS[b["type"]].get("defense") for b in st["buildings"])
     # 8레벨: 바다 칸이 모자라면 못 놓은 개수를 알려 줌
     p8 = c.get(f"/admin/game/preset/{s1}?level=8", headers=hd["ad"]).json()["plan"]
     print("  level 8 short", p8["short"], "grid", p8["grid"])

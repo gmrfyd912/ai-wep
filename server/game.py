@@ -43,7 +43,9 @@ from admin_settings import _save_setting, need_admin
 
 router = APIRouter()
 KST = timezone(timedelta(hours=9))
-GRID = 14                    # 땅 14 × 14 칸
+GRID = 32                    # 땅 32 × 32 칸 (박사 결정 2026-11-28: 간척 없이 처음부터 큰 땅)
+SEA = 4                      # 바다 줄 수 (해안 한쪽)
+LAND_STAGE = 9               # game_bases.reclaim 이 이 값이면 큰 땅으로 옮긴 조선소 (그 전 값은 옛 간척 단계)
 BUILDERS = 2                 # 작업 반장 (동시에 공사 2곳)
 MAX_LEVEL = 8
 FACTORY_BUFFER_H = 8         # 공장에 쌓이는 최대 시간
@@ -109,7 +111,7 @@ WEAPONS = {
     "ciws":    {"academy": 3, "tech": 90, "power": 0},     # 날아오는 미사일 막기
     "asm":     {"academy": 3, "tech": 120, "power": 28},   # 대함 미사일: 멀리 있는 방어 시설 먼저
 }   # 해안에 붙는 건물 (간척하면 새 해안선으로 옮김)
-START = [("hq", 6, 6, 1), ("cutting", 2, 2, 1), ("dock", 12, 1, 1)]
+START = [("hq", 14, 14, 1), ("cutting", 11, 15, 1), ("dock", 30, 12, 1)]
 # 배: 도크 레벨·장 완료 수·비용·공정 5개 시간 배수·인도 명성
 # 진수식(인도) 보상 "pay": 선주가 주는 대금 = 강판·용접봉·기술 포인트 (만든 비용보다 많이). 숫자는 예시.
 SHIPS = {
@@ -141,7 +143,7 @@ RECLAIM = [
     (20, 4, 4, 9000, 4000, 6 * 3600),
     (22, 4, 5, 18000, 8000, 12 * 3600),
 ]
-RECLAIM_OPEN = 2             # G2a: 간척 2단계(18×18)까지
+RECLAIM_OPEN = 2             # (옛 간척 단계: 큰 땅으로 옮기기 전 조선소의 땅 크기를 알 때만 씀)
 FIRST_SHIP_PASSES = 1        # 그 종류 배를 처음 인도하면 즉시 완료권 1장 (종류마다 한 번)
 TUTORIAL_COLLECT = {"steel": 100, "rods": 50}   # 처음 따라 하기 '생산분 받기'에 받을 게 없으면 첫 생산분 선물
 STAGE_SECONDS = [60, 120, 180, 120, 60]          # 블록 제작 → 대조립 → 도크 탑재 → 진수 → 인도
@@ -327,10 +329,14 @@ def reclaim_stage(base):
 
 
 def grid_of(base):
-    return RECLAIM[min(reclaim_stage(base), len(RECLAIM) - 1)][0]
+    if reclaim_stage(base) >= LAND_STAGE:
+        return GRID
+    return RECLAIM[min(reclaim_stage(base), len(RECLAIM) - 1)][0]   # 아직 큰 땅으로 안 옮긴 조선소 (옛 좌표)
 
 
 def sea_of(base):
+    if reclaim_stage(base) >= LAND_STAGE:
+        return SEA
     return RECLAIM[min(reclaim_stage(base), len(RECLAIM) - 1)][1]
 
 
@@ -375,20 +381,28 @@ def _fleet(uid, rows=None):
 
 
 def _finish_reclaim(uid, base, buildings, now):
-    """간척 공사가 끝났으면 단계 +1, 해안 건물(도크·부두)을 새 해안선으로 옮긴다."""
-    end = _dt((base or {}).get("reclaim_until"))
-    if not end or end > now:
+    """옛 간척 땅(14~18칸) 조선소를 큰 땅(GRID칸)으로 한 번 옮긴다.
+    땅 건물은 새 땅 가운데 쪽으로, 해안·바다 건물(도크·부두·포대·기뢰·장벽)은 새 해안선으로 (서로의 자리 관계 유지).
+    간척 공사 중이었으면 공사를 멈추고 낸 자원을 돌려준다."""
+    if base is None or reclaim_stage(base) >= LAND_STAGE:
         return
     old = grid_of(base)
-    stage = reclaim_stage(base) + 1
-    new = RECLAIM[stage][0]
-    store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"reclaim": stage, "reclaim_until": None})
-    base["reclaim"], base["reclaim_until"] = stage, None
+    stage = reclaim_stage(base)
+    if base.get("reclaim_until") and stage + 1 < len(RECLAIM):
+        _, _, _, steel, rods, _ = RECLAIM[stage + 1]
+        _add(uid, [{"key": f"reclaim_refund:{uuid.uuid4()}", "steel": steel, "rods": rods, "tech": 0, "passes": 0, "note": "reclaim_refund"}])
+    dx_land = (GRID - old) // 2
+    dx_coast = GRID - old
+    dy = (GRID - old) // 2
     for b in buildings:
-        w = BUILDINGS[b["type"]]["size"][0]
-        if (b["type"] in COAST_TYPES and b["x"] + w == old) or (b["type"] in SEA_TYPES and b["x"] >= old):
-            b["x"] += new - old
-            store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": b["x"]})
+        spec = BUILDINGS[b["type"]]
+        w = spec["size"][0]
+        coastal = b["type"] == "dock" or (b["type"] in COAST_TYPES and b["x"] + w == old) or (b["type"] in SEA_TYPES and b["x"] >= old)
+        b["x"] += dx_coast if coastal else dx_land
+        b["y"] += dy
+        store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": b["x"], "y": b["y"]})
+    store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"reclaim": LAND_STAGE, "reclaim_until": None})
+    base["reclaim"], base["reclaim_until"] = LAND_STAGE, None
 
 
 def _prep(uid, now):
@@ -641,7 +655,7 @@ def _base(uid):
     if rows:
         return rows[0], False
     now = _now()
-    base = {"user_id": uid, "tutorial_done": False, "last_seen_at": _iso(now)}
+    base = {"user_id": uid, "tutorial_done": False, "last_seen_at": _iso(now), "reclaim": LAND_STAGE}
     store.upsert("game_bases", [base], on_conflict="user_id", ignore=True)
     if not store.select("game_buildings", {"user_id": f"eq.{uid}", "select": "id", "limit": "1"}):
         store.insert_rows("game_buildings", [{"id": str(uuid.uuid4()), "user_id": uid, "type": t, "level": lv, "x": x, "y": y,
@@ -724,7 +738,7 @@ def _berth(buildings, grid):
     return out
 
 
-def _free(buildings, btype, x, y, skip_id=None, grid=GRID, sea=2):
+def _free(buildings, btype, x, y, skip_id=None, grid=GRID, sea=SEA):
     spec = BUILDINGS[btype]
     w, h = spec["size"]
     if y < 0 or y + h > grid:
@@ -754,13 +768,13 @@ def _free(buildings, btype, x, y, skip_id=None, grid=GRID, sea=2):
     return True
 
 
-def free_spot(buildings, btype, grid=GRID, sea=2):
+def free_spot(buildings, btype, grid=GRID, sea=SEA):
     """처음 따라 하기 등에서 쓸 빈 자리 하나 (가운데에 가까운 곳)."""
     best = None
     for y in range(grid):
         for x in range(grid + sea):
             if _free(buildings, btype, x, y, grid=grid, sea=sea):
-                d = (x - 6) ** 2 + (y - 6) ** 2
+                d = (x - grid // 2) ** 2 + (y - grid // 2) ** 2
                 if best is None or d < best[0]:
                     best = (d, x, y)
     return (best[1], best[2]) if best else None
@@ -1153,6 +1167,9 @@ def warship_block(kind, buildings, hq_lv, used, cap):
 
 
 def reclaim_view(base, hq_lv, busy_n, now):
+    """간척은 없앰(큰 땅). 옛 조선소도 불러올 때 큰 땅으로 옮기므로 보통 None."""
+    if reclaim_stage(base) >= LAND_STAGE:
+        return None
     stage = reclaim_stage(base)
     out = {"stage": stage, "max": len(RECLAIM) - 1, "open": RECLAIM_OPEN, "grid": grid_of(base), "sea": sea_of(base),
            "next": None, "block": None}
@@ -1276,9 +1293,7 @@ def tips(d, s):
         w0 = min(weak, key=lambda b: b["defense"]["mult"])
         out.append({"id": "weak", "type": w0["type"], "unit": w0["defense"]["unit"]["title"], "rate": w0["defense"]["rate"],
                     "mult": w0["defense"]["mult"], "bid": w0["id"]})
-    rc = d["reclaim"]
-    if rc["next"] and not rc["block"] and _afford(d["resources"], rc["next"]["cost"]):
-        out.append({"id": "reclaim", "grid": rc["next"]["grid"]})
+    rc = d["reclaim"] or {}
     if d["resources"]["passes"] > 0 and (any(b.get("busy_until") for b in d["buildings"]) or "left" in rc):
         out.append({"id": "pass", "n": d["resources"]["passes"]})
     if d["builders"]["busy"] < d["builders"]["total"] and not any(t["id"] in ("idle", "exam", "collect") for t in out):
@@ -1712,7 +1727,8 @@ def ship_next(user=Depends(need_player)):
 
 @router.post("/game/reclaim")
 def reclaim(user=Depends(need_player)):
-    """다음 간척 단계 공사 시작 (작업 반장 1명, 끝나면 땅이 넓어짐)."""
+    """간척은 없앰 (박사 결정 2026-11-28: 처음부터 큰 땅). 옛 앱이 불러도 '더 넓힐 수 없음'."""
+    _err(400, "reclaim_max")
     uid = user["id"]
     with _lock(uid):
         now = _now()
