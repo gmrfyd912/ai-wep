@@ -2011,6 +2011,8 @@ const id: Translation = {
   gm_lv_notSent: "Tidak dikirim (tidak rusak)",
   gm_lv_prepHintUser: "Pilih kapal dan kru, lalu [Kuis sebelum berangkat]. Saat bertempur, ketuk laut untuk mengirim kapal satu per satu.",
   gm_err_raid_busy: "Peserta lain sedang menyerang galangan ini. Coba lagi nanti.",
+  gm_shipHurt: "HP {{hp}}/{{max}} · Perbaiki dulu sebelum berangkat",
+  gm_repairNeedRods: "Kawat las kurang (perlu {{n}}, punya {{have}})",
   gm_err_students_only: "Galangan Kapal Weldy hanya untuk peserta pelatihan.",
   gm_err_game_off: "Game sedang dimatikan.",
   gm_err_money: "Sumber daya tidak cukup",

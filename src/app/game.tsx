@@ -2419,12 +2419,16 @@ function ShipPanel({
               </View>
             ) : f.repair ? (
               <View style={{ gap: 4 }}>
-                <Text style={styles.warn}>{t("gm_damaged", { n: f.damage ?? 0, max: f.max_hp ?? f.hp })}</Text>
+                {/* 체력이 얼마 남았는지로 보여 줌 (예전 '다침 180/180'은 헷갈림, 박사 질문 2026-11-28) */}
+                <Text style={styles.warn}>{t("gm_shipHurt", { hp: Math.max(0, (f.max_hp ?? f.hp) - (f.damage ?? 0)), max: f.max_hp ?? f.hp })}</Text>
                 <Pressable disabled={busy || data.resources.rods < f.repair.rods} onPress={() => onRepair(f.id)} style={[styles.linkRow, data.resources.rods < f.repair.rods && { opacity: 0.5 }]}>
                   <Ionicons name="construct-outline" size={14} color={colors.primary} />
                   <Text style={styles.linkText}>{t("gm_repairShort")}</Text>
                   <CostIcons cost={{ rods: f.repair.rods }} seconds={f.repair.seconds} res={data.resources} />
                 </Pressable>
+                {data.resources.rods < f.repair.rods ? (
+                  <Text style={styles.small}>{t("gm_repairNeedRods", { n: f.repair.rods, have: data.resources.rods })}</Text>
+                ) : null}
               </View>
             ) : null}
             {hn ? (

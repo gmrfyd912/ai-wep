@@ -2026,6 +2026,8 @@ const ko = {
   gm_lv_notSent: "안 보냄 (다치지 않음)",
   gm_lv_prepHintUser: "배·대원을 고르고 [출동 전 문제 풀기]. 전투 중에 바다를 눌러 배를 하나씩 보내요.",
   gm_err_raid_busy: "다른 교육생이 지금 이 조선소를 공격하고 있어요. 조금 뒤에 다시 해 봐요.",
+  gm_shipHurt: "체력 {{hp}}/{{max}} · 수리해야 출격할 수 있어요",
+  gm_repairNeedRods: "용접봉이 모자라요 (수리에 {{n}} 필요, 지금 {{have}})",
   gm_err_students_only: "웰디의 조선소는 교육생만 할 수 있어요.",
   gm_err_game_off: "지금은 게임이 꺼져 있어요.",
   gm_err_money: "자원이 모자라요",
