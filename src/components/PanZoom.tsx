@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { GestureDetector, usePanGesture, usePinchGesture, useSimultaneousGestures } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
@@ -20,6 +20,7 @@ export function PanZoom({
   maxZoom,
   onZoom,
   onMove,
+  onTapEmpty,
   children,
 }: {
   width: number;
@@ -33,6 +34,8 @@ export function PanZoom({
   onZoom: (z: number) => void;
   /** 끌기·확대를 시작/끝낼 때 (끝나고 바로 오는 '톡'을 누르기로 보지 않게) */
   onMove?: (moving: boolean) => void;
+  /** 지도 그림 바깥(빈 바다)을 눌렀을 때. 끌기와 구분은 부르는 쪽에서 onMove로 함 */
+  onTapEmpty?: () => void;
   children: ReactNode;
 }) {
   const s = useSharedValue(1);
@@ -129,6 +132,7 @@ export function PanZoom({
   return (
     <GestureDetector gesture={gesture}>
       <View style={StyleSheet.absoluteFill} collapsable={false}>
+        {onTapEmpty ? <Pressable style={StyleSheet.absoluteFill} onPress={onTapEmpty} accessible={false} /> : null}
         <Animated.View
           style={[{ position: "absolute", left: (width - contentW) / 2, top: (height - contentH) / 2, width: contentW, height: contentH }, style]}
         >

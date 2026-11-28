@@ -65,6 +65,8 @@ import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screen
 import { colors, radius, space } from "@/theme";
 
 type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon";
+// 지도 빈 곳을 눌러도 닫지 않는 창: 문제 푸는 창(적던 답 보호)과 놓기 모드
+const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place"];
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
 const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall"];
 const STAGES = 5;
@@ -608,6 +610,12 @@ export default function GameScreen() {
   };
   const action = tutStep ? tutAction() : tipAction(tip);
   const panelOpen = mode !== "home" || !!sel;
+  // 지도 빈 곳(바다·빈 땅)을 '톡' 눌렀을 때: 열린 오른쪽 창을 닫음 (끌기는 tapOk가 걸러서 안 닫힘)
+  // 문제 푸는 창(승급 시험·자재 조달·태풍 훈련)은 적던 답이 사라지지 않게 X로만 닫음
+  const tapEmpty = () => {
+    setSelected(null);
+    if (!STAY_OPEN_MODES.includes(mode)) setMode("home");
+  };
   const sheetW = Math.min(380, Math.max(280, width * 0.42));
   const pendingN = data.pending.steel + data.pending.rods;
 
@@ -616,7 +624,8 @@ export default function GameScreen() {
       <StatusBar hidden />
       {/* 지도: 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소 (메뉴·창에 가려진 곳도 끌어서 봄) */}
       <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.7} maxZoom={3} onZoom={setZoom}
-        onMove={(on) => { moving.current = { on, at: Date.now() }; }}>
+        onMove={(on) => { moving.current = { on, at: Date.now() }; }}
+        onTapEmpty={() => tapOk() && tapEmpty()}>
             <GameMap
               grid={data.grid}
               sea={sea}
@@ -630,8 +639,9 @@ export default function GameScreen() {
               ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
               onSelect={(id) => {
                 if (!tapOk()) return;
+                if (!id) return tapEmpty();
                 setSelected(id);
-                if (id) setMode("home");
+                setMode("home");
               }}
               onPlace={(x, y) => {
                 if (!tapOk()) return;
