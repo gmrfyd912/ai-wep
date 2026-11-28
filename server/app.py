@@ -43,6 +43,7 @@ import game_battle
 import game_sea
 import game_raid
 import game_pvp
+import game_preset
 from engine.analyze import ENGINE_VERSION, analyze_image
 from engine.config import Config
 
@@ -74,6 +75,7 @@ app.include_router(game_battle.router)
 app.include_router(game_sea.router)
 app.include_router(game_raid.router)
 app.include_router(game_pvp.router)
+app.include_router(game_preset.router)
 
 # 진행 단계 기록 (앱이 1초마다 조회). 서버 1대라 메모리에 둔다. 10분 지나면 지움.
 PROGRESS: dict[str, tuple[str, float]] = {}

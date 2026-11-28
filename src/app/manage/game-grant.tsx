@@ -3,7 +3,19 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Screen } from "@/components/ui";
-import { gameGrant, getGamePlayer, getGamePlayers, NetworkError, type GameGrantRes, type GamePlayer, type GamePlayerView } from "@/lib/api";
+import {
+  gameGrant,
+  gamePreset,
+  gamePresetUndo,
+  getGamePlayer,
+  getGamePlayers,
+  getGamePreset,
+  NetworkError,
+  type GameGrantRes,
+  type GamePlayer,
+  type GamePlayerView,
+  type GamePresetInfo,
+} from "@/lib/api";
 import { RES_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
@@ -180,11 +192,138 @@ export default function GameGrantScreen() {
       ) : msg ? (
         <Text style={styles.msg}>{msg}</Text>
       ) : null}
+      {pv ? <PresetCard key={pv.player.id} pv={pv} err={err} onDone={() => getGamePlayer(pv.player.id).then(setPv).catch(() => undefined)} /> : null}
     </Screen>
   );
 }
 
+const LEVELS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+/**
+ * 조선소 한 번에 맞추기 (시험·시연용): 본관 레벨을 고르면 그 레벨에 어울리는 건물·방어 시설·땅·무기·전투함·대원으로 통째로 바꿈.
+ * 자원·상선·전투 기록은 그대로. 바꾸기 전 모습은 한 벌 저장 → 되돌리기 1번.
+ */
+function PresetCard({ pv, err, onDone }: { pv: GamePlayerView; err: (e: unknown) => string; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [level, setLevel] = useState(Math.max(1, pv.hq_level || 1));
+  const [info, setInfo] = useState<GamePresetInfo | null>(null);
+  const [ask, setAsk] = useState<"apply" | "undo" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const id = pv.player.id;
+
+  useEffect(() => {
+    setAsk(null);
+    getGamePreset(id, level).then(setInfo).catch((e) => setMsg(err(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, level]);
+
+  const go = async (what: "apply" | "undo") => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = what === "apply" ? await gamePreset(id, level) : await gamePresetUndo(id);
+      setMsg(what === "apply" ? t("gp_done", { name: pv.player.name, n: level }) : t("gp_undone", { name: pv.player.name }));
+      setInfo(r.plan ? r : await getGamePreset(id, level));
+      onDone();
+    } catch (e) {
+      setMsg(err(e));
+    } finally {
+      setBusy(false);
+      setAsk(null);
+    }
+  };
+
+  const p = info?.plan;
+  const list = (o: Record<string, number>, key: (k: string) => string) =>
+    Object.entries(o).filter(([, v]) => v).map(([k, v]) => `${t(key(k))} ${v}`).join(" · ");
+  const defense = new Set(["battery", "missile", "mine", "asw", "radar", "wall"]);
+  const bOf = (def: boolean) => Object.fromEntries(Object.entries(p?.buildings ?? {}).filter(([k]) => defense.has(k) === def));
+  const shipCount = (p?.ships ?? []).reduce<Record<string, number>>((a, k) => ({ ...a, [k]: (a[k] ?? 0) + 1 }), {});
+
+  return (
+    <Card style={{ gap: space.sm }}>
+      <Text style={styles.section}>{t("gp_title")}</Text>
+      <Text style={styles.hint}>{t("gp_intro")}</Text>
+      <Text style={styles.label}>{t("gp_pick")}</Text>
+      <View style={styles.resRow}>
+        {LEVELS.map((n) => (
+          <Pressable key={n} onPress={() => setLevel(n)} style={[styles.chip, level === n && styles.personOn]}>
+            <Text style={styles.label}>{t("gm_level", { n })}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {!p ? <ActivityIndicator color={colors.primary} /> : (
+        <View style={styles.preview}>
+          <Text style={styles.label}>{t("gp_land", { n: p.grid })}</Text>
+          <Text style={styles.label}>{t("gp_buildings", { list: list(bOf(false), (k) => `gm_b_${k}`), n: p.level })}</Text>
+          {Object.keys(bOf(true)).length ? <Text style={styles.label}>{t("gp_defense", { list: list(bOf(true), (k) => `gm_b_${k}`) })}</Text> : null}
+          {Object.keys(p.short).length ? <Text style={styles.warn}>{t("gp_short", { list: list(p.short, (k) => `gm_b_${k}`) })}</Text> : null}
+          <Text style={styles.label}>{t("gp_weapons", { list: Object.keys(p.weapons).map((k) => t(`gm_w_${k}`)).join(" · ") })}</Text>
+          <Text style={styles.label}>{t("gp_ships", { list: list(shipCount, (k) => `gm_ship_${k}`) || t("gm_ct_none"), n: p.level })}</Text>
+          <Text style={styles.label}>
+            {t("gp_crews", { list: list(p.crews as Record<string, number>, (k) => `gm_crew_${k}`) || t("gm_ct_none"), d: p.homes.dorm, g: p.homes.garage })}
+          </Text>
+          <Text style={styles.hint}>{t("gp_keep")}</Text>
+        </View>
+      )}
+      {ask === "apply" ? (
+        <View style={styles.confirm}>
+          <Text style={styles.label}>{t("gp_confirm", { name: pv.player.name, n: level })}</Text>
+          <View style={styles.row2}>
+            <View style={{ flex: 1 }}>
+              <AppButton label={t("common_cancel")} variant="secondary" onPress={() => setAsk(null)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <AppButton label={t("gp_apply")} icon="construct-outline" disabled={busy} onPress={() => go("apply")} />
+            </View>
+          </View>
+        </View>
+      ) : (
+        <AppButton label={t("gp_check", { n: level })} icon="construct-outline" disabled={!p || busy} onPress={() => setAsk("apply")} />
+      )}
+      {info?.backup ? (
+        ask === "undo" ? (
+          <View style={styles.confirm}>
+            <Text style={styles.label}>{t("gp_undoConfirm", { name: pv.player.name, n: info.backup.level })}</Text>
+            <View style={styles.row2}>
+              <View style={{ flex: 1 }}>
+                <AppButton label={t("common_cancel")} variant="secondary" onPress={() => setAsk(null)} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppButton label={t("gp_undo")} icon="arrow-undo-outline" variant="secondary" disabled={busy} onPress={() => go("undo")} />
+              </View>
+            </View>
+          </View>
+        ) : (
+          <AppButton
+            label={t("gp_undoBtn", { n: info.backup.level, at: info.backup.at ? new Date(info.backup.at).toLocaleString() : "" })}
+            icon="arrow-undo-outline"
+            variant="secondary"
+            disabled={busy}
+            onPress={() => setAsk("undo")}
+          />
+        )
+      ) : null}
+      {busy ? <ActivityIndicator color={colors.primary} /> : null}
+      {msg ? <Text style={styles.msg}>{msg}</Text> : null}
+      {info?.log.length ? <Text style={styles.section}>{t("gp_history")}</Text> : null}
+      {info?.log.map((g, i) => (
+        <View key={`${g.at}-${i}`} style={styles.hist}>
+          <Text style={styles.label}>{g.what === "undo" ? t("gp_logUndo", { n: g.from }) : t("gp_logSet", { from: g.from, n: g.what })}</Text>
+          <Text style={styles.hint}>
+            {g.at ? new Date(g.at).toLocaleString() : ""} · {g.by}
+          </Text>
+        </View>
+      ))}
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
+  chip: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  preview: { gap: 4, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: space.sm },
+  warn: { color: colors.warning, fontSize: 13 },
   section: { color: colors.text, fontSize: 16, fontWeight: "700" },
   label: { color: colors.text, fontSize: 14 },
   hint: { color: colors.muted, fontSize: 12 },
