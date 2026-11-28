@@ -19,6 +19,9 @@ export const BUILDING_COLOR: Record<string, string> = {
   asw: "#3E8582",
   radar: "#B9BFD0",
   wall: "#8E8E8E",
+  trainhall: "#C2577A",
+  dorm: "#5FA36B",
+  garage: "#C98E3A",
 };
 /** 방어 시설 (지도에 이름표 대신 레벨만 작게: 장벽·기뢰는 많아서 이름표 생략) */
 const NO_TAG = new Set(["wall", "mine"]);
@@ -28,6 +31,7 @@ export const RES_COLOR = { steel: "#8FA3B8", rods: "#F2A516", tech: "#57C4E5", p
 const BASE_H: Record<string, number> = {
   hq: 1.5, yard: 0.5, rodstore: 0.7, cutting: 0.9, welding: 1.0, academy: 1.1, dock: 0, pier: 0.25,
   battery: 0.35, missile: 0.3, mine: 0, asw: 0.6, radar: 0.3, wall: 0.4,
+  trainhall: 1.0, dorm: 1.2, garage: 0.8,
 };
 
 type Pt = [number, number];

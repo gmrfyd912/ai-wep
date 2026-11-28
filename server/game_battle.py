@@ -283,6 +283,7 @@ def pirate_view(rows, fleet, wl):
             counts[o["type"]] = counts.get(o["type"], 0) + 1
         stages.append({"no": i, "stars": best.get(i, 0), "open": i == 1 or best.get(i - 1, 0) >= 1, "reward": st["reward"],
                        "counts": counts, "power": max(o["level"] for o in base[1:]),
+                       "guards": game_raid.PIRATE_CREWS.get(i, {}),
                        # 작전 짜기 지도용 배치 (id = 목표 순서에 쓰는 번호)
                        "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h")} for o in base]})
     return {"stages": stages, "ready": len(ready), "lanes": list(LANES), "max_ships": 6}
@@ -354,13 +355,15 @@ def pirate_attack(body: AttackBody, user=Depends(need_player)):
             if not 0 <= body.landing < MAP_H:
                 _err(400, "bad_plan")
             have = game_raid.get_crews(base)
+            free = game_raid.available(have)
             send = {k: max(0, int(body.crews.get(k, 0) or 0)) for k in game_raid.CREW_KINDS}
-            if any(send[k] > have[k] for k in send):
+            if any(send[k] > free[k] for k in send):
                 _err(400, "crew_short")
-            if sum(send.values()) > game_raid.ship_capacity(ships):
+            if game_raid.seats_of(send) > game_raid.ship_capacity(ships):
                 _err(400, "crew_room", n=game_raid.ship_capacity(ships))
             res = game_raid.simulate_raid(pirate_base(body.stage), ships, body.lane, body.landing, body.order, send,
-                                          MAP_W, MAP_H, LAND_W, LANES, {"stage": body.stage})
+                                          MAP_W, MAP_H, LAND_W, LANES, {"stage": body.stage},
+                                          defenders=game_raid.PIRATE_CREWS.get(body.stage))
             res["note"] = game_raid.raid_note(res)
             if any(res["crew_lost"].values()):   # 쓰러진 대원만 잃음 (살아 돌아온 대원은 다시 씀)
                 for k, v in res["crew_lost"].items():

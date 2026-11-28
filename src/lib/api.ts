@@ -1592,7 +1592,7 @@ export const getLiveHistory = (courseId: string) =>
 
 export type GameBuildingType =
   | "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock" | "pier"
-  | "battery" | "missile" | "mine" | "asw" | "radar" | "wall";
+  | "battery" | "missile" | "mine" | "asw" | "radar" | "wall" | "trainhall" | "dorm" | "garage";
 /** G2b 방어 시설 힘: 연결된 교재 장의 내 정답률에 따라 0.7~1.3배 */
 export type GameDefense = {
   hp: number;
@@ -1637,6 +1637,9 @@ export type GameBuilding = {
   cap?: number;
   /** 군항 부두: 함대에 둘 수 있는 전투함 수 */
   fleet_cap?: number;
+  /** 기숙사·장비 정비고: 머물 수 있는 자리, 레벨마다 늘어나는 수 */
+  room?: number;
+  room_step?: number;
   defense?: GameDefense;
   /** 바다에 놓는 것 (기뢰밭·방파 장벽) */
   sea?: boolean;
@@ -1753,6 +1756,7 @@ export type GamePirate = {
     no: number; stars: number; open: boolean; reward: { steel: number; rods: number; tech: number; fame: number }; counts: Record<string, number>; power: number;
     /** 작전 짜기 지도용 배치 (id = 목표 순서 번호) */
     base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number }[];
+    guards?: Partial<Record<CrewKind, number>>;
   }[];
   ready: number;
   lanes: GameLane[];
@@ -1779,6 +1783,7 @@ export type GameRaidTarget = {
   block: RaidBlock | null;
   block_info: Record<string, number | string>;
   morale: number;
+  guards?: Partial<Record<CrewKind, number>>;
 };
 export type GameRaidAttack = {
   target: string; ships: string[]; lane: GameLane; landing: number; order: number[];
@@ -1801,16 +1806,23 @@ export const gameRaidAttack = (body: GameRaidAttack) =>
 export const getDefense = () => request<GameDefenseLog>("/game/defense", {}, GAME_TIMEOUT);
 export const gameDefenseSeen = () => post<{ ok: boolean }>("/game/defense/seen", {}, GAME_TIMEOUT);
 /** G2c-2 상륙 대원 */
-export type CrewKind = "welder" | "fitter" | "forklift" | "transporter";
-export const CREW_KINDS: CrewKind[] = ["welder", "fitter", "forklift", "transporter"];
+export type CrewKind = "welder" | "fitter" | "forklift" | "transporter" | "piper" | "safety" | "crane";
+/** 서버와 같은 순서 (다시 보기 기록의 대원 번호) */
+export const CREW_KINDS: CrewKind[] = ["welder", "fitter", "forklift", "transporter", "piper", "safety", "crane"];
+export type CrewHome = "dorm" | "garage";
 export type GameCrews = {
   have: Record<CrewKind, number>;
   pts: number;
   cap: number;
   total: number;
-  specs: Record<CrewKind, { hp: number; dmg: number; speed: number; cost: number }>;
+  specs: Record<CrewKind, { hp: number; dmg: number; speed: number; cost: number; home: CrewHome; unlock: number; seats: number }>;
   capacity: Record<string, number>;
   quiz: number;
+  /** 방어하다 다쳐서 쉬는 대원 (곧 돌아옴) */
+  hurt: Record<CrewKind, number>;
+  hurt_until: string | null;
+  homes: Record<CrewHome, { used: number; cap: number; level: number }>;
+  trainhall: number;
 };
 export type RaidPlan = {
   stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq";
@@ -1831,7 +1843,7 @@ export type GameBattle = {
   base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number; max: number }[];
   ships: { id: string; kind: GameWarKind; max_hp: number; hp: number; out: boolean; weapons: GameWeaponKind[] }[];
   /** s = 전투함 [x, y, 체력, 물러남], b = 해적 시설 체력, f = 쏜 것 ["s"|"d", 쏜 쪽, 맞은 쪽] */
-  frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][]; c?: [number, number, number, number][] }[];
+  frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][]; c?: [number, number, number, number][]; d?: [number, number, number, number][] }[];
   events: { t: number; down?: number; boom?: number; ship?: number; spot?: number; retreat?: number }[];
   map: GameRaidMap;
   note: { id: string };
@@ -1845,6 +1857,11 @@ export type GameBattle = {
   crews?: { kind: CrewKind; max: number }[];
   crew_sent?: Record<CrewKind, number>;
   crew_lost?: Record<CrewKind, number>;
+  /** 방어 대원 */
+  guards?: { kind: CrewKind; max: number }[];
+  guard_sent?: Record<CrewKind, number>;
+  guard_lost?: Record<CrewKind, number>;
+  hurt_minutes?: number;
   /** G2c-3 친구 조선소 공격 */
   kind?: "pirate" | "raid";
   attacker?: { id: string; name: string };
@@ -1893,6 +1910,7 @@ export type GameScout = {
   block?: RaidBlock | null;
   block_info?: Record<string, number | string>;
   shield?: number;
+  guards?: Partial<Record<CrewKind, number>>;
   tip: string;
   scouts: { used: number; max: number };
 };

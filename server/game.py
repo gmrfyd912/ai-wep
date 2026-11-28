@@ -75,6 +75,10 @@ BUILDINGS = {
     "asw":      {"size": (1, 2), "steel": 500, "rods": 250, "unlock": 4, "max": 8, "coast": True, "defense": True},
     "radar":    {"size": (1, 1), "steel": 350, "rods": 200, "unlock": 3, "max": 8, "defense": True},
     "wall":     {"size": (1, 1), "steel": 60, "rods": 0, "unlock": 2, "max": 8, "sea": True, "defense": True, "instant": True},
+    # 대원 (박사 승인 2026-11-28 대원 확장 계획안): 기술교육원 = 대원 훈련, 기숙사 = 사람 대원, 장비 정비고 = 장비 대원
+    "trainhall": {"size": (2, 2), "steel": 300, "rods": 100, "unlock": 2, "max": 8},
+    "dorm":      {"size": (2, 2), "steel": 250, "rods": 50, "unlock": 2, "max": 8},
+    "garage":    {"size": (2, 3), "steel": 350, "rods": 100, "unlock": 3, "max": 8},
 }
 COAST_TYPES = ("dock", "pier", "battery", "asw")
 SEA_TYPES = ("mine", "wall")      # 바다에 놓는 것 (간척하면 바다와 같이 옮김)
@@ -188,6 +192,7 @@ DEFAULTS = {
     "raid_class_to": 18,              # 수업 시간 끝 시
     "raid_night_from": 22,            # 밤 잠금 시작 시
     "raid_night_to": 7,               # 밤 잠금 끝 시
+    "crew_hurt_minutes": 60,          # 방어하다 쓰러진 대원이 돌아오는 시간 (분)
 }
 EXAM_KINDS = ("ox", "mc", "word", "short")
 EXAM_MAX_EACH = 20
@@ -1020,6 +1025,11 @@ def view(s, lang="ko"):
             item["cap"] = int(CAP_TABLE[max(b["level"], 1)] * 0.6)
         if b["type"] == "pier":
             item["fleet_cap"] = max(b["level"], 1) + 1
+        if b["type"] in ("dorm", "garage"):   # 기숙사(사람)·장비 정비고(장비): 머물 수 있는 자리
+            import game_raid
+            a, k = game_raid.HOMES[b["type"]]
+            item["room"] = a + k * (max(b["level"], 1) - 1)
+            item["room_step"] = k
         if spec.get("defense"):
             item["defense"] = defense_info(b, st, units, buildings)
             item["sea"] = bool(spec.get("sea"))
@@ -2280,6 +2290,8 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
     for k in ("raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to"):
         if cur[k] > 24:
             _err(400, "bad_value", key=k)
+    if cur["crew_hurt_minutes"] > 1440:
+        _err(400, "bad_value", key="crew_hurt_minutes")
     if cur["raid_shield_hours"] > 72:
         _err(400, "bad_value", key="raid_shield_hours")
     for t in DEFENSE_TYPES:

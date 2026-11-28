@@ -271,6 +271,11 @@ function ScoutCard({ s, sea, onPlan, onRaid, onOther }: {
       </View>
       <MiniBase s={s} />
       {counts.length ? <Text style={styles.small}>{counts.join(" · ")}</Text> : null}
+      <Text style={styles.small}>
+        {t("gm_ct_enemyGuards", {
+          list: Object.entries(s.guards ?? {}).filter(([, v]) => v).map(([k, v]) => `${t(`gm_crew_${k}`)} ${v}`).join(" · ") || t("gm_ct_none"),
+        })}
+      </Text>
       <View style={styles.row}>
         <Text style={styles.text}>{s.kind === "pirate" ? t("gm_sc_lootPirate") : t("gm_sc_loot")}</Text>
         {s.kind === "user" ? (
