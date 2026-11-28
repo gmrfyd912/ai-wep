@@ -2,7 +2,8 @@ import {
   Canvas, Circle, DashPathEffect, Fill, Group, Image, Line, LinearGradient, Oval, Path, Rect, RoundedRect,
   useClock, useImage, vec, type SkImage,
 } from "@shopify/react-native-skia";
-import { useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
+import { StyleSheet } from "react-native";
 import { useDerivedValue, type SharedValue } from "react-native-reanimated";
 
 import { GameMap, origin, type MapKit } from "@/screens/GameMap";
@@ -147,6 +148,71 @@ function Smoke({ x, y, W, seed, clock }: { x: number; y: number; W: number; seed
   );
 }
 
+/**
+ * 사람 그림 (발이 0,0). 걷는 다리·망치 든 팔은 시계 값으로 움직여, 리액트가 다시 그리지 않는다.
+ * (그림판 안에서 리액트가 다시 그리면 그 순간 끌던 지도가 옛 자리로 한 번 그려져 화면이 떨림)
+ */
+function Figure({ s, color, step, arm }: { s: number; color: string; step: SharedValue<number>; arm?: { hand: SharedValue<{ x: number; y: number }>; head: SharedValue<{ x: number; y: number }>; from: SharedValue<{ x: number; y: number }>; spark: SharedValue<number> } }) {
+  const l1 = useDerivedValue(() => vec(-s * 0.08 + step.value, 0));
+  const l2 = useDerivedValue(() => vec(s * 0.08 - step.value, 0));
+  return (
+    <Group>
+      <Circle cx={0} cy={1} r={s * 0.21} color="#00000033" />
+      <Line p1={vec(-s * 0.06, -s * 0.3)} p2={l1} color="#1E2A4A" strokeWidth={s * 0.1} strokeCap="round" style="stroke" />
+      <Line p1={vec(s * 0.06, -s * 0.3)} p2={l2} color="#1E2A4A" strokeWidth={s * 0.1} strokeCap="round" style="stroke" />
+      <RoundedRect x={-s * 0.15} y={-s * 0.7} width={s * 0.3} height={s * 0.42} r={s * 0.06} color={color} />
+      {arm ? (
+        <>
+          <Rect x={-s * 0.15} y={-s * 0.56} width={s * 0.3} height={s * 0.05} color="#FFD166" />
+          <Line p1={arm.from} p2={arm.hand} color="#F2C9A0" strokeWidth={s * 0.08} strokeCap="round" style="stroke" />
+          <Line p1={arm.hand} p2={arm.head} color="#6B4A2B" strokeWidth={s * 0.06} style="stroke" />
+          <Circle c={arm.head} r={s * 0.07} color="#7D7D7D" />
+          <Circle c={arm.head} r={s * 0.11} color="#FFD23F" opacity={arm.spark} />
+        </>
+      ) : null}
+      <Circle cx={0} cy={-s * 0.82} r={s * 0.13} color="#F2C9A0" />
+      <RoundedRect x={-s * 0.17} y={-s * 0.98} width={s * 0.34} height={s * 0.1} r={s * 0.04} color="#FFC21A" />
+    </Group>
+  );
+}
+
+/** 오가는 대원 (보기용): from → to 걸어갔다 돌아옴 */
+function SkWalker({ from, to, size, color, offset, clock }: { from: Pt; to: Pt; size: number; color: string; offset: number; clock: SharedValue<number> }) {
+  const LOOP = 9000;
+  const tr = useDerivedValue(() => {
+    const t = (clock.value + offset) % LOOP, half = LOOP / 2;
+    const k = t < half ? t / half : 1 - (t - half) / half;
+    return [{ translateX: from[0] + (to[0] - from[0]) * k }, { translateY: from[1] + (to[1] - from[1]) * k }];
+  });
+  const step = useDerivedValue(() => Math.sin(((clock.value + offset) / 140) * Math.PI) * size * 0.12);
+  return <Group transform={tr}><Figure s={size} color={color} step={step} /></Group>;
+}
+
+/** 작업 반장 (공사 중 표시): 건물 앞을 오가다 끝에서 망치질 */
+function SkForeman({ from, to, size, offset, clock }: { from: Pt; to: Pt; size: number; offset: number; clock: SharedValue<number> }) {
+  const CYCLE = 4400, WALK = 1600, HIT = 600, s = size;
+  // st = [k(0 왼쪽 끝 ~ 1 오른쪽 끝), 방향, 망치질 중?, 팔 각도]
+  const st = useDerivedValue(() => {
+    const t = (clock.value + offset) % CYCLE;
+    let k = 0, dir = 1, hit = 0;
+    if (t < WALK) k = t / WALK;
+    else if (t < WALK + HIT) { k = 1; hit = 1; }
+    else if (t < 2 * WALK + HIT) { k = 1 - (t - WALK - HIT) / WALK; dir = -1; }
+    else { k = 0; hit = 1; dir = -1; }
+    const swing = hit ? (Math.sin((t / 150) * Math.PI) > 0 ? -1.1 : 0.3) : -0.4;
+    return { k, dir, hit, swing, t };
+  });
+  const tr = useDerivedValue(() => [{ translateX: from[0] + (to[0] - from[0]) * st.value.k }, { translateY: from[1] + (to[1] - from[1]) * st.value.k }]);
+  const step = useDerivedValue(() => (st.value.hit ? 0 : Math.sin((st.value.t / 140) * Math.PI) * s * 0.12));
+  const armFrom = useDerivedValue(() => vec(st.value.dir * s * 0.18, -s * 0.62));
+  const hand = useDerivedValue(() => vec(st.value.dir * (s * 0.18 + Math.cos(st.value.swing) * s * 0.42), -s * 0.62 + Math.sin(st.value.swing) * s * 0.42));
+  const head = useDerivedValue(() => vec(
+    st.value.dir * (s * 0.18 + Math.cos(st.value.swing) * s * 0.42 + Math.cos(st.value.swing - 1.57) * s * 0.18),
+    -s * 0.62 + Math.sin(st.value.swing) * s * 0.42 + Math.sin(st.value.swing - 1.57) * s * 0.18));
+  const spark = useDerivedValue<number>(() => (st.value.hit && st.value.swing > 0 ? 0.9 : 0));
+  return <Group transform={tr}><Figure s={s} color="#2B3A67" step={step} arm={{ from: armFrom, hand, head, spark }} /></Group>;
+}
+
 /** 지도에 쓰는 그림 파일 (assets/yard) */
 function useYardImages(): Record<string, SkImage | null> {
   return {
@@ -175,7 +241,7 @@ export type YardCanvasProps = {
   map: Omit<React.ComponentProps<typeof GameMap>, "kit" | "layer">;
 };
 
-export default function YardCanvasImpl({ cam, width, height, contentW, contentH, map }: YardCanvasProps) {
+function YardCanvasImpl({ cam, width, height, contentW, contentH, map }: YardCanvasProps) {
   const images = useYardImages();
   const clock = useClock();
   const ready = Object.values(images).every(Boolean);
@@ -189,6 +255,8 @@ export default function YardCanvasImpl({ cam, width, height, contentW, contentH,
     },
     Ground: (p: any) => <Ground {...p} clock={clock} />,
     Smoke: (p: any) => <Smoke {...p} clock={clock} />,
+    Walker: (p: any) => <SkWalker {...p} clock={clock} />,
+    Foreman: (p: any) => <SkForeman {...p} clock={clock} />,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [ready]);
   const transform = useDerivedValue(() => [
@@ -196,7 +264,7 @@ export default function YardCanvasImpl({ cam, width, height, contentW, contentH,
     { translateX: -contentW / 2 }, { translateY: -contentH / 2 },
   ]);
   return (
-    <Canvas style={{ position: "absolute", left: 0, top: 0, width, height }} pointerEvents="none">
+    <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
       <Fill color="#2487CC" />
       <Group transform={transform}>
         <GameMap {...map} kit={kit} layer="art" />
@@ -204,3 +272,16 @@ export default function YardCanvasImpl({ cam, width, height, contentW, contentH,
     </Canvas>
   );
 }
+
+/** 지도에 보이는 것이 바뀌었나 (남은 시간·누르기 함수처럼 그림과 상관없는 값은 빼고 비교) */
+function sig(m: YardCanvasProps["map"]) {
+  return JSON.stringify([m.grid, m.sea, m.W, m.selected, m.reclaiming, m.place, m.ship, m.fleet, m.crews, m.scraps,
+    m.buildings.map((b) => [b.id, b.type, b.level, b.x, b.y, b.w, b.h, !!b.busy_until, b.room, b.defense?.range])]);
+}
+
+/**
+ * 그림이 바뀔 때만 다시 그림. 게임 화면은 남은 시간 때문에 1초마다 다시 그려지는데,
+ * 그때마다 그림판까지 다시 그리면 끌던 지도가 한 번씩 떨린다.
+ */
+export default memo(YardCanvasImpl, (a, b) =>
+  a.cam.tx === b.cam.tx && a.width === b.width && a.height === b.height && a.contentW === b.contentW && a.contentH === b.contentH && sig(a.map) === sig(b.map));

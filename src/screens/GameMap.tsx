@@ -56,6 +56,9 @@ export type MapKit = {
   sprite?: (name: string, x: number, y: number, P: (x: number, y: number) => Pt, W: number, key: string) => ReactNode | null;
   Ground?: Prim;
   Smoke?: Prim;
+  /** 오가는 대원·작업 반장 (없으면 아래 Walker·Foreman) */
+  Walker?: Prim;
+  Foreman?: Prim;
 };
 export const svgKit: MapKit = { G: SvgG, Polygon: SvgPolygon, Line: SvgLine, Circle: SvgCircle, Ellipse: SvgEllipse, Rect: SvgRect, SvgText: SvgText0 };
 /** 새 그림이 있는 건물 (높이: 칸 너비 배수, 누르는 범위에 씀) */
@@ -219,6 +222,7 @@ export function GameMap({
   now: { left: (b: GameBuilding) => string | null; done: string };
 }) {
   const { G, Polygon, Line, Circle, Ellipse, Rect, SvgText } = kit;
+  const WalkerC = kit.Walker ?? Walker, ForemanC = kit.Foreman ?? Foreman;
   const spr = (name: string, x: number, y: number, key: string) => (kit.sprite ? kit.sprite(name, x, y, P, W, key) : null);
   const H = W / 2;
   const WATER_COLS = sea;
@@ -356,7 +360,7 @@ export function GameMap({
     const a = P(dx + 0.5, dy + 0.2), b = P(grid - 0.2, dy - 1.2);
     fill.push(<Line key="pipe" x1={a[0]} y1={a[1] - 0.3 * W} x2={b[0]} y2={b[1]} stroke="#555" strokeWidth={3} />);
     fill.push(<Circle key="spray" cx={b[0]} cy={b[1]} r={0.35 * W} fill="#D9C08A" opacity={0.9} />);
-    fill.push(<Foreman kit={kit} key="rf" from={P(grid + 0.3, grid + 1.4)} to={P(1, grid + 1.4)} size={W * 0.62} offset={777} />);
+    fill.push(<ForemanC kit={kit} key="rf" from={P(grid + 0.3, grid + 1.4)} to={P(1, grid + 1.4)} size={W * 0.62} offset={777} />);
   }
 
   const wall: React.ReactNode[] = [];
@@ -514,7 +518,7 @@ export function GameMap({
         const near = buildings.filter((o) => o.id !== b.id && o.type !== "wall" && o.type !== "mine" && o.x < grid)
           .sort((p1, p2) => Math.abs(p1.x - b.x) + Math.abs(p1.y - b.y) - (Math.abs(p2.x - b.x) + Math.abs(p2.y - b.y)))[0];
         if (near) {
-          walkers.push(<Walker kit={kit} key={`wk${b.id}`} from={P(b.x + b.w / 2, b.y + b.h + 0.2)} to={P(near.x + near.w / 2, near.y + near.h + 0.2)} size={W * 0.55}
+          walkers.push(<WalkerC kit={kit} key={`wk${b.id}`} from={P(b.x + b.w / 2, b.y + b.h + 0.2)} to={P(near.x + near.w / 2, near.y + near.h + 0.2)} size={W * 0.55}
             color={CREW_COLOR[list[0]] ?? "#2B3A67"} offset={b.x * 131 + b.y * 17} />);
         }
       }
@@ -555,7 +559,7 @@ export function GameMap({
     if (b.busy_until && b.type !== "dock") {
       // 공사 중: 작업 반장이 건물 앞쪽을 오가며 망치질 (건물과 같은 층이라 앞 건물에 알맞게 가려짐)
       parts.push(
-        <Foreman kit={kit} key="wk" from={P(b.x + 0.2, b.y + b.h + 0.25)} to={P(b.x + b.w - 0.1, b.y + b.h + 0.25)} size={W * 0.62} offset={(b.x * 7 + b.y * 3) * 300} />,
+        <ForemanC kit={kit} key="wk" from={P(b.x + 0.2, b.y + b.h + 0.25)} to={P(b.x + b.w - 0.1, b.y + b.h + 0.25)} size={W * 0.62} offset={(b.x * 7 + b.y * 3) * 300} />,
       );
     }
     if (sel && b.defense && b.defense.range > 0) {
