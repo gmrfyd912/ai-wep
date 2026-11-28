@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+import board
 import game
 import game_gift
 import store
@@ -109,7 +110,7 @@ def score_of(members, rivals, start, end, st=None):
     cap = caps(st)
     people = {u: {"study": 0, "battle": 0} for u in members}
     if not members:
-        return {"score": 0, "active": 0, "people": people}
+        return {"score": 0, "active": 0, "people": people, "days": {}, "attacks": {}, "seen": set()}
     rivals = set(rivals or [])
     ids = ",".join(members)
     s_iso = _iso(start)
@@ -118,7 +119,7 @@ def score_of(members, rivals, start, end, st=None):
 
     def q(table, params):
         try:
-            return store.select(table, {**params, "limit": "20000"})
+            return board.select_all(table, params)
         except Exception as e:  # noqa: BLE001  (아직 없는 표는 0점)
             print(f"[contest] {table} 못 읽음", str(e)[:120], flush=True)
             return []
@@ -158,9 +159,17 @@ def score_of(members, rivals, start, end, st=None):
     cnt: dict = {}
     for r in got["ans"]:
         cnt[(r["user_id"], r["day"])] = cnt.get((r["user_id"], r["day"]), 0) + 1
+    days: dict = {}     # 매일 문제 다 푼 날 수 (교사 보드용)
     for s in got["sets"]:
         if s.get("question_ids") and cnt.get((s["user_id"], s["day"]), 0) >= len(s["question_ids"]):
             add(s["user_id"], s["day"], "study", PTS["daily"])
+            if d0 <= s["day"] <= d1:
+                days[s["user_id"]] = days.get(s["user_id"], 0) + 1
+    attacks: dict = {}  # 교육생끼리 공격 횟수 (상대 반이 아니어도, 교사 보드용)
+    for r in got["raids"]:
+        t = game._dt(r.get("created_at"))
+        if t and start <= t < end:
+            attacks[r["user_id"]] = attacks.get(r["user_id"], 0) + 1
     for r in got["ox"]:
         add(r["user_id"], r["created_at"], "study", PTS["ox"])
     for r in got["crew"]:
@@ -180,7 +189,8 @@ def score_of(members, rivals, start, end, st=None):
     seen = {r["user_id"] for r in got["seen"] if (game._dt(r.get("last_seen_at")) or start) >= start}
     active = [u for u in members if u in seen or people[u]["study"] + people[u]["battle"] > 0]
     total = sum(p["study"] + p["battle"] for p in people.values())
-    return {"score": round(total / len(active), 1) if active else 0, "active": len(active), "people": people}
+    return {"score": round(total / len(active), 1) if active else 0, "active": len(active), "people": people,
+            "days": days, "attacks": attacks, "seen": seen}
 
 
 # ---- 짝 정하기 · 결과 ----

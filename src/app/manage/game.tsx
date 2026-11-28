@@ -6,11 +6,13 @@ import { AppButton, Body, Card, Screen } from "@/components/ui";
 import {
   adminContestFinish,
   adminContestPair,
+  adminGameStats,
   adminGetContest,
   adminSeasonFinish,
   getGameSettings,
   putGameSettings,
   type AdminContest,
+  type AdminGameStats,
   type GameSettings,
 } from "@/lib/api";
 import { colors, radius, space } from "@/theme";
@@ -41,7 +43,7 @@ const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "s
 /** 바다 지도·공격 칸 (약탈 %·하루 정찰 횟수). 같은 과정 공격 허용은 스위치 */
 const RAID_KEYS = ["raid_loot_pct", "scout_day_max", "raid_day_max", "raid_shield_hours", "raid_newbie_days", "raid_level_gap",
   "raid_rest_days", "raid_defend_rods", "gift_amount", "gift_tech", "gift_recv_max",
-  "contest_study_pct", "contest_day_cap", "contest_win_steel", "contest_win_rods", "contest_win_fame", "contest_join_steel", "season_keep_pct", "gift_fame",
+  "contest_study_pct", "contest_day_cap", "contest_win_steel", "contest_win_rods", "contest_win_fame", "contest_join_steel", "season_keep_pct", "gift_fame", "staff_warn_attacks", "staff_warn_days",
   "raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to", "crew_hurt_minutes"] as const;
 /** 바다 지도·공격 켜기/끄기 스위치 */
 const RAID_SWITCHES = ["raid_pvp", "raid_same_course", "raid_need_daily", "raid_time_lock", "gift_on", "contest_on", "season_on"] as const;
@@ -216,6 +218,7 @@ export default function GameSettingsScreen() {
           </View>
         ))}
       </Card>
+      <StatsAdmin />
       <ContestAdmin />
       <SeasonAdmin />
       <Text style={styles.section}>{t("gm_setLinkTitle")}</Text>
@@ -341,6 +344,66 @@ function SeasonAdmin() {
       <Card style={{ gap: space.sm }}>
         {msg ? <Text style={styles.label}>{msg}</Text> : null}
         <AppButton label={t("gm_as_finish")} variant="secondary" disabled={busy} onPress={run} />
+      </Card>
+    </>
+  );
+}
+
+/** 게임 통계: 최근 7일 전투 수, 해적 단계별 깬 사람, 본관 레벨, 창고 가득·자원 부족·수리 대기 */
+function StatsAdmin() {
+  const { t } = useTranslation();
+  const [v, setV] = useState<AdminGameStats | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const load = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      setV(await adminGameStats());
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const max = v ? Math.max(1, ...v.days.map((d) => d.raid + d.pirate)) : 1;
+  return (
+    <>
+      <Text style={styles.section}>{t("gm_gs_title")}</Text>
+      <Body muted>{t("gm_gs_hint")}</Body>
+      <Card style={{ gap: space.sm }}>
+        {busy ? <ActivityIndicator color={colors.primary} /> : null}
+        {err ? <Text style={{ color: colors.warning }}>{err}</Text> : null}
+        {v ? (
+          <>
+            <Text style={styles.label}>{t("gm_gs_days")}</Text>
+            <View style={{ gap: 3 }}>
+              {v.days.map((d) => (
+                <View key={d.day} style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                  <Text style={[styles.hint, { width: 42 }]}>{d.day.slice(5).replace("-", "/")}</Text>
+                  <View style={{ flex: 1, flexDirection: "row", height: 12 }}>
+                    <View style={{ width: `${(d.raid / max) * 100}%`, backgroundColor: "#FF9B7A", borderRadius: 2 }} />
+                    <View style={{ width: `${(d.pirate / max) * 100}%`, backgroundColor: "#7FC8FF", borderRadius: 2 }} />
+                  </View>
+                  <Text style={[styles.hint, { width: 56, textAlign: "right" }]}>{t("gm_gs_dayN", { raid: d.raid, pirate: d.pirate })}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.hint}>{t("gm_gs_legend")}</Text>
+            <Text style={styles.label}>{t("gm_gs_stages", { n: v.players })}</Text>
+            <Text style={styles.hint}>
+              {v.stages.map((s) => t("gm_gs_stageN", { no: s.stage, n: s.players })).join(" · ")}
+            </Text>
+            <Text style={styles.label}>{t("gm_gs_hq", { avg: v.hq.avg })}</Text>
+            <Text style={styles.hint}>{v.hq.dist.map((d) => t("gm_gs_hqN", { level: d.level, n: d.n })).join(" · ")}</Text>
+            <Text style={styles.label}>{t("gm_gs_full", { pct: v.full_pct, n: v.full.n })}</Text>
+            {v.full.names.length ? <Text style={styles.hint}>{v.full.names.join(", ")}</Text> : null}
+            <Text style={styles.label}>{t("gm_gs_low", { steel: v.low.under.steel, rods: v.low.under.rods, n: v.low.n })}</Text>
+            {v.low.names.length ? <Text style={styles.hint}>{v.low.names.join(", ")}</Text> : null}
+            <Text style={styles.label}>{t("gm_gs_repair", { ships: v.repair.ships, n: v.repair.players })}</Text>
+          </>
+        ) : null}
+        <AppButton label={v ? t("gm_gs_reload") : t("gm_gs_load")} variant="secondary" icon="stats-chart-outline" disabled={busy} onPress={load} />
       </Card>
     </>
   );

@@ -38,6 +38,9 @@ def _match(row, col, cond):
         return v is None if arg == "null" else False
     if op == "in":
         return str(v) in arg.strip("()").split(",")
+    if op == "like":   # PostgREST like: * 는 아무 글자
+        import fnmatch
+        return v is not None and fnmatch.fnmatchcase(str(v), arg)
     if op in ("gt", "gte", "lt"):
         if v is None:
             return False

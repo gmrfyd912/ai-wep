@@ -16,6 +16,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends
 
+import board
 import game
 import game_gift
 import store
@@ -64,8 +65,8 @@ def _fame_rows(ids):
     out: dict = {u: [] for u in ids}
     for i in range(0, len(ids), 150):
         part = ids[i:i + 150]
-        for r in store.select("game_ledger", {"user_id": f"in.({','.join(part)})", "fame": "neq.0",
-                                              "select": "user_id,key,fame,created_at", "limit": "50000"}):
+        for r in board.select_all("game_ledger", {"user_id": f"in.({','.join(part)})", "fame": "neq.0",
+                                                  "select": "user_id,key,fame,created_at", "order": "created_at.asc,key.asc"}):
             out.setdefault(r["user_id"], []).append(r)
     return out
 
@@ -90,7 +91,7 @@ def gained(rows, start, end):
 
 def players():
     """조선소가 있는 교육생 (활동 중·수료) → {uid: {name, courses:[과정 id]}} 와 과정 이름."""
-    users = store.select("users", {"role": "eq.student", "status": "in.(active,graduated)", "select": "id,name"})
+    users = board.select_all("users", {"role": "eq.student", "status": "in.(active,graduated)", "select": "id,name", "order": "id.asc"})
     ids = [u["id"] for u in users]
     if not ids:
         return {}, {}
@@ -98,7 +99,7 @@ def players():
     for i in range(0, len(ids), 150):
         part = ids[i:i + 150]
         has |= {b["user_id"] for b in store.select("game_bases", {"user_id": f"in.({','.join(part)})", "select": "user_id"})}
-    links = store.select("user_courses", {"select": "user_id,course_id"})
+    links = board.select_all("user_courses", {"select": "user_id,course_id", "order": "user_id.asc,course_id.asc"})
     courses = {c["id"]: c for c in store.select("courses", {"select": "id,name,active,sort", "order": "sort.asc,name.asc"})}
     out = {}
     for u in users:
@@ -175,8 +176,8 @@ def badges_of(ids=None):
     """사람마다 가장 최근 시즌 배지 {uid: {season, badge, rank}} (1분 기억)."""
     hit = _cache.get("badges")
     if not hit or time.monotonic() - hit[0] > CACHE_TTL:
-        rows = _db("배지 읽기", lambda: store.select("game_season_badges", {"select": "season,user_id,badge,rank,fame,course_id",
-                                                                         "order": "season.desc", "limit": "50000"})) or []
+        rows = _db("배지 읽기", lambda: board.select_all("game_season_badges", {"select": "season,user_id,badge,rank,fame,course_id",
+                                                                             "order": "season.desc,user_id.asc"})) or []
         latest = {}
         for r in rows:
             latest.setdefault(r["user_id"], r)
