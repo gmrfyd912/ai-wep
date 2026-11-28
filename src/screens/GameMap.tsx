@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 
-import type { GameBuilding, GameShipKind } from "@/lib/api";
+import type { GameBuilding, GameShipKind, GameWarKind } from "@/lib/api";
 
 /** 건물 색 (화면 범례와 같음) */
 export const BUILDING_COLOR: Record<string, string> = {
@@ -12,10 +12,12 @@ export const BUILDING_COLOR: Record<string, string> = {
   welding: "#E07B39",
   academy: "#7A5FB0",
   dock: "#2B7FBF",
+  pier: "#8A6A47",
 };
+/** 전투함 회색 (상선은 빨간 배) */
+export const WAR_COLOR = "#6F7C8A";
 export const RES_COLOR = { steel: "#8FA3B8", rods: "#F2A516", tech: "#57C4E5", passes: "#E05A9B", fame: "#FFD166" };
-const BASE_H: Record<string, number> = { hq: 1.5, yard: 0.5, rodstore: 0.7, cutting: 0.9, welding: 1.0, academy: 1.1, dock: 0 };
-const WATER_COLS = 2;
+const BASE_H: Record<string, number> = { hq: 1.5, yard: 0.5, rodstore: 0.7, cutting: 0.9, welding: 1.0, academy: 1.1, dock: 0, pier: 0.25 };
 
 type Pt = [number, number];
 
@@ -28,8 +30,8 @@ function shade(hex: string, k: number) {
 const pts = (a: Pt[]) => a.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
 
 /** 지도 크기: 칸 너비 W 에서 전체 너비·높이 */
-export function mapSize(grid: number, W: number) {
-  return { width: (grid + WATER_COLS + 0.6) * W, height: (grid / 2 + 3.6) * W };
+export function mapSize(grid: number, W: number, sea = 2) {
+  return { width: (grid + sea + 0.6) * W, height: (grid / 2 + 3.6) * W };
 }
 
 /**
@@ -39,6 +41,9 @@ export function mapSize(grid: number, W: number) {
  */
 export function GameMap({
   grid,
+  sea = 2,
+  reclaiming = false,
+  fleet = [],
   W,
   buildings,
   selected,
@@ -50,20 +55,27 @@ export function GameMap({
   now,
 }: {
   grid: number;
+  /** 바다 줄 수 */
+  sea?: number;
+  /** 간척 공사 중: 새로 생길 땅을 메우는 모습 */
+  reclaiming?: boolean;
+  /** 군항 부두에 정박한 전투함 (오래된 것부터) */
+  fleet?: GameWarKind[];
   W: number;
   buildings: GameBuilding[];
   selected: string | null;
   labels: Record<string, string>;
   /** 놓기 모드: 놓을 건물 크기·추천 자리·지금 고른 자리 */
-  place: { w: number; h: number; skipId?: string; hint?: { x: number; y: number } | null; pick?: { x: number; y: number } | null; color: string } | null;
-  ship: { kind: GameShipKind; stage: number } | null;
+  place: { w: number; h: number; coast?: boolean; skipId?: string; hint?: { x: number; y: number } | null; pick?: { x: number; y: number } | null; color: string } | null;
+  ship: { kind: GameShipKind | GameWarKind; stage: number; war?: boolean } | null;
   onSelect: (id: string | null) => void;
   onPlace: (x: number, y: number) => void;
   /** 화면 글자: 남은 시간 등 */
   now: { left: (b: GameBuilding) => string | null; done: string };
 }) {
   const H = W / 2;
-  const { width, height } = mapSize(grid, W);
+  const WATER_COLS = sea;
+  const { width, height } = mapSize(grid, W, sea);
   const ox = (grid / 2 + 0.3) * W;
   const oy = 2.6 * W;
   const P = (x: number, y: number): Pt => [ox + ((x - y) * W) / 2, oy + ((x + y) * H) / 2];
@@ -92,6 +104,7 @@ export function GameMap({
   const fits = (x: number, y: number) => {
     if (!place) return false;
     if (x + place.w > grid || y + place.h > grid) return false;
+    if (place.coast && x + place.w !== grid) return false;
     for (let i = 0; i < place.w; i++) for (let j = 0; j < place.h; j++) if (occupied.has(`${x + i},${y + j}`)) return false;
     return true;
   };
@@ -115,6 +128,26 @@ export function GameMap({
       );
     }
 
+  // 간척 중: 새로 생길 땅(오른쪽 2줄·아래 2줄)을 모래로 메우는 중
+  const fill: React.ReactNode[] = [];
+  if (reclaiming) {
+    for (let x = 0; x < grid + 2; x++)
+      for (let y = 0; y < grid + 2; y++) {
+        if (x < grid && y < grid) continue;
+        if (x >= grid + WATER_COLS) continue;
+        const corners = [P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)];
+        fill.push(<Polygon key={`f${x}-${y}`} points={pts(corners)} fill={(x + y) % 2 ? "#D9C08A" : "#CFB57D"} stroke="#0000001A" strokeWidth={0.5} opacity={0.5} />);
+      }
+    // 모래를 뿜는 준설선 + 작업 반장
+    const dx = grid + 0.6, dy = Math.max(1, grid - 4);
+    fill.push(box(dx, dy, 1.1, 1.6, 0.3 * W, "#E0A526", "dredge"));
+    fill.push(box(dx + 0.2, dy + 0.9, 0.6, 0.5, 0.8 * W, "#F2F2F2", "dredgeHouse"));
+    const a = P(dx + 0.5, dy + 0.2), b = P(grid - 0.2, dy - 1.2);
+    fill.push(<Line key="pipe" x1={a[0]} y1={a[1] - 0.3 * W} x2={b[0]} y2={b[1]} stroke="#555" strokeWidth={3} />);
+    fill.push(<Circle key="spray" cx={b[0]} cy={b[1]} r={0.35 * W} fill="#D9C08A" opacity={0.9} />);
+    fill.push(<Foreman key="rf" from={P(grid + 0.3, grid + 1.4)} to={P(1, grid + 1.4)} size={W * 0.62} offset={777} />);
+  }
+
   // 방파제 (아래쪽 가장자리)
   const wall: React.ReactNode[] = [];
   for (let x = 0; x < grid; x++) wall.push(box(x, grid - 0.35, 1, 0.35, 0.28 * W, "#7D7D7D", `w${x}`));
@@ -131,13 +164,14 @@ export function GameMap({
       // 도크: 물 + 크레인 기둥 + 배
       const A = P(b.x, b.y), B = P(b.x + b.w, b.y), C = P(b.x + b.w, b.y + b.h), D = P(b.x, b.y + b.h);
       parts.push(<Polygon key="pool" points={pts([A, B, C, D])} fill="#1F6FA8" stroke="#555" strokeWidth={2} />);
+      const hullC = ship?.war ? WAR_COLOR : "#B33B2E";
       if (ship) {
         const len = [1.2, 2.2, 3.2, 4.4, 4.4][ship.stage] ?? 4.4;
         const hullY = b.y + 0.3;
         if (ship.stage <= 1) {
-          for (let k = 0; k < ship.stage + 2; k++) parts.push(box(b.x + 0.5, hullY + k * 1.1, 1, 0.9, 0.25 * W, "#B33B2E", `blk${k}`));
+          for (let k = 0; k < ship.stage + 2; k++) parts.push(box(b.x + 0.5, hullY + k * 1.1, 1, 0.9, 0.25 * W, hullC, `blk${k}`));
         } else {
-          parts.push(box(b.x + 0.3, hullY, 1.4, len, 0.35 * W, "#B33B2E", "hull"));
+          parts.push(box(b.x + 0.3, hullY, 1.4, len, 0.35 * W, hullC, "hull"));
           parts.push(box(b.x + 0.35, hullY + 0.1, 1.3, len - 0.2, 0.16 * W, "#34495E", "deck"));
           if (ship.stage >= 3) parts.push(box(b.x + 0.5, hullY + len - 1.1, 1, 0.9, 0.75 * W, "#F0F0F0", "house"));
         }
@@ -151,6 +185,18 @@ export function GameMap({
           <Polygon points={pts([[c1[0], c1[1] - ch], [c2[0], c2[1] - ch], [c2[0], c2[1] - ch - 6], [c1[0], c1[1] - ch - 6]])} fill="#F2C230" stroke="#0004" />
         </G>,
       );
+    } else if (b.type === "pier" && b.level > 0) {
+      // 군항 부두: 낮은 잔교 + 계류 기둥, 옆 바다에 전투함이 나란히 정박
+      parts.push(box(b.x + 0.1, b.y + 0.05, b.w - 0.1, b.h - 0.1, 0.22 * W, color, "deck"));
+      for (let k = 0; k < b.h; k++) parts.push(box(b.x + b.w - 0.3, b.y + k + 0.4, 0.15, 0.15, 0.45 * W, "#333", `bol${k}`));
+      fleet.slice(0, 6).forEach((kind, i) => {
+        const col = Math.floor(i / b.h), row = i % b.h;
+        const sx = b.x + b.w + 0.1 + col * 1.05, sy = b.y + row + 0.2;
+        const len = kind === "frigate" ? 0.95 : 0.75;
+        parts.push(box(sx, sy, len, 0.55, 0.22 * W, WAR_COLOR, `ws${i}`));
+        parts.push(box(sx + 0.05, sy + 0.05, len - 0.1, 0.45, 0.1 * W, "#4A5561", `wd${i}`));
+        parts.push(box(sx + len * 0.35, sy + 0.12, 0.28, 0.3, 0.42 * W, "#C9D1D9", `wh${i}`));
+      });
     } else if (b.level === 0) {
       // 새로 짓는 중: 비계(뼈대)
       parts.push(box(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, 0.12 * W, "#9B8F7A", "base"));
@@ -247,6 +293,7 @@ export function GameMap({
     <Svg width={width} height={height}>
       <Rect x={0} y={0} width={width} height={height} fill="#1F6FA8" onPress={() => !place && onSelect(null)} />
       {ground}
+      {fill}
       {hint}
       {wall}
       {items}
