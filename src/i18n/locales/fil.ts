@@ -1990,6 +1990,8 @@ const fil: Translation = {
   gm_namesOn: "Ipakita lahat ng pangalan ng gusali: on",
   gm_namesOff: "Ipakita lahat ng pangalan ng gusali: off",
   gm_scrapFull: "Nalinis ang scrap. Puno ang imbakan kaya walang nadagdag (i-upgrade ang imbakan).",
+  gm_bl_groupReady: "{{n}} puwede na · i-tap para makita",
+  gm_bl_groupNone: "Wala pang puwede · i-tap para makita",
   gm_err_students_only: "Para sa mga trainee lang ang Shipyard ni Weldy.",
   gm_err_game_off: "Naka-off ang laro ngayon.",
   gm_err_money: "Kulang ang resources",

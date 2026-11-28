@@ -361,6 +361,9 @@ export default function GameScreen() {
   const sea = data.sea ?? 2;
   const W = Math.max(8, fitWOf(width, height, data.grid) * zoom);
   const mapDim = mapSize(data.grid, W, sea);
+  // 가장 작게 줄여도 지도 그림이 화면을 다 덮게 (그림 밖 빈 곳이 안 보이게)
+  const dim1 = mapSize(data.grid, fitWOf(width, height, data.grid), sea);
+  const minZoom = Math.min(1, Math.max(width / dim1.width, height / dim1.height) * 1.01);
   const sel = data.buildings.find((b) => b.id === selected) ?? null;
   const wallCat = data.catalog.find((k) => k.type === "wall");
   // 아직 서버로 안 보낸 장벽 칸만큼 미리 빼서 보여 줌
@@ -956,7 +959,7 @@ export default function GameScreen() {
     <View style={styles.full}>
       <StatusBar hidden />
       {/* 지도: 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소 (메뉴·창에 가려진 곳도 끌어서 봄) */}
-      <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.5} maxZoom={2.5} onZoom={setZoom}
+      <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={Math.max(zoom, minZoom)} minZoom={minZoom} maxZoom={2.5} edge={0} onZoom={(z) => setZoom(Math.max(z, minZoom))}
         onMove={(on) => { moving.current = { on, at: Date.now() }; }}
         onTapEmpty={() => tapOk() && tapEmpty()}
         grab={mode === "place" && placeType === "wall" && !moveId
@@ -1584,6 +1587,7 @@ function BuildList({
 }) {
   const { t } = useTranslation();
   const name = (k: string) => t(`gm_b_${k}`);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const free = data.builders.busy < data.builders.total;
   const hq = data.buildings.find((b) => b.type === "hq");
   const hqLv = hq?.level ?? 1;
@@ -1664,6 +1668,46 @@ function BuildList({
       {r.cost ? <Ionicons name="chevron-forward" size={16} color={colors.muted} /> : <Ionicons name="lock-closed" size={16} color={colors.muted} />}
     </Pressable>
   );
+  // 같은 종류는 한 줄로 접어 두고, 누르면 펼침 (예: 해안포대 3개 → '해안포대 ×3' 한 줄)
+  const Groups = ({ list }: { list: BuildRow[] }) => {
+    const order: string[] = [];
+    const by: Record<string, BuildRow[]> = {};
+    for (const r of list) {
+      if (!by[r.type]) {
+        by[r.type] = [];
+        order.push(r.type);
+      }
+      by[r.type].push(r);
+    }
+    return (
+      <>
+        {order.map((k) => {
+          const g = by[k];
+          if (g.length === 1) return <Row key={k} r={g[0]} />;
+          const on = open[k];
+          const ready = g.filter((r) => !r.off).length;
+          const have = data.buildings.filter((b) => b.type === k && b.level > 0).length;
+          return (
+            <View key={k} style={{ gap: 6 }}>
+              <Pressable onPress={() => setOpen((o) => ({ ...o, [k]: !o[k] }))} style={({ pressed }) => [styles.blRow, pressed && { opacity: 0.7 }]}>
+                <View style={[styles.blIcon, { backgroundColor: BUILDING_COLOR[k] }]}>
+                  <Text style={styles.blLv}>{have || g.length}</Text>
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={styles.textB} numberOfLines={1}>{`${name(k)} ×${have || g.length}`}</Text>
+                  <Text style={[styles.small, { color: ready ? "#7FD18F" : colors.warning }]} numberOfLines={1}>
+                    {ready ? t("gm_bl_groupReady", { n: ready }) : t("gm_bl_groupNone")}
+                  </Text>
+                </View>
+                <Ionicons name={on ? "chevron-up" : "chevron-down"} size={18} color={colors.muted} />
+              </Pressable>
+              {on ? <View style={{ gap: 6, paddingLeft: 14 }}>{g.map((r) => <Row key={r.key} r={r} />)}</View> : null}
+            </View>
+          );
+        })}
+      </>
+    );
+  };
   return (
     <Card style={{ gap: space.sm }}>
       <PanelHead title={t("gm_bl_title")} onClose={onClose} />
@@ -1677,7 +1721,7 @@ function BuildList({
       {other.length ? (
         <>
           <Text style={styles.blSec}>{t("gm_bl_other")}</Text>
-          {other.map((r) => <Row key={r.key} r={r} />)}
+          <Groups list={other} />
         </>
       ) : null}
       {defs.length ? (
@@ -1685,7 +1729,7 @@ function BuildList({
           <View style={{ marginTop: space.xs }}>
             <InfoTitle big title={t("gm_defTitle")} info={t("gm_defIntro")} />
           </View>
-          {defs.map((r) => <Row key={r.key} r={r} />)}
+          <Groups list={defs} />
         </>
       ) : null}
       {locked.length ? (

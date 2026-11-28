@@ -25,6 +25,7 @@ export function PanZoom({
   grab = null,
   onGrab,
   focus = null,
+  edge = 0.35,
   children,
 }: {
   width: number;
@@ -48,6 +49,8 @@ export function PanZoom({
   onGrab?: (phase: "start" | "move" | "end", x: number, y: number) => void;
   /** 지도 그림 안의 이 점(x, y)이 화면 가운데에 오게 부드럽게 옮김 (n 이 바뀔 때마다) */
   focus?: { x: number; y: number; n: number } | null;
+  /** 지도 그림 끝을 넘어 더 끌 수 있는 여유 (화면 크기 비율). 0 = 그림 끝이 화면 끝에 닿으면 멈춤 */
+  edge?: number;
   children: ReactNode;
 }) {
   const s = useSharedValue(1);
@@ -59,7 +62,7 @@ export function PanZoom({
   const fx = useSharedValue(0);
   const fy = useSharedValue(0);
   const z = useSharedValue(zoom);
-  const dim = useSharedValue({ w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom });
+  const dim = useSharedValue({ w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom, e: edge });
   const box = useSharedValue<{ x1: number; y1: number; x2: number; y2: number } | null>(grab);
   const dragging = useSharedValue(false);
   useEffect(() => {
@@ -71,8 +74,12 @@ export function PanZoom({
   const grabJS = (phase: "start" | "move" | "end", x: number, y: number) => grabRef.current?.(phase, x, y);
 
   useEffect(() => {
-    dim.value = { w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom };
-  }, [width, height, contentW, contentH, minZoom, maxZoom, dim]);
+    dim.value = { w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom, e: edge };
+    // 크기가 바뀌면(확대·화면 돌림) 지금 위치도 다시 범위 안으로
+    tx.value = clampX(tx.value, s.value);
+    ty.value = clampY(ty.value, s.value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [width, height, contentW, contentH, minZoom, maxZoom, edge, dim]);
 
   // 손을 떼서 지도를 새 크기로 다시 그리면, 그만큼 화면 변환 배율을 되돌려 크기가 튀지 않게
   const prev = useRef(zoom);
@@ -98,13 +105,13 @@ export function PanZoom({
   const clampX = (v: number, sc: number) => {
     "worklet";
     const d = dim.value;
-    const lim = Math.max(0, (d.cw * sc - d.w) / 2) + d.w * 0.35;
+    const lim = Math.max(0, (d.cw * sc - d.w) / 2) + d.w * d.e;
     return Math.min(lim, Math.max(-lim, v));
   };
   const clampY = (v: number, sc: number) => {
     "worklet";
     const d = dim.value;
-    const lim = Math.max(0, (d.ch * sc - d.h) / 2) + d.h * 0.35;
+    const lim = Math.max(0, (d.ch * sc - d.h) / 2) + d.h * d.e;
     return Math.min(lim, Math.max(-lim, v));
   };
 

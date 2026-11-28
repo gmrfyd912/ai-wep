@@ -1990,6 +1990,8 @@ const en: Translation = {
   gm_namesOn: "Show all building names: on",
   gm_namesOff: "Show all building names: off",
   gm_scrapFull: "Scrap cleared. Your storage is full, so no resources were added (upgrade storage).",
+  gm_bl_groupReady: "{{n}} ready now · tap to see",
+  gm_bl_groupNone: "Nothing available now · tap to see",
   gm_err_students_only: "Weldy's Shipyard is for trainees only.",
   gm_err_game_off: "The game is turned off right now.",
   gm_err_money: "Not enough resources",
