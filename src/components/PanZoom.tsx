@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { GestureDetector, usePanGesture, usePinchGesture, useSimultaneousGestures } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 /**
  * 지도 움직이기·확대: 한 손가락으로 끌어 옮기고, 두 손가락으로 벌리거나 오므려 확대·축소.
@@ -24,6 +24,7 @@ export function PanZoom({
   zoomNonce = 0,
   grab = null,
   onGrab,
+  focus = null,
   children,
 }: {
   width: number;
@@ -45,6 +46,8 @@ export function PanZoom({
   grab?: { x1: number; y1: number; x2: number; y2: number } | null;
   /** grab 을 끄는 중: 지도 그림 안의 손가락 위치 (시작 start → 움직임 move → 끝 end) */
   onGrab?: (phase: "start" | "move" | "end", x: number, y: number) => void;
+  /** 지도 그림 안의 이 점(x, y)이 화면 가운데에 오게 부드럽게 옮김 (n 이 바뀔 때마다) */
+  focus?: { x: number; y: number; n: number } | null;
   children: ReactNode;
 }) {
   const s = useSharedValue(1);
@@ -104,6 +107,15 @@ export function PanZoom({
     const lim = Math.max(0, (d.ch * sc - d.h) / 2) + d.h * 0.35;
     return Math.min(lim, Math.max(-lim, v));
   };
+
+  // 짓기 목록에서 건물을 고르면 그 건물로 화면을 옮김
+  useEffect(() => {
+    if (!focus) return;
+    const sc = s.value;
+    tx.value = withTiming(clampX(-(focus.x - contentW / 2) * sc, sc), { duration: 350 });
+    ty.value = withTiming(clampY(-(focus.y - contentH / 2) * sc, sc), { duration: 350 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.n]);
 
   const moved = (v: boolean) => onMove?.(v);
   const pinch = usePinchGesture({

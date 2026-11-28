@@ -49,6 +49,13 @@ export function mapSize(grid: number, W: number, sea = 2) {
   return { width: (grid + sea + 0.6) * W, height: (grid / 2 + 3.6) * W };
 }
 
+/** 건물 가운데가 지도 그림에서 어디인지 (화면을 그 건물로 옮길 때) */
+export function centerOf(b: { x: number; y: number; w: number; h: number }, grid: number, W: number) {
+  const ox = (grid / 2 + 0.3) * W, oy = 2.6 * W;
+  const x = b.x + b.w / 2, y = b.y + b.h / 2;
+  return { x: ox + ((x - y) * W) / 2, y: oy + ((x + y) * W) / 4 };
+}
+
 /** 놓을 건물 크기·조건 */
 export type PlaceRule = { w: number; h: number; coast?: boolean; sea?: boolean; skipId?: string };
 
@@ -123,6 +130,8 @@ export function GameMap({
   ship,
   onSelect,
   onPlace,
+  onCollect,
+  names = true,
   now,
 }: {
   grid: number;
@@ -146,6 +155,10 @@ export function GameMap({
   ship: { kind: GameShipKind | GameWarKind; stage: number; war?: boolean } | null;
   onSelect: (id: string | null) => void;
   onPlace: (x: number, y: number) => void;
+  /** 건물 위 '받기' 동그라미를 눌렀을 때 (생산분 받기) */
+  onCollect?: () => void;
+  /** 모든 건물 이름표 보이기 (끄면 고른 건물·공사 중 시간·받기 동그라미만) */
+  names?: boolean;
   /** 화면 글자: 남은 시간 등 */
   now: { left: (b: GameBuilding) => string | null; done: string };
 }) {
@@ -332,7 +345,9 @@ export function GameMap({
     }
     // 이름표는 아래에서 따로 맨 위 층에 그린다 (건물에 가리거나 서로 겹치지 않게)
     const top = P(b.x + b.w / 2, b.y + b.h / 2);
-    if (!NO_TAG.has(b.type) || sel || b.busy_until) tagInfo.push({ b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
+    const coinOn = b.pending > 0 && !b.busy_until;
+    if ((names && !NO_TAG.has(b.type)) || sel || b.busy_until || b.just_done || coinOn)
+      tagInfo.push({ b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
     return (
       <G key={b.id} onPress={place ? undefined : () => onSelect(b.id)}>
         {parts}
@@ -349,13 +364,15 @@ export function GameMap({
     .sort((a, b) => b.y - a.y)
     .map(({ b, sel, cx, y }) => {
       const label = labels[b.type] + (b.type === "dock" || b.level === 0 ? "" : ` ${b.level}`);
-      const tw = label.length * fs * 0.95 + 10;
+      const showName = (names && !NO_TAG.has(b.type)) || sel;
+      const tw = showName ? label.length * fs * 0.95 + 10 : 0;
       const left = now.left(b);
       const chip = left ?? (b.just_done ? now.done : null);
       const cw = chip ? chip.length * fs * 0.75 + 12 : 0;
       const coin = !chip && b.pending > 0;
-      const half = Math.max(tw, cw) / 2 + (coin ? fs * 1.6 + 6 : 0);
-      const blockH = (chip ? 2 * fs + 12 : fs + 6) + 2;
+      const cr = fs * 1.25;   // 받기 동그라미 반지름
+      const half = Math.max(tw, cw, coin ? cr * 2 : 0) / 2 + 2;
+      const blockH = (chip ? 2 * fs + 12 : fs + 6) + (coin ? cr * 2 + 4 : 0) + 2;
       let tagY = y;
       for (let k = 0; k < 8; k++) {
         const r = { x1: cx - half, x2: cx + half, y1: tagY - blockH, y2: tagY + 6 };
@@ -366,20 +383,29 @@ export function GameMap({
       return (
         <G key={`tag-${b.id}`} onPress={place ? undefined : () => onSelect(b.id)}>
           {tagY < y - 2 && <Line x1={cx} y1={tagY + 4} x2={cx} y2={y + 4} stroke="#0B2033AA" strokeWidth={1.2} />}
-          <Rect x={cx - tw / 2} y={tagY - fs - 2} width={tw} height={fs + 6} rx={(fs + 6) / 2} fill={sel ? "#FF8A1F" : "#0B2033D9"} />
-          <SvgText x={cx} y={tagY + 1} fontSize={fs} fill="#fff" textAnchor="middle">
-            {label}
-          </SvgText>
+          {showName ? (
+            <G>
+              <Rect x={cx - tw / 2} y={tagY - fs - 2} width={tw} height={fs + 6} rx={(fs + 6) / 2} fill={sel ? "#FF8A1F" : "#0B2033D9"} />
+              <SvgText x={cx} y={tagY + 1} fontSize={fs} fill="#fff" textAnchor="middle">
+                {label}
+              </SvgText>
+            </G>
+          ) : null}
           {chip && (
             <G>
-              <Rect x={cx - cw / 2} y={tagY - 2 * fs - 8} width={cw} height={fs + 6} rx={(fs + 6) / 2} fill={left ? "#0B2033" : "#2E9D5B"} />
-              <SvgText x={cx} y={tagY - fs - 5} fontSize={fs} fill={left ? "#FFD166" : "#fff"} textAnchor="middle">
+              <Rect x={cx - cw / 2} y={tagY - (showName ? 2 * fs + 8 : fs + 2)} width={cw} height={fs + 6} rx={(fs + 6) / 2} fill={left ? "#0B2033" : "#2E9D5B"} />
+              <SvgText x={cx} y={tagY - (showName ? fs + 5 : -1)} fontSize={fs} fill={left ? "#FFD166" : "#fff"} textAnchor="middle">
                 {chip}
               </SvgText>
             </G>
           )}
           {coin && (
-            <Circle cx={cx + tw / 2 + 6} cy={tagY - fs / 2} r={fs * 0.75} fill={b.type === "cutting" ? RES_COLOR.steel : RES_COLOR.rods} stroke="#fff" strokeWidth={1.5} />
+            // 받기 동그라미: 누르면 바로 생산분 받기
+            <G onPress={place ? undefined : () => (onCollect ? onCollect() : onSelect(b.id))}>
+              <Circle cx={cx} cy={tagY - (showName ? fs + 4 : 0) - cr} r={cr} fill="#FFFFFF" stroke="#0B2033" strokeWidth={2} />
+              <Rect x={cx - cr * 0.45} y={tagY - (showName ? fs + 4 : 0) - cr * 1.45} width={cr * 0.9} height={cr * 0.9} rx={2}
+                fill={b.type === "cutting" ? RES_COLOR.steel : RES_COLOR.rods} />
+            </G>
           )}
         </G>
       );
