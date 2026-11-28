@@ -160,10 +160,14 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
         })}
         {fr.s.map(([x, y, hp, out], k) => {
           const sh = battle.ships[k];
-          const px = x * cell, py = y * cell, r = cell * (sh.kind === "frigate" ? 0.42 : 0.34);
+          const px = x * cell, py = y * cell, r = cell * (sh.kind === "landing" ? 0.48 : sh.kind === "frigate" ? 0.42 : 0.34);
+          // 상륙함은 앞이 뭉툭한 넓은 배 모양, 나머지는 뾰족한 배 모양
+          const hull = sh.kind === "landing"
+            ? `${px - r},${py - r * 0.35} ${px - r * 0.75},${py - r * 0.6} ${px + r * 0.8},${py - r * 0.6} ${px + r * 0.8},${py + r * 0.6} ${px - r * 0.75},${py + r * 0.6} ${px - r},${py + r * 0.35}`
+            : `${px - r},${py} ${px + r * 0.8},${py - r * 0.55} ${px + r * 0.8},${py + r * 0.55}`;
           return (
             <G key={`s${k}`} opacity={out ? 0.35 : 1}>
-              <Polygon points={`${px - r},${py} ${px + r * 0.8},${py - r * 0.55} ${px + r * 0.8},${py + r * 0.55}`} fill={WAR_COLOR} stroke="#fff" strokeWidth={1.2} />
+              <Polygon points={hull} fill={WAR_COLOR} stroke="#fff" strokeWidth={1.2} />
               <Rect x={px - r} y={py - r - 6} width={r * 2} height={4} fill="#0008" />
               <Rect x={px - r} y={py - r - 6} width={r * 2 * Math.max(0, hp / sh.max_hp)} height={4} fill="#7FD18F" />
             </G>
