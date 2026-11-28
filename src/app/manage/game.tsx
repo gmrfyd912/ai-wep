@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Screen } from "@/components/ui";
@@ -30,12 +30,15 @@ const EXAM_KEYS = ["hq_exam_ox", "hq_exam_mc", "hq_exam_word", "hq_exam_short", 
 /** 자재 조달 칸 (종류별 문제 수 + 1문제 보상 + 하루 횟수) */
 const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "supply_rods", "supply_day_max"] as const;
 const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS, ...SUPPLY_KEYS];
+/** 방어 시설과 연결할 교재 장 (0 = 자동) */
+const DEFENSE = ["battery", "missile", "mine", "asw", "radar", "wall"] as const;
 
 /** 관리자: 웰디의 조선소 게임 설정 (켜기·공부 보상 숫자·장 완료 기준) */
 export default function GameSettingsScreen() {
   const { t } = useTranslation();
   const [st, setSt] = useState<GameSettings | null>(null);
   const [defaults, setDefaults] = useState<GameSettings | null>(null);
+  const [units, setUnits] = useState<string[]>([]);
   const [text, setText] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
@@ -50,6 +53,7 @@ export default function GameSettingsScreen() {
       .then((r) => {
         fill(r.settings);
         setDefaults(r.defaults);
+        setUnits(r.units ?? []);
       })
       .catch(() => setMsg(t("gm_err_network")));
   }, [t]);
@@ -159,6 +163,33 @@ export default function GameSettingsScreen() {
           </View>
         ))}
       </Card>
+      <Text style={styles.section}>{t("gm_setLinkTitle")}</Text>
+      <Body muted>{t("gm_setLinkHint")}</Body>
+      <Card style={{ gap: space.sm }}>
+        {units.length === 0 ? <Text style={styles.hint}>{t("gm_setLinkNone")}</Text> : null}
+        {units.length
+          ? DEFENSE.map((d, i) => {
+              const key = `link_${d}`;
+              const n = Number(st[key] ?? 0);
+              const auto = n < 1 || n > units.length;
+              const title = auto ? t("gm_setLinkAuto", { title: `${(i % units.length) + 1}. ${units[i % units.length]}` }) : `${n}. ${units[n - 1]}`;
+              return (
+                <View key={d} style={styles.row}>
+                  <Text style={styles.label}>{t(`gm_b_${d}`)}</Text>
+                  <Pressable
+                    disabled={saving}
+                    onPress={() => save({ ...st, [key]: auto ? 1 : n >= units.length ? 0 : n + 1 })}
+                    style={styles.pick}
+                  >
+                    <Text style={styles.pickText} numberOfLines={2}>
+                      {title}
+                    </Text>
+                  </Pressable>
+                </View>
+              );
+            })
+          : null}
+      </Card>
       {msg ? <Text style={{ color: colors.muted }}>{msg}</Text> : null}
       <AppButton label={t("common_save")} icon="save-outline" disabled={saving} onPress={saveNumbers} />
     </Screen>
@@ -170,6 +201,8 @@ const styles = StyleSheet.create({
   label: { color: colors.text, fontSize: 14 },
   section: { color: colors.text, fontSize: 16, fontWeight: "700", marginTop: space.sm },
   hint: { color: colors.muted, fontSize: 12 },
+  pick: { flex: 1, maxWidth: 260, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.sm, paddingVertical: 6, paddingHorizontal: 10 },
+  pickText: { color: colors.text, fontSize: 13, textAlign: "right" },
   input: {
     width: 90,
     color: colors.text,

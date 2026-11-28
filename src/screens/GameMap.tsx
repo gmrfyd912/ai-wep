@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, Ellipse, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 
 import type { GameBuilding, GameShipKind, GameWarKind } from "@/lib/api";
 
@@ -13,11 +13,22 @@ export const BUILDING_COLOR: Record<string, string> = {
   academy: "#7A5FB0",
   dock: "#2B7FBF",
   pier: "#8A6A47",
+  battery: "#6B7A4F",
+  missile: "#A0453F",
+  mine: "#D0342C",
+  asw: "#3E8582",
+  radar: "#B9BFD0",
+  wall: "#8E8E8E",
 };
+/** 방어 시설 (지도에 이름표 대신 레벨만 작게: 장벽·기뢰는 많아서 이름표 생략) */
+const NO_TAG = new Set(["wall", "mine"]);
 /** 전투함 회색 (상선은 빨간 배) */
 export const WAR_COLOR = "#6F7C8A";
 export const RES_COLOR = { steel: "#8FA3B8", rods: "#F2A516", tech: "#57C4E5", passes: "#E05A9B", fame: "#FFD166" };
-const BASE_H: Record<string, number> = { hq: 1.5, yard: 0.5, rodstore: 0.7, cutting: 0.9, welding: 1.0, academy: 1.1, dock: 0, pier: 0.25 };
+const BASE_H: Record<string, number> = {
+  hq: 1.5, yard: 0.5, rodstore: 0.7, cutting: 0.9, welding: 1.0, academy: 1.1, dock: 0, pier: 0.25,
+  battery: 0.35, missile: 0.3, mine: 0, asw: 0.6, radar: 0.3, wall: 0.4,
+};
 
 type Pt = [number, number];
 
@@ -66,7 +77,12 @@ export function GameMap({
   selected: string | null;
   labels: Record<string, string>;
   /** 놓기 모드: 놓을 건물 크기·추천 자리·지금 고른 자리 */
-  place: { w: number; h: number; coast?: boolean; skipId?: string; hint?: { x: number; y: number } | null; pick?: { x: number; y: number } | null; color: string } | null;
+  place: {
+    w: number; h: number; coast?: boolean;
+    /** 바다에 놓는 것 (기뢰밭·방파 장벽, 배가 드나드는 물길 빼고) */
+    sea?: boolean;
+    skipId?: string; hint?: { x: number; y: number } | null; pick?: { x: number; y: number } | null; color: string;
+  } | null;
   ship: { kind: GameShipKind | GameWarKind; stage: number; war?: boolean } | null;
   onSelect: (id: string | null) => void;
   onPlace: (x: number, y: number) => void;
@@ -101,9 +117,28 @@ export function GameMap({
     return s;
   }, [buildings, place?.skipId]);
 
+  // 배가 드나드는 물길 (도크 앞 한 줄, 군항 부두 옆 두 줄): 기뢰·장벽을 못 놓음
+  const berth = useMemo(() => {
+    const s = new Set<string>();
+    for (const b of buildings) {
+      if (b.type === "dock") for (let j = 0; j < b.h; j++) s.add(`${grid},${b.y + j}`);
+      if (b.type === "pier") for (let i = 0; i < 2; i++) for (let j = 0; j < b.h; j++) s.add(`${grid + i},${b.y + j}`);
+    }
+    return s;
+  }, [buildings, grid]);
+
   const fits = (x: number, y: number) => {
     if (!place) return false;
-    if (x + place.w > grid || y + place.h > grid) return false;
+    if (y + place.h > grid) return false;
+    if (place.sea) {
+      if (x < grid || x + place.w > grid + WATER_COLS) return false;
+      for (let i = 0; i < place.w; i++) for (let j = 0; j < place.h; j++) {
+        const k = `${x + i},${y + j}`;
+        if (occupied.has(k) || berth.has(k)) return false;
+      }
+      return true;
+    }
+    if (x + place.w > grid) return false;
     if (place.coast && x + place.w !== grid) return false;
     for (let i = 0; i < place.w; i++) for (let j = 0; j < place.h; j++) if (occupied.has(`${x + i},${y + j}`)) return false;
     return true;
@@ -114,14 +149,14 @@ export function GameMap({
   for (let x = 0; x < grid + WATER_COLS; x++)
     for (let y = 0; y < grid; y++) {
       const water = x >= grid;
-      const ok = !water && fits(x, y);
+      const ok = fits(x, y);
       const corners = [P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)];
       ground.push(
         <Polygon
           key={`t${x}-${y}`}
           points={pts(corners)}
-          fill={water ? "#2B7FBF" : ok ? ((x + y) % 2 ? "#7FD18F" : "#73C985") : (x + y) % 2 ? "#C8C2B4" : "#BFB8A9"}
-          stroke={water ? "#2B7FBF" : "#00000014"}
+          fill={ok ? ((x + y) % 2 ? "#7FD18F" : "#73C985") : water ? "#2B7FBF" : (x + y) % 2 ? "#C8C2B4" : "#BFB8A9"}
+          stroke={water && !ok ? "#2B7FBF" : "#00000014"}
           strokeWidth={0.5}
           onPress={place ? () => ok && onPlace(x, y) : () => onSelect(null)}
         />,
@@ -197,6 +232,40 @@ export function GameMap({
         parts.push(box(sx + 0.05, sy + 0.05, len - 0.1, 0.45, 0.1 * W, "#4A5561", `wd${i}`));
         parts.push(box(sx + len * 0.35, sy + 0.12, 0.28, 0.3, 0.42 * W, "#C9D1D9", `wh${i}`));
       });
+    } else if (b.type === "mine" && b.level > 0) {
+      // 기뢰밭: 물 위에 뜬 빨간 기뢰 3개 (레벨이 오르면 조금 커짐)
+      const r = W * (0.12 + lv * 0.01);
+      [[0.3, 0.3], [0.7, 0.45], [0.4, 0.75]].forEach(([dx, dy], i) => {
+        const c = P(b.x + dx, b.y + dy);
+        parts.push(<Line key={`ms${i}`} x1={c[0] - r * 1.4} y1={c[1] - r * 0.6} x2={c[0] + r * 1.4} y2={c[1] - r * 0.6} stroke="#222" strokeWidth={1} />);
+        parts.push(<Circle key={`m${i}`} cx={c[0]} cy={c[1] - r * 0.6} r={r} fill={color} stroke="#3A0D0A" strokeWidth={1} />);
+      });
+    } else if (b.type === "wall" && b.level > 0) {
+      // 방파 장벽: 바다 속 콘크리트 블록 (레벨이 오르면 높아짐)
+      parts.push(box(b.x + 0.05, b.y, 0.9, 1, (0.3 + lv * 0.08) * W, color, "wall"));
+    } else if (b.type === "battery" && b.level > 0) {
+      // 해안포대: 낮은 진지 + 포탑 + 바다 쪽으로 향한 포신
+      parts.push(box(b.x + 0.1, b.y + 0.1, 0.8, 0.8, z * 0.6, color, "base"));
+      parts.push(box(b.x + 0.25, b.y + 0.25, 0.5, 0.5, z, shade(color, 1.15), "turret"));
+      const a = P(b.x + 0.6, b.y + 0.5), e = P(b.x + 1.35, b.y + 0.5);
+      parts.push(<Line key="barrel" x1={a[0]} y1={a[1] - z * 0.85} x2={e[0]} y2={e[1] - z * 0.95} stroke="#2E3324" strokeWidth={3} />);
+    } else if (b.type === "missile" && b.level > 0) {
+      // 미사일 기지: 넓은 받침 + 비스듬히 선 발사관 두 개
+      parts.push(box(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, z * 0.5, "#7C7F86", "pad"));
+      parts.push(box(b.x + 0.45, b.y + 0.5, 0.35, 1.0, z * 2.2, color, "tube1"));
+      parts.push(box(b.x + 1.15, b.y + 0.5, 0.35, 1.0, z * 2.2, color, "tube2"));
+    } else if (b.type === "asw" && b.level > 0) {
+      // 대잠 기지: 건물 + 안테나
+      parts.push(box(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, z, color, "body"));
+      const t = P(b.x + 0.5, b.y + 0.5);
+      parts.push(<Line key="ant" x1={t[0]} y1={t[1] - z} x2={t[0]} y2={t[1] - z - 0.9 * W} stroke="#ddd" strokeWidth={1.5} />);
+      parts.push(<Circle key="antTop" cx={t[0]} cy={t[1] - z - 0.9 * W} r={W * 0.08} fill="#FFD166" />);
+    } else if (b.type === "radar" && b.level > 0) {
+      // 레이더 탑: 받침 + 높은 기둥 + 접시
+      parts.push(box(b.x + 0.15, b.y + 0.15, 0.7, 0.7, z, "#7C7F86", "base"));
+      parts.push(box(b.x + 0.38, b.y + 0.38, 0.24, 0.24, z + 1.1 * W, color, "mast"));
+      const t = P(b.x + 0.5, b.y + 0.5);
+      parts.push(<Ellipse key="dish" cx={t[0]} cy={t[1] - z - 1.15 * W} rx={W * 0.42} ry={W * 0.16} fill="#E8ECF4" stroke="#556" strokeWidth={1} />);
     } else if (b.level === 0) {
       // 새로 짓는 중: 비계(뼈대)
       parts.push(box(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, 0.12 * W, "#9B8F7A", "base"));
@@ -219,13 +288,18 @@ export function GameMap({
         <Foreman key="wk" from={P(b.x + 0.2, b.y + b.h + 0.25)} to={P(b.x + b.w - 0.1, b.y + b.h + 0.25)} size={W * 0.62} offset={(b.x * 7 + b.y * 3) * 300} />,
       );
     }
+    if (sel && b.defense && b.defense.range > 0) {
+      // 고른 방어 시설의 사거리 (점선 원)
+      const c = P(b.x + b.w / 2, b.y + b.h / 2), r = b.defense.range + Math.max(b.w, b.h) / 2;
+      parts.unshift(<Ellipse key="range" cx={c[0]} cy={c[1]} rx={(r * W) / Math.SQRT2} ry={(r * W) / (2 * Math.SQRT2)} fill="#FFD16622" stroke="#FFD166" strokeWidth={1.5} strokeDasharray="6 4" />);
+    }
     if (sel) {
       const A = P(b.x, b.y), B = P(b.x + b.w, b.y), C = P(b.x + b.w, b.y + b.h), D = P(b.x, b.y + b.h);
       parts.unshift(<Polygon key="sel" points={pts([A, B, C, D])} fill="#FFFFFF33" stroke="#FFFFFF" strokeWidth={2} />);
     }
     // 이름표는 아래에서 따로 맨 위 층에 그린다 (건물에 가리거나 서로 겹치지 않게)
     const top = P(b.x + b.w / 2, b.y + b.h / 2);
-    tagInfo.push({ b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
+    if (!NO_TAG.has(b.type) || sel || b.busy_until) tagInfo.push({ b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
     return (
       <G key={b.id} onPress={place ? undefined : () => onSelect(b.id)}>
         {parts}

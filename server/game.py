@@ -15,7 +15,13 @@ G2a(박사 승인 2026-11-28, 계획안 https://claude.ai/artifact/Uz22bbfiiBVUk
 - 배는 두 갈래. 상선은 지금처럼 인도(판매)해서 대금·명성, 전투함은 진수 뒤 '군항 부두'에 정박해 함대가 된다.
 - 군항 부두(새 건물, 해안에만): 함대에 둘 수 있는 전투함 수 = 부두 레벨 + 1 (1레벨 2척 → 5레벨 6척).
 - 간척: 땅 14×14 → 16 → 18 (G2a는 2단계까지, 최대 22×22). 작업 반장 1명이 맡고, 끝나면 도크·부두는 새 해안선으로 옮겨진다.
-G2b(방어·해적 연습 전투)·G2c(공격)·G3(대항전)는 다음 단계.
+G2b-1(박사 승인 2026-11-28):
+- 방어 시설 6종: 해안포대·대잠 기지(해안), 미사일 기지·레이더 탑(육지), 기뢰밭·방파 장벽(바다, 배가 드나드는 물길 빼고).
+  본관 레벨마다 지을 수 있는 개수가 늘고, 레벨은 본관 레벨까지. 장벽은 작업 반장 없이 바로 쌓고 바로 올림.
+- 방어 시설 힘 = 기본 × 레벨 × '연결된 교재 장의 내 정답률'(0.7~1.3배, 3문제 미만이면 1배). 연결할 장은 관리자가 고름(0 = 자동).
+- 무기 5종(함포·소나/레이더·어뢰·근접 방어포·대함 미사일): 연구소(academy) 레벨에 따라 기술 포인트로 연구, 레벨 올리기.
+  전투함마다 무기 칸(slots)에 골라 달고, 선체 레벨(체력)을 올림. 모두 본관 레벨까지. step17 SQL 필요.
+G2b-2(해적 연습 전투·태풍 대비 훈련)·G2c(공격)·G3(대항전)는 다음 단계.
 """
 import math
 import threading
@@ -60,8 +66,43 @@ BUILDINGS = {
     "dock":     {"size": (2, 5), "steel": 300, "rods": 100, "unlock": 1, "max": 5, "fixed": True},
     # 군항 부두: 해안(땅 오른쪽 끝)에만 놓음. 전투함이 옆 바다에 정박
     "pier":     {"size": (2, 3), "steel": 400, "rods": 150, "unlock": 1, "max": 5, "coast": True},
+    # G2b 방어 시설 (숫자는 예시). coast = 땅 오른쪽 끝, sea = 바다 (배가 드나드는 물길 빼고)
+    "battery":  {"size": (1, 1), "steel": 250, "rods": 100, "unlock": 2, "max": 8, "coast": True, "defense": True},
+    "missile":  {"size": (2, 2), "steel": 600, "rods": 300, "unlock": 3, "max": 8, "defense": True},
+    "mine":     {"size": (1, 1), "steel": 120, "rods": 60, "unlock": 2, "max": 8, "sea": True, "defense": True},
+    "asw":      {"size": (1, 2), "steel": 500, "rods": 250, "unlock": 4, "max": 8, "coast": True, "defense": True},
+    "radar":    {"size": (1, 1), "steel": 350, "rods": 200, "unlock": 3, "max": 8, "defense": True},
+    "wall":     {"size": (1, 1), "steel": 60, "rods": 0, "unlock": 2, "max": 8, "sea": True, "defense": True, "instant": True},
 }
-COAST_TYPES = ("dock", "pier")   # 해안에 붙는 건물 (간척하면 새 해안선으로 옮김)
+COAST_TYPES = ("dock", "pier", "battery", "asw")
+SEA_TYPES = ("mine", "wall")      # 바다에 놓는 것 (간척하면 바다와 같이 옮김)
+DEFENSE_TYPES = ("battery", "missile", "mine", "asw", "radar", "wall")
+# 본관 레벨(0~8)마다 지을 수 있는 개수
+DEFENSE_COUNT = {
+    "battery": [0, 0, 2, 3, 4, 5, 6, 7, 8],
+    "missile": [0, 0, 0, 1, 2, 2, 3, 3, 4],
+    "mine":    [0, 0, 3, 5, 7, 9, 11, 13, 15],
+    "asw":     [0, 0, 0, 0, 1, 2, 2, 3, 3],
+    "radar":   [0, 0, 0, 1, 1, 2, 2, 2, 3],
+    "wall":    [0, 0, 8, 12, 16, 20, 24, 28, 32],
+}
+# 방어 시설 기본 능력 (1레벨, 장 정답률 1배). dmg = 한 번 쏠 때 피해, range = 사거리(칸), buff = 주변 시설 힘 +%
+DEFENSE_STATS = {
+    "battery": {"hp": 300, "dmg": 30, "range": 3},
+    "missile": {"hp": 420, "dmg": 55, "range": 6},
+    "mine":    {"hp": 0, "dmg": 120, "range": 0},
+    "asw":     {"hp": 350, "dmg": 45, "range": 3},
+    "radar":   {"hp": 260, "dmg": 0, "range": 3, "buff": 15},
+    "wall":    {"hp": 400, "dmg": 0, "range": 0},
+}
+# 무기 (G2b-1): 연구소 레벨·연구 기술 포인트·기본 위력. 함포는 처음부터 1레벨.
+WEAPONS = {
+    "gun":     {"academy": 1, "tech": 0, "power": 12},
+    "sonar":   {"academy": 1, "tech": 30, "power": 0},     # 기뢰·잠수함 찾기
+    "torpedo": {"academy": 2, "tech": 60, "power": 20},    # 바다 위·수중 표적
+    "ciws":    {"academy": 3, "tech": 90, "power": 0},     # 날아오는 미사일 막기
+    "asm":     {"academy": 3, "tech": 120, "power": 28},   # 대함 미사일: 멀리 있는 방어 시설 먼저
+}   # 해안에 붙는 건물 (간척하면 새 해안선으로 옮김)
 START = [("hq", 6, 6, 1), ("cutting", 2, 2, 1), ("dock", 12, 1, 1)]
 # 배: 도크 레벨·장 완료 수·비용·공정 5개 시간 배수·인도 명성
 # 진수식(인도) 보상 "pay": 선주가 주는 대금 = 강판·용접봉·기술 포인트 (만든 비용보다 많이). 숫자는 예시.
@@ -128,6 +169,8 @@ DEFAULTS = {
     "supply_steel": 40,               # 1문제 맞힘 → 강판
     "supply_rods": 20,                # 1문제 맞힘 → 용접봉
     "supply_day_max": 0,              # 하루 최대 횟수 (0 = 무제한)
+    # 방어 시설과 연결할 교재 장 (장 번호, 0 = 자동: 해안포대 1장, 미사일 기지 2장 … 차례로)
+    "link_battery": 0, "link_missile": 0, "link_mine": 0, "link_asw": 0, "link_radar": 0, "link_wall": 0,
 }
 EXAM_KINDS = ("ox", "mc", "word", "short")
 EXAM_MAX_EACH = 20
@@ -265,7 +308,7 @@ def fleet_cap(buildings):
 
 def _fleet(uid):
     """군항 부두에 있는 전투함 (진수 끝난 것), 오래된 것부터."""
-    rows = store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "not.is.null", "select": "id,kind,delivered_at,created_at",
+    rows = store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "not.is.null", "select": "*",
                                        "order": "created_at.asc", "limit": "500"})
     return [r for r in rows if is_war(r["kind"])]
 
@@ -282,7 +325,7 @@ def _finish_reclaim(uid, base, buildings, now):
     base["reclaim"], base["reclaim_until"] = stage, None
     for b in buildings:
         w = BUILDINGS[b["type"]]["size"][0]
-        if b["type"] in COAST_TYPES and b["x"] + w == old:
+        if (b["type"] in COAST_TYPES and b["x"] + w == old) or (b["type"] in SEA_TYPES and b["x"] >= old):
             b["x"] += new - old
             store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": b["x"]})
 
@@ -353,29 +396,51 @@ def unit_progress(uid, st):
                                                                    "select": "page", "limit": "5000"})}
     right = {}
     qids = set()
+    tries = []   # (문제 id, 맞음) — 장 정답률(방어 시설 힘)용, 푼 횟수 모두
     for r in store.select("daily_answers", {"user_id": f"eq.{uid}", "book_id": f"eq.{book['id']}",
                                             "select": "question_id,score", "limit": "20000"}):
-        if r.get("score") is not None and r["score"] >= daily.PASS_SCORE:
+        if r.get("score") is None:
+            continue
+        ok = r["score"] >= daily.PASS_SCORE
+        tries.append((r["question_id"], ok))
+        if ok:
             qids.add(r["question_id"])
-    for table in ("tutor_answers", "live_ox_answers"):
+    for table in ("tutor_answers", "live_ox_answers", "game_answers"):
         try:
             for r in store.select(table, {"user_id": f"eq.{uid}", "book_id": f"eq.{book['id']}",
                                           "select": "question_id,correct", "limit": "20000"}):
-                if r.get("correct") and r.get("question_id"):
+                if not r.get("question_id") or r.get("correct") is None:
+                    continue
+                tries.append((r["question_id"], bool(r["correct"])))
+                if r.get("correct") and table != "game_answers":
                     qids.add(r["question_id"])
-        except Exception as e:  # noqa: BLE001  (step9·13 SQL 전)
+        except Exception as e:  # noqa: BLE001  (step9·13·17 SQL 전)
             print("[game] 기록 못 읽음", table, str(e)[:120], flush=True)
-    ids = sorted(qids)
+    ids = sorted({q for q, _ in tries} | qids)
+    unit_of = {}
     for i in range(0, len(ids), 150):
         for q in store.select("quiz_questions", {"id": f"in.({','.join(ids[i:i + 150])})", "select": "id,unit_key"}):
-            right[q["unit_key"]] = right.get(q["unit_key"], 0) + 1
+            unit_of[q["id"]] = q["unit_key"]
+    for q in qids:
+        if q in unit_of:
+            right[unit_of[q]] = right.get(unit_of[q], 0) + 1
+    acc = {}
+    for q, ok in tries:
+        k = unit_of.get(q)
+        if k is None:
+            continue
+        a = acc.setdefault(k, [0, 0])
+        a[0] += 1 if ok else 0
+        a[1] += 1
     out = []
     for key, title, s, e in units:
         pages = e - s + 1
         n = sum(1 for p in seen if s <= p <= e)
         ok = right.get(key, 0)
         done = n * 100 >= pages * st["unit_pages_pct"] and ok >= st["unit_correct"]
-        out.append({"key": key, "title": title, "pdf_page": s, "pages": pages, "seen": n, "correct": ok, "done": done})
+        a = acc.get(key, [0, 0])
+        out.append({"key": key, "title": title, "pdf_page": s, "pages": pages, "seen": n, "correct": ok, "done": done,
+                    "acc_ok": a[0], "acc_n": a[1]})
     return book, out
 
 
@@ -568,12 +633,38 @@ def _rect(b):
     return b["x"], b["y"], w, h
 
 
-def _free(buildings, btype, x, y, skip_id=None, grid=GRID):
-    w, h = BUILDINGS[btype]["size"]
-    if x < 0 or y < 0 or x + w > grid or y + h > grid:
+def _berth(buildings, grid):
+    """배가 드나드는 물길 (기뢰·장벽을 못 놓는 바다 칸): 도크 앞 한 줄, 군항 부두 옆 두 줄."""
+    out = set()
+    for o in buildings:
+        if o["type"] == "dock":
+            out |= {(grid, o["y"] + j) for j in range(BUILDINGS["dock"]["size"][1])}
+        if o["type"] == "pier":
+            out |= {(grid + i, o["y"] + j) for i in range(2) for j in range(BUILDINGS["pier"]["size"][1])}
+    return out
+
+
+def _free(buildings, btype, x, y, skip_id=None, grid=GRID, sea=2):
+    spec = BUILDINGS[btype]
+    w, h = spec["size"]
+    if y < 0 or y + h > grid:
         return False
-    if BUILDINGS[btype].get("coast") and x + w != grid:
-        return False  # 군항 부두는 해안(땅 오른쪽 끝)에만
+    if spec.get("sea"):
+        # 기뢰밭·방파 장벽: 바다 어디든 (도크 앞·부두 옆 물길 빼고)
+        if x < grid or x + w > grid + sea:
+            return False
+        others = [o for o in buildings if o["id"] != skip_id]
+        if any((x + i, y + j) in _berth(others, grid) for i in range(w) for j in range(h)):
+            return False
+    else:
+        if x < 0 or x + w > grid:
+            return False
+        if spec.get("coast") and x + w != grid:
+            return False  # 군항 부두·해안포대·대잠 기지는 해안(땅 오른쪽 끝)에만
+        if btype == "pier":   # 부두 옆 물길에 기뢰·장벽이 있으면 안 됨
+            lane = {(grid + i, y + j) for i in range(2) for j in range(h)}
+            if any(o["type"] in SEA_TYPES and (o["x"], o["y"]) in lane for o in buildings if o["id"] != skip_id):
+                return False
     for o in buildings:
         if o["id"] == skip_id:
             continue
@@ -583,12 +674,12 @@ def _free(buildings, btype, x, y, skip_id=None, grid=GRID):
     return True
 
 
-def free_spot(buildings, btype, grid=GRID):
+def free_spot(buildings, btype, grid=GRID, sea=2):
     """처음 따라 하기 등에서 쓸 빈 자리 하나 (가운데에 가까운 곳)."""
     best = None
     for y in range(grid):
-        for x in range(grid):
-            if _free(buildings, btype, x, y, grid=grid):
+        for x in range(grid + sea):
+            if _free(buildings, btype, x, y, grid=grid, sea=sea):
                 d = (x - 6) ** 2 + (y - 6) ** 2
                 if best is None or d < best[0]:
                     best = (d, x, y)
@@ -699,6 +790,112 @@ def upgrade_block(b, buildings, rows):
     return None
 
 
+# ---- G2b 방어 시설·무기 ----
+
+def defense_max(btype, hq_lv):
+    return DEFENSE_COUNT[btype][max(0, min(hq_lv, len(DEFENSE_COUNT[btype]) - 1))]
+
+
+def defense_link(btype, st, units):
+    """방어 시설과 연결된 교재 장 (index, unit). 관리자 설정 link_* = 장 번호, 0(또는 없는 번호) = 자동."""
+    if not units:
+        return None, None
+    n = int(st.get(f"link_{btype}") or 0)
+    i = n - 1 if 1 <= n <= len(units) else DEFENSE_TYPES.index(btype) % len(units)
+    return i, units[i]
+
+
+def chapter_mult(u):
+    """장 정답률 → 힘 배수 0.7~1.3 (0.05 단위). 푼 문제가 3개 미만이면 1배."""
+    if not u or u.get("acc_n", 0) < 3:
+        return None, 1.0
+    rate = u["acc_ok"] / u["acc_n"]
+    return rate, round((0.7 + 0.6 * rate) * 20) / 20
+
+
+def _boosted(b, buildings):
+    """레이더 탑 사거리 안에 있으면 True (레이더 탑 자신은 제외)."""
+    if b["type"] == "radar":
+        return False
+    w, h = BUILDINGS[b["type"]]["size"]
+    cx, cy = b["x"] + w / 2, b["y"] + h / 2
+    rng = DEFENSE_STATS["radar"]["range"]
+    return any(o["type"] == "radar" and o["level"] >= 1 and max(abs(o["x"] + 0.5 - cx), abs(o["y"] + 0.5 - cy)) <= rng
+               for o in buildings)
+
+
+def defense_info(b, st, units, buildings):
+    stats = DEFENSE_STATS[b["type"]]
+    lm = 1 + 0.25 * (max(b["level"], 1) - 1)
+    idx, u = defense_link(b["type"], st, units)
+    rate, mult = chapter_mult(u)
+    boost = _boosted(b, buildings)
+    dmg = stats["dmg"] * lm * mult * (1 + (DEFENSE_STATS["radar"]["buff"] / 100 if boost else 0))
+    out = {"hp": int(stats["hp"] * lm * (mult if b["type"] == "wall" else 1)), "dmg": int(round(dmg)), "range": stats["range"],
+           "mult": mult, "rate": None if rate is None else round(rate * 100), "n": u["acc_n"] if u else 0,
+           "boost": boost, "unit": None}
+    if b["type"] == "radar":
+        out["buff"] = int(round(stats["buff"] * lm * mult))
+    if u:
+        out["unit"] = {"key": u["key"], "title": u["title"], "pdf_page": u["pdf_page"], "no": idx + 1}
+    return out
+
+
+def weapon_levels(base):
+    w = dict((base or {}).get("weapons") or {})
+    w["gun"] = max(1, int(w.get("gun") or 1))
+    return {k: int(w.get(k) or 0) for k in WEAPONS}
+
+
+def weapon_power(kind, lv):
+    return int(round(WEAPONS[kind]["power"] * (1 + 0.25 * (max(lv, 1) - 1)))) if lv else 0
+
+
+def weapon_up_cost(lv):
+    return {"steel": 200 * lv, "rods": 100 * lv, "tech": 10 * lv}
+
+
+def hull_up_cost(kind, h):
+    sp = WARSHIPS[kind]
+    return {"steel": sp["steel"] // 2 * h, "rods": sp["rods"] // 2 * h, "tech": 5 * h}
+
+
+def ship_weapons(f):
+    w = f.get("weapons")
+    if not isinstance(w, list) or not w:
+        w = ["gun"]   # 처음엔 함포 하나
+    return [k for k in w if k in WEAPONS][:WARSHIPS[f["kind"]]["slots"]]
+
+
+def warship_stats(f, wl):
+    """전투함 체력·공격력 (선체 레벨 + 단 무기 레벨)."""
+    sp = WARSHIPS[f["kind"]]
+    hull = int(f.get("hull") or 1)
+    arms = ship_weapons(f)
+    return {"hull": hull, "weapons": arms, "max_hp": int(sp["hp"] * (1 + 0.2 * (hull - 1))),
+            "attack": int(sp["power"] * (1 + 0.15 * (hull - 1))) + sum(weapon_power(k, wl.get(k, 0)) for k in arms),
+            "damage": int(f.get("damage") or 0)}
+
+
+def weapons_view(base, buildings, hq_lv):
+    wl = weapon_levels(base)
+    academy = next((b for b in buildings if b["type"] == "academy"), None)
+    ac = academy["level"] if academy else 0
+    out = []
+    for k, sp in WEAPONS.items():
+        lv = wl[k]
+        item = {"kind": k, "level": lv, "power": weapon_power(k, lv or 1), "academy": sp["academy"], "tech": sp["tech"],
+                "lock": None, "next": None}
+        if not lv:
+            item["lock"] = "academy" if ac < sp["academy"] else None
+        else:
+            nxt = lv + 1
+            item["next"] = {"level": nxt, "cost": weapon_up_cost(lv), "power": weapon_power(k, nxt),
+                            "block": "max" if nxt > MAX_LEVEL else "hq_level" if nxt > hq_lv else None}
+        out.append(item)
+    return {"academy": ac, "list": out}
+
+
 def view(s, lang="ko"):
     st, now, buildings = s["st"], s["now"], s["buildings"]
     bal = balance(s["rows"])
@@ -742,17 +939,29 @@ def view(s, lang="ko"):
             item["cap"] = int(CAP_TABLE[max(b["level"], 1)] * 0.6)
         if b["type"] == "pier":
             item["fleet_cap"] = max(b["level"], 1) + 1
+        if spec.get("defense"):
+            item["defense"] = defense_info(b, st, units, buildings)
+            item["sea"] = bool(spec.get("sea"))
+            if spec.get("instant"):
+                item["instant"] = True
         out_b.append(item)
     catalog = []
     for t, spec in BUILDINGS.items():
         if t in ("hq", "dock"):
             continue
         have = sum(1 for b in buildings if b["type"] == t)
-        if have:
+        item = {"type": t, "cost": cost(t, 1), "seconds": 0 if spec.get("instant") else build_seconds(1), "unlock": spec["unlock"],
+                "locked": hq_lv < spec["unlock"], "w": spec["size"][0], "h": spec["size"][1],
+                "coast": bool(spec.get("coast"))}
+        if spec.get("defense"):
+            mx = defense_max(t, hq_lv)
+            nxt_hq = next((lv for lv in range(hq_lv + 1, len(DEFENSE_COUNT[t])) if DEFENSE_COUNT[t][lv] > mx), None)
+            item.update({"defense": True, "have": have, "max": mx, "full": not item["locked"] and have >= mx,
+                         "more_at": nxt_hq, "sea": bool(spec.get("sea")),
+                         "instant": bool(spec.get("instant"))})
+        elif have:
             continue
-        catalog.append({"type": t, "cost": cost(t, 1), "seconds": build_seconds(1), "unlock": spec["unlock"],
-                        "locked": hq_lv < spec["unlock"], "w": spec["size"][0], "h": spec["size"][1],
-                        "coast": bool(spec.get("coast"))})
+        catalog.append(item)
     ship = s["ship"]
     dock = _dock(buildings)
     delivered = [d for d in store.select("game_ships", {"user_id": f"eq.{s['uid']}", "delivered_at": "not.is.null",
@@ -788,11 +997,16 @@ def view(s, lang="ko"):
                          "seconds": sum(ship_stage_seconds(k, i) for i in range(len(STAGES)))})
     count = {}
     fleet_out = []
+    wl = weapon_levels(base)
     for f in fleet:
         count[f["kind"]] = count.get(f["kind"], 0) + 1
         sp = WARSHIPS[f["kind"]]
+        ws = warship_stats(f, wl)
+        nh = ws["hull"] + 1
         fleet_out.append({"id": f["id"], "kind": f["kind"], "no": count[f["kind"]], "hp": sp["hp"], "power": sp["power"],
-                          "slots": sp["slots"]})
+                          "slots": sp["slots"], **ws,
+                          "hull_next": {"level": nh, "cost": hull_up_cost(f["kind"], ws["hull"]),
+                                        "block": "max" if nh > MAX_LEVEL else "hq_level" if nh > hq_lv else None}})
     rewards = summarize(s["new_rows"])
     tut = tutorial(s, buildings, ship, delivered)
     data = {
@@ -803,6 +1017,7 @@ def view(s, lang="ko"):
         "ships": ships, "ship": ship_out, "delivered": [d["kind"] for d in delivered],
         "warships": warships, "fleet": {"cap": fcap, "ships": fleet_out, "building": building_war},
         "reclaim": reclaim_view(base, hq_lv, busy_n, now),
+        "weapons": weapons_view(base, buildings, hq_lv),
         "units": {"done": done_n, "total": len(units),
                   "next": next(({"key": u["key"], "title": u["title"], "pdf_page": u["pdf_page"], "seen": u["seen"],
                                  "pages": u["pages"], "correct": u["correct"]} for u in units if not u["done"]), None),
@@ -898,7 +1113,7 @@ def tutorial(s, buildings, ship, delivered):
     done = bool(s["base"].get("tutorial_done")) or cur is None
     spot = None
     if not done and steps[cur][0] == "yard":
-        spot = free_spot(buildings, "yard", grid_of(s["base"]))
+        spot = free_spot(buildings, "yard", grid_of(s["base"]), sea_of(s["base"]))
     return {"done": done, "step": cur, "steps": [{"id": k, "ok": ok} for k, ok in steps],
             "spot": {"x": spot[0], "y": spot[1]} if spot else None}
 
@@ -926,7 +1141,7 @@ def tips(d, s):
     if d["builders"]["busy"] < d["builders"]["total"]:
         bal = d["resources"]
         cands = [b for b in d["buildings"] if not b["block"] and b.get("next") and _afford(bal, b["next"]["cost"])]
-        cands += [c for c in d["catalog"] if not c["locked"] and _afford(bal, c["cost"])]
+        cands += [c for c in d["catalog"] if not c["locked"] and not c.get("defense") and _afford(bal, c["cost"])]
         if cands:
             c = min(cands, key=lambda c: (c.get("next") or c)["cost"]["steel"])
             out.append({"id": "idle", "type": c["type"]})
@@ -941,6 +1156,14 @@ def tips(d, s):
         free = [x for x in d["warships"] if not x["lock"]]
         if free:
             out.append({"id": "warship", "kind": free[-1]["kind"], "n": len(fl["ships"]), "cap": fl["cap"]})
+    defs = [b for b in d["buildings"] if b.get("defense") and b["level"] >= 1]
+    if d["hq_level"] >= 2 and not defs:
+        out.append({"id": "defense"})
+    weak = [b for b in defs if b["defense"]["mult"] < 1 and b["defense"]["unit"]]
+    if weak:
+        w0 = min(weak, key=lambda b: b["defense"]["mult"])
+        out.append({"id": "weak", "type": w0["type"], "unit": w0["defense"]["unit"]["title"], "rate": w0["defense"]["rate"],
+                    "mult": w0["defense"]["mult"], "bid": w0["id"]})
     rc = d["reclaim"]
     if rc["next"] and not rc["block"] and _afford(d["resources"], rc["next"]["cost"]):
         out.append({"id": "reclaim", "grid": rc["next"]["grid"]})
@@ -1090,23 +1313,34 @@ def build(body: BuildBody, user=Depends(need_player)):
     with _lock(uid):
         now = _now()
         base, buildings = _prep(uid, now)
-        if any(b["type"] == body.type for b in buildings):
-            _err(400, "already")
         hq = _hq(buildings)
-        if (hq["level"] if hq else 1) < spec["unlock"]:
+        hq_lv = hq["level"] if hq else 1
+        have = sum(1 for b in buildings if b["type"] == body.type)
+        if spec.get("defense"):
+            if hq_lv < spec["unlock"]:
+                _err(400, "hq_level")
+            if have >= defense_max(body.type, hq_lv):
+                _err(400, "def_full", n=defense_max(body.type, hq_lv))
+        elif have:
+            _err(400, "already")
+        if hq_lv < spec["unlock"]:
             _err(400, "hq_level")
-        if busy_count(buildings, base) >= BUILDERS:
+        if not spec.get("instant") and busy_count(buildings, base) >= BUILDERS:
             _err(400, "builders")
-        if not _free(buildings, body.type, body.x, body.y, grid=grid_of(base)):
+        if not _free(buildings, body.type, body.x, body.y, grid=grid_of(base), sea=sea_of(base)):
             _err(400, "spot")
         price = cost(body.type, 1)
         if not _afford(balance(ledger(uid)), price):
             _err(400, "money")
         bid = str(uuid.uuid4())
         _spend(uid, f"build:{bid}", price, body.type)
-        store.insert_rows("game_buildings", [{"id": bid, "user_id": uid, "type": body.type, "level": 0, "x": body.x, "y": body.y,
-                                               "busy_until": _iso(now + timedelta(seconds=build_seconds(1))),
-                                               "collected_at": _iso(now + timedelta(seconds=build_seconds(1)))}], returning=False)
+        if spec.get("instant"):   # 방파 장벽: 작업 반장 없이 바로 한 칸
+            store.insert_rows("game_buildings", [{"id": bid, "user_id": uid, "type": body.type, "level": 1, "x": body.x,
+                                                   "y": body.y, "collected_at": _iso(now)}], returning=False)
+        else:
+            store.insert_rows("game_buildings", [{"id": bid, "user_id": uid, "type": body.type, "level": 0, "x": body.x, "y": body.y,
+                                                   "busy_until": _iso(now + timedelta(seconds=build_seconds(1))),
+                                                   "collected_at": _iso(now + timedelta(seconds=build_seconds(1)))}], returning=False)
     return _fresh(user)
 
 
@@ -1138,17 +1372,21 @@ def upgrade(body: IdBody, user=Depends(need_player)):
         why = upgrade_block(b, buildings, ledger(uid))
         if why:
             _err(400, why)
-        if busy_count(buildings, base) >= BUILDERS:
+        instant = BUILDINGS[b["type"]].get("instant")
+        if not instant and busy_count(buildings, base) >= BUILDERS:
             _err(400, "builders")
         nxt = b["level"] + 1
         price = cost(b["type"], nxt)
         if not _afford(balance(ledger(uid)), price):
             _err(400, "money")
         _spend(uid, f"up:{b['id']}:{nxt}", price, b["type"])
-        fields = {"busy_until": _iso(now + timedelta(seconds=build_seconds(nxt)))}
-        if b["type"] in ("cutting", "welding"):  # 올리기 전에 쌓인 것은 먼저 받기
-            _collect_one(uid, b, buildings, now)
-        store.patch("game_buildings", {"id": f"eq.{b['id']}"}, fields)
+        if instant:   # 방파 장벽은 바로 올라감
+            store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"level": nxt, "finished_at": _iso(now)})
+        else:
+            fields = {"busy_until": _iso(now + timedelta(seconds=build_seconds(nxt)))}
+            if b["type"] in ("cutting", "welding"):  # 올리기 전에 쌓인 것은 먼저 받기
+                _collect_one(uid, b, buildings, now)
+            store.patch("game_buildings", {"id": f"eq.{b['id']}"}, fields)
     return _fresh(user)
 
 
@@ -1168,7 +1406,7 @@ def move(body: MoveBody, user=Depends(need_player)):
             _err(404, "not_found")
         if BUILDINGS[b["type"]].get("fixed"):
             _err(400, "fixed")
-        if not _free(buildings, b["type"], body.x, body.y, skip_id=b["id"], grid=grid_of(base)):
+        if not _free(buildings, b["type"], body.x, body.y, skip_id=b["id"], grid=grid_of(base), sea=sea_of(base)):
             _err(400, "spot")
         store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": body.x, "y": body.y})
     return _fresh(user)
@@ -1380,10 +1618,167 @@ def reclaim(user=Depends(need_player)):
     return _fresh(user)
 
 
+# ---- G2b 무기 연구·올리기, 전투함 선체·무기 달기, 장벽 한꺼번에 올리기 ----
+
+def _sql17(fn):
+    """step17 SQL 을 아직 안 돌렸으면 (새 칸 없음) need_sql17."""
+    try:
+        return fn()
+    except RuntimeError as e:
+        m = str(e)
+        print("[game] G2b 저장 실패", m[:300], flush=True)
+        if "PGRST204" in m or "42703" in m or "column" in m or "schema cache" in m:
+            _err(503, "need_sql17")
+        raise
+
+
+class KindBody(BaseModel):
+    kind: str
+
+
+@router.post("/game/weapon/research")
+def weapon_research(body: KindBody, user=Depends(need_player)):
+    uid = user["id"]
+    sp = WEAPONS.get(body.kind)
+    if not sp:
+        _err(400, "bad_type")
+    with _lock(uid):
+        base, buildings = _prep(uid, _now())
+        wl = weapon_levels(base)
+        if wl[body.kind]:
+            _err(400, "already")
+        academy = next((b for b in buildings if b["type"] == "academy"), None)
+        if (academy["level"] if academy else 0) < sp["academy"]:
+            _err(400, "need_academy", n=sp["academy"])
+        price = {"tech": sp["tech"]}
+        if not _afford(balance(ledger(uid)), price):
+            _err(400, "money")
+        new = {**(base.get("weapons") or {}), body.kind: 1}
+        _sql17(lambda: store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"weapons": new}))
+        _spend(uid, f"research:{body.kind}", price, f"research {body.kind}")
+    return _fresh(user)
+
+
+@router.post("/game/weapon/upgrade")
+def weapon_upgrade(body: KindBody, user=Depends(need_player)):
+    uid = user["id"]
+    if body.kind not in WEAPONS:
+        _err(400, "bad_type")
+    with _lock(uid):
+        base, buildings = _prep(uid, _now())
+        lv = weapon_levels(base)[body.kind]
+        if not lv:
+            _err(400, "not_researched")
+        hq = _hq(buildings)
+        if lv + 1 > MAX_LEVEL:
+            _err(400, "max")
+        if lv + 1 > (hq["level"] if hq else 1):
+            _err(400, "hq_level")
+        price = weapon_up_cost(lv)
+        if not _afford(balance(ledger(uid)), price):
+            _err(400, "money")
+        new = {**(base.get("weapons") or {}), body.kind: lv + 1}
+        _sql17(lambda: store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"weapons": new}))
+        _spend(uid, f"wup:{body.kind}:{lv + 1}", price, f"weapon {body.kind}")
+    return _fresh(user)
+
+
+def _my_warship(uid, sid):
+    try:
+        uuid.UUID(sid)
+    except ValueError:
+        _err(404, "not_found")
+    f = next((x for x in _fleet(uid) if x["id"] == sid), None)
+    if not f:
+        _err(404, "not_found")
+    return f
+
+
+@router.post("/game/warship/hull")
+def warship_hull(body: IdBody, user=Depends(need_player)):
+    uid = user["id"]
+    with _lock(uid):
+        base, buildings = _prep(uid, _now())
+        f = _my_warship(uid, body.id)
+        h = int(f.get("hull") or 1)
+        hq = _hq(buildings)
+        if h + 1 > MAX_LEVEL:
+            _err(400, "max")
+        if h + 1 > (hq["level"] if hq else 1):
+            _err(400, "hq_level")
+        price = hull_up_cost(f["kind"], h)
+        if not _afford(balance(ledger(uid)), price):
+            _err(400, "money")
+        _sql17(lambda: store.patch("game_ships", {"id": f"eq.{f['id']}"}, {"hull": h + 1}))
+        _spend(uid, f"hull:{f['id']}:{h + 1}", price, f"hull {f['kind']}")
+    return _fresh(user)
+
+
+class FitBody(BaseModel):
+    id: str
+    weapons: list[str]
+
+
+@router.post("/game/warship/fit")
+def warship_fit(body: FitBody, user=Depends(need_player)):
+    uid = user["id"]
+    with _lock(uid):
+        base, _ = _prep(uid, _now())
+        f = _my_warship(uid, body.id)
+        wl = weapon_levels(base)
+        arms = [k for k in body.weapons if k]
+        if not arms or len(arms) > WARSHIPS[f["kind"]]["slots"]:
+            _err(400, "bad_slots", n=WARSHIPS[f["kind"]]["slots"])
+        if any(k not in WEAPONS or not wl[k] for k in arms):
+            _err(400, "not_researched")
+        _sql17(lambda: store.patch("game_ships", {"id": f"eq.{f['id']}"}, {"weapons": arms}))
+    return _fresh(user)
+
+
+@router.post("/game/walls/upgrade")
+def walls_upgrade(user=Depends(need_player)):
+    """방파 장벽 중 레벨이 가장 낮은 것들을 한꺼번에 한 레벨씩 (바로 올라감)."""
+    uid = user["id"]
+    with _lock(uid):
+        now = _now()
+        base, buildings = _prep(uid, now)
+        walls = [b for b in buildings if b["type"] == "wall"]
+        if not walls:
+            _err(404, "not_found")
+        low = min(b["level"] for b in walls)
+        todo = [b for b in walls if b["level"] == low]
+        hq = _hq(buildings)
+        if low + 1 > BUILDINGS["wall"]["max"]:
+            _err(400, "max")
+        if low + 1 > (hq["level"] if hq else 1):
+            _err(400, "hq_level")
+        one = cost("wall", low + 1)
+        price = {k: v * len(todo) for k, v in one.items()}
+        if not _afford(balance(ledger(uid)), price):
+            _err(400, "money")
+        _spend(uid, f"walls:{low + 1}:{_iso(now)}", price, "walls")
+        for b in todo:
+            store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"level": low + 1, "finished_at": _iso(now)})
+    return _fresh(user)
+
+
+def _record_answers(uid, book_id, results, source):
+    """게임 안에서 푼 문제 → game_answers (장 정답률·방어 시설 힘에 들어감). step17 전이면 건너뜀."""
+    rows = [{"user_id": uid, "book_id": book_id, "question_id": r["id"], "correct": bool(r["correct"]), "source": source}
+            for r in results if r.get("correct") is not None]
+    if not rows:
+        return
+    try:
+        store.insert_rows("game_answers", rows, returning=False)
+    except Exception as e:  # noqa: BLE001
+        print("[game] game_answers 못 씀 (step17 전?)", str(e)[:120], flush=True)
+
+
 # ---- 본관 승급 시험 ----
 
 class ExamStartBody(BaseModel):
     lang: str = "ko"
+    unit: str = ""      # 자재 조달: 이 장 문제만 (방어 시설 '이 장 문제 풀기')
 
 
 def _pick(book, counts, avoid=None):
@@ -1450,7 +1845,7 @@ def hq_exam_start(body: ExamStartBody, user=Depends(need_player)):
     exam_id = str(uuid.uuid4())
     with _lock(uid):
         _exams[uid] = {"id": exam_id, "target": target, "qids": [q["id"] for q in picked], "pass": need,
-                       "lang": lang, "at": _now()}
+                       "lang": lang, "at": _now(), "book_id": book["id"]}
     off = book.get("page_offset") or 0
     return {"id": exam_id, "target": target, "pass": need, "total": len(picked), "short_of": spec["total"] - len(picked),
             "questions": [daily._public(q, None, lang, off) for q in picked]}
@@ -1487,6 +1882,7 @@ def hq_exam_submit(body: ExamSubmitBody, user=Depends(need_player)):
     if not ex or ex["id"] != body.id:
         _err(400, "exam_gone")  # 서버가 다시 켜졌거나 다른 시험을 새로 시작함 → 다시 보기
     results, right, unsure = _grade_all(ex["qids"], body.answers, ex["lang"])
+    _record_answers(uid, ex.get("book_id"), results, "hq_exam")
     passed = right >= ex["pass"]
     with _lock(uid):
         if _exams.get(uid, {}).get("id") == ex["id"]:
@@ -1531,7 +1927,7 @@ def _norm(text):
     return "".join(ch for ch in str(text or "").lower() if ch.isalnum())
 
 
-def pick_supply(book, counts, seen):
+def pick_supply(book, counts, seen, unit=""):
     """자재 조달 문제 고르기.
     1) 아직 안 낸 문제만, 종류별로 정한 수만큼 (글이 같은 문제는 하나로 봄)
     2) 그 종류의 새 문제가 바닥나면 객관식 새 문제로 채움 (단답형은 관리자가 단답형 수를 1 이상으로 했을 때만:
@@ -1541,8 +1937,10 @@ def pick_supply(book, counts, seen):
     import random
     pools = {}
     for k in SUPPLY_FALLBACK:
-        rows = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active",
-                                               "select": daily.QSEL, "limit": "2000"})
+        q = {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active", "select": daily.QSEL, "limit": "2000"}
+        if unit:
+            q["unit_key"] = f"eq.{unit}"
+        rows = store.select("quiz_questions", q)
         random.shuffle(rows)
         pools[k] = rows
     picked, used_text = [], set()
@@ -1612,13 +2010,14 @@ def supply_start(body: ExamStartBody, user=Depends(need_player)):
     now = _now()
     with _lock(uid):
         seen = supply_seen(uid, rows)
-    picked, swapped = pick_supply(book, spec["counts"], seen)
+    unit = (body.unit or "")[:40]
+    picked, swapped = pick_supply(book, spec["counts"], seen, unit)
     if not picked:
-        _err(400, "no_questions")
+        _err(400, "unit_no_questions" if unit else "no_questions")
     daily.ensure_translations(picked, lang)
     sid = str(uuid.uuid4())
     with _lock(uid):
-        _supplies[uid] = {"id": sid, "qids": [q["id"] for q in picked], "lang": lang, "at": now}
+        _supplies[uid] = {"id": sid, "qids": [q["id"] for q in picked], "lang": lang, "at": now, "book_id": book["id"]}
         opened = _supply_open.setdefault(uid, {})
         for q in picked:
             opened[q["id"]] = now
@@ -1639,6 +2038,7 @@ def supply_submit(body: ExamSubmitBody, user=Depends(need_player)):
             _err(400, "exam_gone")
         _supplies.pop(uid, None)   # 한 번만 채점 (두 번 받기 막기)
     results, right, unsure = _grade_all(sp["qids"], body.answers, sp["lang"])
+    _record_answers(uid, sp.get("book_id"), results, "supply")
     earn = {"steel": right * int(st["supply_steel"]), "rods": right * int(st["supply_rods"])}
     with _lock(uid):
         buildings = _buildings(uid)
@@ -1669,7 +2069,10 @@ def set_tutorial(body: TutorialBody, user=Depends(need_player)):
 
 @router.get("/admin/game-settings")
 def get_game_settings(user=Depends(need_admin)):
-    return {"settings": settings(), "defaults": DEFAULTS}
+    # 방어 시설과 연결할 장 고르기용: 지금 교재 장 이름 (번호 = 1부터)
+    book = textbook.current_book()
+    units = [title for _, title, _, _ in daily.book_units(book)] if book else []
+    return {"settings": settings(), "defaults": DEFAULTS, "units": units, "defense": list(DEFENSE_TYPES)}
 
 
 @router.put("/admin/game-settings")
@@ -1701,6 +2104,9 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
             _err(400, "bad_value", key=f"supply_{k}")
     if sum(cur[f"supply_{k}"] for k in SUPPLY_KINDS) < 1:
         _err(400, "bad_value", key="supply_ox")
+    for t in DEFENSE_TYPES:
+        if cur[f"link_{t}"] > 200:
+            _err(400, "bad_value", key=f"link_{t}")
     _save_setting("game", cur)
     return {"settings": cur, "defaults": DEFAULTS}
 

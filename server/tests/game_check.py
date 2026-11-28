@@ -490,7 +490,100 @@ def main():
     assert len(c.get("/game/state", headers=S8).json()["gifts"]) == 1
     tick(8 * 86400)
     assert c.get("/game/state", headers=S8).json()["gifts"] == []
+    g2b(c, user, A, T1, qs)
     print("game_check OK")
+
+
+def g2b(c, user, A, T1, qs):
+    """G2b-1: 방어 시설 6종·장 정답률·무기 연구/장착·선체·장벽."""
+    import uuid as _u
+    s10, S = user("s10", "student")
+    c.get("/game/state", headers=S)
+    db.insert_rows("game_ledger", {"user_id": s10, "key": "test_gift", "steel": 60000, "rods": 30000, "tech": 1000, "passes": 0,
+                                   "fame": 0, "note": ""})
+    for b in db.TABLES["game_buildings"]:
+        if b["user_id"] == s10 and b["type"] == "hq":
+            b["level"] = 3
+    for t, x, y, lv in [("pier", 12, 8, 1), ("academy", 2, 6, 3)]:
+        db.insert_rows("game_buildings", {"id": str(_u.uuid4()), "user_id": s10, "type": t, "level": lv, "x": x, "y": y,
+                                          "collected_at": NOW[0].isoformat()})
+    ship = db.insert_rows("game_ships", {"id": str(_u.uuid4()), "user_id": s10, "kind": "patrol", "stage": 4,
+                                         "delivered_at": NOW[0].isoformat()})[0]
+    # 장 0-0 정답률 25% (4문제 중 1개)
+    book_id = db.TABLES["textbooks"][0]["id"]
+    for i, ok in enumerate([True, False, False, False]):
+        db.insert_rows("game_answers", {"user_id": s10, "book_id": book_id, "question_id": qs[i % 3], "correct": ok, "source": "supply"})
+    d = c.get("/game/state", headers=S).json()
+    cat = {x["type"]: x for x in d["catalog"]}
+    assert cat["battery"]["max"] == 3 and cat["wall"]["max"] == 12 and cat["asw"]["locked"] and cat["asw"]["more_at"] == 4, cat["asw"]
+    assert any(t["id"] == "defense" for t in d["tips"]), d["tips"]
+    # 놓는 곳: 해안포대 = 땅 오른쪽 끝, 기뢰·장벽 = 바다 (도크 앞·부두 옆 물길 제외)
+    code = lambda r: r.json().get("detail", {}).get("code") if r.status_code != 200 else "ok"
+    B = lambda t, x, y: code(c.post("/game/build", headers=S, json={"type": t, "x": x, "y": y}))
+    assert B("battery", 5, 5) == "spot"
+    assert B("mine", 13, 0) == "spot" and B("wall", 16, 7) == "spot" and B("wall", 13, 7) == "spot" and B("wall", 14, 3) == "spot" and B("mine", 14, 9) == "spot"
+    assert B("battery", 13, 6) == "ok"
+    assert B("wall", 14, 6) == "ok" and B("wall", 14, 7) == "ok"   # 장벽은 작업 반장 없이 바로
+    d = c.get("/game/state", headers=S).json()
+    walls = [b for b in d["buildings"] if b["type"] == "wall"]
+    assert len(walls) == 2 and all(w["level"] == 1 and not w["busy_until"] for w in walls) and d["builders"]["busy"] == 1
+    assert B("mine", 15, 2) == "ok"
+    assert B("wall", 14, 7) == "spot"
+    tick(61)
+    assert B("battery", 13, 11) == "ok" and B("battery", 13, 12) == "ok"
+    assert B("battery", 13, 13) == "def_full"
+    tick(61)
+    d = c.get("/game/state", headers=S).json()
+    bat = next(b for b in d["buildings"] if b["type"] == "battery" and b["y"] == 6)
+    df = bat["defense"]
+    assert df["unit"]["no"] == 1 and df["rate"] == 25 and df["mult"] == 0.85 and df["dmg"] == round(30 * 0.85), df
+    weak = [t for t in d["tips"] if t["id"] == "weak"]
+    assert weak and weak[0]["type"] in ("battery", "mine", "wall"), d["tips"]
+    # 이 장 문제 풀기 (자재 조달을 그 장 문제로) → 맞히면 정답률이 올라 힘이 세짐
+    r = c.post("/game/supply/start", headers=S, json={"lang": "ko", "unit": "0-0"}).json()
+    assert r["questions"] and all(q["unit_title"] == "제1장" for q in r["questions"]), r
+    res = c.post("/game/supply/submit", headers=S, json={"id": r["id"], "answers": {q["id"]: 0 for q in r["questions"]}}).json()
+    n = len(r["questions"])
+    bat = next(b for b in res["state"]["buildings"] if b["type"] == "battery" and b["y"] == 6)
+    assert bat["defense"]["n"] == 4 + n and bat["defense"]["rate"] == round((1 + res["right"]) / (4 + n) * 100), bat["defense"]
+    assert c.post("/game/supply/start", headers=S, json={"lang": "ko", "unit": "9-9"}).json()["detail"]["code"] == "unit_no_questions"
+    # 관리자: 연결할 장 바꾸기 (장 번호), 장 이름 목록
+    gs = c.get("/admin/game-settings", headers=A).json()
+    assert len(gs["units"]) == 2 and gs["settings"]["link_battery"] == 0
+    assert c.put("/admin/game-settings", headers=A, json={**gs["settings"], "link_battery": 2}).status_code == 200
+    d = c.get("/game/state", headers=S).json()
+    assert next(b for b in d["buildings"] if b["type"] == "battery")["defense"]["unit"]["no"] == 2
+    assert next(b for b in d["buildings"] if b["type"] == "battery")["defense"]["mult"] == 1.0   # 2장은 기록 없음
+    # 무기: 연구소 레벨 조건, 기술 포인트로 연구, 레벨은 본관까지
+    w = {x["kind"]: x for x in d["weapons"]["list"]}
+    assert w["gun"]["level"] == 1 and w["torpedo"]["lock"] is None and d["weapons"]["academy"] == 3
+    tech0 = d["resources"]["tech"]
+    d = c.post("/game/weapon/research", headers=S, json={"kind": "torpedo"}).json()
+    assert {x["kind"]: x["level"] for x in d["weapons"]["list"]}["torpedo"] == 1 and d["resources"]["tech"] == tech0 - 60
+    assert code(c.post("/game/weapon/research", headers=S, json={"kind": "torpedo"})) == "already"
+    assert code(c.post("/game/weapon/upgrade", headers=S, json={"kind": "gun"})) == "ok"
+    assert code(c.post("/game/weapon/upgrade", headers=S, json={"kind": "gun"})) == "ok"
+    assert code(c.post("/game/weapon/upgrade", headers=S, json={"kind": "gun"})) == "hq_level"
+    assert code(c.post("/game/weapon/upgrade", headers=S, json={"kind": "ciws"})) == "not_researched"
+    # 전투함에 무기 달기 (칸 수까지, 연구한 것만), 선체 올리기
+    F = lambda arms: code(c.post("/game/warship/fit", headers=S, json={"id": ship["id"], "weapons": arms}))
+    assert F(["gun", "torpedo"]) == "bad_slots" and F(["ciws"]) == "not_researched" and F([]) == "bad_slots"
+    assert F(["torpedo"]) == "ok"
+    d = c.post("/game/warship/hull", headers=S, json={"id": ship["id"]}).json()
+    f = d["fleet"]["ships"][0]
+    assert f["weapons"] == ["torpedo"] and f["hull"] == 2 and f["max_hp"] == 120 and f["attack"] == int(20 * 1.15) + 20, f
+    assert f["hull_next"]["block"] is None
+    # 장벽 한꺼번에 올리기
+    d = c.post("/game/walls/upgrade", headers=S).json()
+    assert sorted(b["level"] for b in d["buildings"] if b["type"] == "wall") == [2, 2]
+    # 간척하면 해안·바다 시설도 새 해안선으로 같이 옮김
+    for row in db.TABLES["game_bases"]:
+        if row["user_id"] == s10:
+            row["reclaim_until"] = (NOW[0] - timedelta(seconds=1)).isoformat()
+    d = c.get("/game/state", headers=S).json()
+    pos = sorted((b["type"], b["x"]) for b in d["buildings"] if b["type"] in ("battery", "wall", "mine", "pier"))
+    assert d["grid"] == 16 and set(pos) == {("battery", 15), ("wall", 16), ("mine", 17), ("pier", 14)}, pos
+    assert c.post("/game/weapon/research", headers=T1, json={"kind": "gun"}).status_code == 403
 
 
 if __name__ == "__main__":
