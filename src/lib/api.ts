@@ -2001,6 +2001,25 @@ export const getGamePlayers = (q: string) => request<{ players: GamePlayer[]; to
 export const getGamePlayer = (id: string) => request<GamePlayerView>(`/admin/game/player/${id}`);
 export const gameGrant = (body: { user_id: string; memo: string } & Partial<Record<GameGrantRes, number>>) =>
   post<GamePlayerView>("/admin/game/grant", body);
+/** 관리자: 회원 조선소를 본관 레벨에 맞춰 한 번에 맞추기 */
+export type GamePresetPlan = {
+  level: number;
+  grid: number;
+  buildings: Record<string, number>;
+  short: Record<string, number>;
+  weapons: Record<string, number>;
+  ships: string[];
+  crews: Partial<Record<CrewKind, number>>;
+  homes: { dorm: number; garage: number };
+};
+export type GamePresetInfo = {
+  plan: GamePresetPlan | null;
+  log: { at: string | null; by: string; what: string; from: string }[];
+  backup: { at: string | null; level: number } | null;
+};
+export const getGamePreset = (id: string, level: number) => request<GamePresetInfo>(`/admin/game/preset/${id}?level=${level}`);
+export const gamePreset = (id: string, level: number) => post<GamePresetInfo>("/admin/game/preset", { user_id: id, level }, GAME_TIMEOUT);
+export const gamePresetUndo = (id: string) => post<GamePresetInfo>("/admin/game/preset/undo", { user_id: id, level: 0 }, GAME_TIMEOUT);
 export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings; units?: string[]; defense?: string[] }>("/admin/game-settings");
 export const putGameSettings = (s: GameSettings) =>
   request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings", {
