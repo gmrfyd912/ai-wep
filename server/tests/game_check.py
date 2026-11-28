@@ -584,6 +584,52 @@ def g2b(c, user, A, T1, qs):
     pos = sorted((b["type"], b["x"]) for b in d["buildings"] if b["type"] in ("battery", "wall", "mine", "pier"))
     assert d["grid"] == 16 and set(pos) == {("battery", 15), ("wall", 16), ("mine", 17), ("pier", 14)}, pos
     assert c.post("/game/weapon/research", headers=T1, json={"kind": "gun"}).status_code == 403
+    # ---- G2b-2: 해적 연습 전투·수리·다시 보기·태풍 대비 훈련 ----
+    import game_battle
+    pv = c.get("/game/pirate", headers=S).json()
+    assert pv["stages"][0]["open"] and not pv["stages"][1]["open"] and pv["ready"] == 1, pv["stages"][:2]
+    assert pv["typhoon"]["done_today"] is False and pv["history"] == []
+    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 2, "ships": [ship["id"]]})) == "stage_locked"
+    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": []})) == "no_ships"
+    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]], "lane": "x"})) == "bad_plan"
+    steel0 = c.get("/game/state", headers=S).json()["resources"]["steel"]
+    r = c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]], "lane": "middle", "target": "defense"})
+    assert r.status_code == 200, r.text
+    bt, st = r.json()["battle"], r.json()["state"]
+    assert bt["stars"] >= 1 and bt["frames"] and bt["first_stars"] == bt["stars"] and bt["note"]["id"], (bt["stars"], bt["pct"])
+    assert bt["got"]["tech"] == int(10 * sum(game_battle.STAR_SHARE[:bt["stars"]])) or bt["got"]["tech"] > 0
+    f = st["fleet"]["ships"][0]
+    assert f["damage"] > 0 and f["repair"]["rods"] == f["damage"], f
+    assert any(t["id"] == "repair" for t in st["tips"])
+    # 같은 입력이면 같은 결과
+    ws = game.warship_stats({"kind": "patrol", "hull": 2, "weapons": ["torpedo"]}, {"gun": 3, "torpedo": 1})
+    one = [{"id": "a", "kind": "patrol", "max_hp": ws["max_hp"], "attack": ws["attack"], "weapons": ws["weapons"]}]
+    assert game_battle.simulate(1, one, "middle", "defense")["frames"] == bt["frames"]
+    # 다친 배는 출격 못 함 → 수리 (용접봉 + 시간, 기술 포인트로 당기기)
+    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]]})) == "ship_damaged"
+    d = c.post("/game/warship/repair", headers=S, json={"id": ship["id"]}).json()
+    f = d["fleet"]["ships"][0]
+    assert f["repair_left"] == f["damage"] * 6, f
+    assert code(c.post("/game/warship/repair", headers=S, json={"id": ship["id"]})) == "busy"
+    d = c.post("/game/speedup", headers=S, json={"target": f"repair:{ship['id']}", "using": "tech"}).json()
+    d = c.get("/game/state", headers=S).json()
+    f = d["fleet"]["ships"][0]
+    assert f["damage"] == 0 and "repair_left" not in f and "repair" not in f, f
+    # 다시 보기 + 기록
+    rp = c.get(f"/game/battle/{bt['id']}", headers=S).json()["battle"]
+    assert rp["frames"] == bt["frames"]
+    pv = c.get("/game/pirate", headers=S).json()
+    assert pv["history"][0]["stars"] == bt["stars"] and pv["stages"][1]["open"]
+    # 같은 별로는 두 번 안 받음
+    r2 = c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]]}).json()["battle"]
+    assert r2["first_stars"] == 0 and r2["got"] == {"steel": 0, "rods": 0, "tech": 0, "fame": 0}
+    # 태풍 대비 훈련: 하루 한 번, 장벽(레벨 합) + 문제
+    ty = c.post("/game/typhoon/start", headers=S, json={"lang": "ko"}).json()
+    assert ty["questions"], ty
+    tr = c.post("/game/typhoon/submit", headers=S, json={"id": ty["id"], "answers": {q["id"]: 0 for q in ty["questions"]}}).json()
+    assert tr["wall_pct"] == round(min(1, 4 / 16) * 60) and tr["pct"] == tr["wall_pct"] + tr["quiz_pct"] or abs(tr["pct"] - tr["wall_pct"] - tr["quiz_pct"]) <= 1, tr
+    assert code(c.post("/game/typhoon/start", headers=S, json={"lang": "ko"})) == "typhoon_done"
+    assert c.get("/game/pirate", headers=S).json()["typhoon"]["done_today"] is True
 
 
 if __name__ == "__main__":
