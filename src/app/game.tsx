@@ -25,6 +25,11 @@ import {
   gameSpeedup,
   gameTutorial,
   gameUpgrade,
+  gameWallsUpgrade,
+  gameWarshipFit,
+  gameWarshipHull,
+  gameWeaponResearch,
+  gameWeaponUpgrade,
   getGame,
   NetworkError,
   type GameBuilding,
@@ -39,15 +44,16 @@ import {
   type GameWarKind,
   type GameState,
   type GameTip,
+  type GameWeaponKind,
 } from "@/lib/api";
 import { PanZoom } from "@/components/PanZoom";
 import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms";
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
-const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier"];
+const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall"];
 const STAGES = 5;
 const WAR_KINDS = ["patrol", "frigate", "destroyer", "submarine", "landing"];
 /** 공정 이름 (전투함은 마지막 공정이 '인도' 대신 '취역') */
@@ -90,6 +96,7 @@ export default function GameScreen() {
   const [examErr, setExamErr] = useState("");
   const [supply, setSupply] = useState<GameSupply | null>(null);
   const [supplyRes, setSupplyRes] = useState<GameSupplyResult | null>(null);
+  const [supplyUnit, setSupplyUnit] = useState("");
   const [data, setData] = useState<GameState | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -248,7 +255,8 @@ export default function GameScreen() {
     const w = mv?.w ?? cat?.w ?? 2;
     const h = mv?.h ?? cat?.h ?? 2;
     const coast = !!(mv?.coast ?? cat?.coast);
-    return { w, h, coast, skipId: moveId ?? undefined, hint: !moveId && tutStep === "yard" ? tut.spot : null, pick, color: BUILDING_COLOR[placeType] };
+    const sea = !!(mv?.sea ?? cat?.sea);
+    return { w, h, coast, sea, skipId: moveId ?? undefined, hint: !moveId && tutStep === "yard" ? tut.spot : null, pick, color: BUILDING_COLOR[placeType] };
   })();
 
   const confirmPlace = () => {
@@ -321,7 +329,8 @@ export default function GameScreen() {
   };
 
   // 자재 조달: 문제 풀어 강판·용접봉 벌기
-  const openSupply = async () => {
+  const openSupply = async (unit = "") => {
+    setSupplyUnit(unit);
     setSelected(null);
     setInfo(null);
     setMode("supply");
@@ -331,7 +340,7 @@ export default function GameScreen() {
     setExamErr("");
     setBusy(true);
     try {
-      setSupply(await gameSupplyStart(i18n.language));
+      setSupply(await gameSupplyStart(i18n.language, unit));
     } catch (e) {
       setExamErr(gameError(t, e));
     } finally {
@@ -363,7 +372,7 @@ export default function GameScreen() {
       if (rc?.left !== undefined) return { label: t("gm_infoUseOn", { name: t("gm_reclaim") }), onPress: () => { setInfo(null); setSelected(null); setMode("build"); } };
       return null;
     }
-    if (k === "steel" || k === "rods") return { label: t("gm_supplyGo"), onPress: openSupply };
+    if (k === "steel" || k === "rods") return { label: t("gm_supplyGo"), onPress: () => openSupply() };
     return null;
   };
 
@@ -390,7 +399,13 @@ export default function GameScreen() {
       case "exam":
         return { label: t("gm_examStart"), onPress: openExam };
       case "supply":
-        return { label: t("gm_supplyGo"), onPress: openSupply };
+        return { label: t("gm_supplyGo"), onPress: () => openSupply() };
+      case "defense":
+        return { label: t("gm_build"), onPress: () => { setSelected(null); setMode("build"); } };
+      case "weak": {
+        const b = data.buildings.find((k) => k.id === x.bid);
+        return b?.defense?.unit ? { label: t("gm_defStudy"), onPress: () => openSupply(b.defense!.unit!.key) } : null;
+      }
       case "full": {
         const store = Number(x.steel) >= Number(x.rods) ? "yard" : "rodstore";
         const b = data.buildings.find((k) => k.type === store);
@@ -471,7 +486,12 @@ export default function GameScreen() {
                 setSelected(id);
                 if (id) setMode("home");
               }}
-              onPlace={(x, y) => tapOk() && setPick({ x, y })}
+              onPlace={(x, y) => {
+                if (!tapOk()) return;
+                // 방파 장벽: 칸을 누를 때마다 바로 한 칸씩 (작업 반장 없이)
+                if (placeType === "wall" && !moveId) run(() => gameBuild("wall", x, y));
+                else setPick({ x, y });
+              }}
               now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
             />
       </PanZoom>
@@ -605,7 +625,7 @@ export default function GameScreen() {
           <Fab icon="hammer" label={t("gm_build")} onPress={() => setMode("build")} />
           <Fab icon="boat" label={t("gm_ships")} onPress={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }} badge={data.ship?.ready ? "!" : undefined} />
           <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
-          <Fab icon="cart" label={t("gm_supplyShort")} onPress={openSupply} />
+          <Fab icon="cart" label={t("gm_supplyShort")} onPress={() => openSupply()} />
           <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
           <Fab
             icon="book"
@@ -619,7 +639,22 @@ export default function GameScreen() {
       {panelOpen ? (
         <View style={[styles.sheet, { width: sheetW, top: 8 + insets.top, bottom: 8 + insets.bottom, right: 8 + insets.right }]}>
           <ScrollView contentContainerStyle={{ gap: space.sm, padding: space.sm }}>
-            {mode === "place" && placeType ? (
+            {mode === "place" && placeType === "wall" && !moveId ? (
+              <Card style={{ gap: space.sm }}>
+                <Text style={styles.cardTitle}>{t("gm_placeTitle", { name: name("wall") })}</Text>
+                <Text style={styles.small}>{t("gm_wallHint")}</Text>
+                {(() => {
+                  const c = data.catalog.find((k) => k.type === "wall");
+                  return c ? (
+                    <Text style={styles.text}>
+                      {t("gm_defCount", { n: c.have ?? 0, max: c.max ?? 0 })} · {costLine(t, c.cost)}
+                    </Text>
+                  ) : null;
+                })()}
+                <LegendDot color="#73C985" label={t("gm_legendFree")} />
+                <AppButton label={t("gm_wallDone")} icon="checkmark" onPress={() => setMode("build")} />
+              </Card>
+            ) : mode === "place" && placeType ? (
               <Card style={{ gap: space.sm }}>
                 <Text style={styles.cardTitle}>{moveId ? t("gm_moveTitle", { name: name(placeType) }) : t("gm_placeTitle", { name: name(placeType) })}</Text>
                 <Text style={styles.small}>{pick ? t("gm_placePicked") : t("gm_placeHint")}</Text>
@@ -641,6 +676,10 @@ export default function GameScreen() {
                 onShips={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }}
                 onFleet={openWar}
                 onExam={openExam}
+                onStudy={(unit) => openSupply(unit)}
+                onBook={(page) => data.book_id && router.push(`/book?id=${data.book_id}&page=${page}`)}
+                onArms={() => { setSelected(null); setMode("arms"); }}
+                onWalls={() => run(gameWallsUpgrade)}
                 onClose={() => setSelected(null)}
               />
             ) : mode === "build" ? (
@@ -657,8 +696,8 @@ export default function GameScreen() {
                     onSpeed={(using) => run(() => gameSpeedup("reclaim", using))}
                   />
                 ) : null}
-                {data.catalog.length === 0 ? <Body muted>{t("gm_buildAllDone")}</Body> : null}
-                {data.catalog.map((c) => (
+                {data.catalog.filter((c) => !c.defense).length === 0 ? <Body muted>{t("gm_buildAllDone")}</Body> : null}
+                {data.catalog.filter((c) => !c.defense).map((c) => (
                   <View key={c.type} style={styles.item}>
                     <View style={[styles.swatch, { backgroundColor: BUILDING_COLOR[c.type] }]} />
                     <View style={{ flex: 1, gap: 2 }}>
@@ -678,6 +717,33 @@ export default function GameScreen() {
                     </Pressable>
                   </View>
                 ))}
+                <Text style={[styles.cardTitle, { marginTop: space.xs }]}>{t("gm_defTitle")}</Text>
+                <Text style={styles.small}>{t("gm_defIntro")}</Text>
+                {data.catalog.filter((c) => c.defense).map((c) => {
+                  const noWorker = !c.instant && data.builders.busy >= data.builders.total;
+                  const off = c.locked || c.full || !canPay(c.cost) || noWorker;
+                  return (
+                    <View key={c.type} style={[styles.item, c.locked && { opacity: 0.6 }]}>
+                      <View style={[styles.swatch, { backgroundColor: BUILDING_COLOR[c.type] }]} />
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={styles.text}>
+                          {name(c.type)}
+                          {!c.locked ? <Text style={styles.small}>  {t("gm_defCount", { n: c.have ?? 0, max: c.max ?? 0 })}</Text> : null}
+                        </Text>
+                        <Text style={styles.small}>{t(`gm_desc_${c.type}`)}</Text>
+                        <Text style={styles.small}>
+                          {t(c.sea ? "gm_zoneSea" : c.coast ? "gm_zoneCoast" : "gm_zoneLand")} · {costLine(t, c.cost)}
+                          {c.instant ? ` · ${t("gm_instant")}` : ` · ${clock(c.seconds)}`}
+                        </Text>
+                        {c.locked ? <Text style={styles.warn}>{t("gm_needHq", { n: c.unlock })}</Text> : null}
+                        {c.full ? <Text style={styles.warn}>{c.more_at ? t("gm_defFull", { n: c.more_at }) : t("gm_defFullMax")}</Text> : null}
+                      </View>
+                      <Pressable style={[styles.smallBtn, off && { opacity: 0.4 }]} disabled={off} onPress={() => startPlace(c.type)}>
+                        <Text style={styles.smallBtnText}>{t("gm_pick")}</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
                 {data.builders.busy >= data.builders.total ? <Text style={styles.small}>{t("gm_err_builders")}</Text> : null}
               </Card>
             ) : mode === "exam" ? (
@@ -705,13 +771,17 @@ export default function GameScreen() {
                 error={examErr}
                 busy={busy}
                 onSubmit={submitSupply}
-                onAgain={openSupply}
+                onAgain={() => openSupply(supplyUnit)}
                 onClose={() => { setMode("home"); setSupply(null); setSupplyRes(null); }}
               />
             ) : mode === "ship" ? (
               <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} tab={shipTab} setTab={setShipTab} onClose={() => setMode("home")}
+                onHull={(id) => run(() => gameWarshipHull(id))} onFit={(id, w) => run(() => gameWarshipFit(id, w))} onArms={() => setMode("arms")}
                 onStart={(k) => run(() => gameShipStart(k))} onBuildPier={() => startPlace("pier")}
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
+            ) : mode === "arms" ? (
+              <ArmsPanel data={data} busy={busy} onClose={() => setMode("home")} onFleet={openWar}
+                onResearch={(k) => run(() => gameWeaponResearch(k))} onUpgrade={(k) => run(() => gameWeaponUpgrade(k))} />
             ) : mode === "earn" ? (
               <>
                 <EarnPanel data={data} onClose={() => setMode("home")} />
@@ -914,6 +984,10 @@ function BuildingPanel({
   onShips,
   onFleet,
   onExam,
+  onStudy,
+  onBook,
+  onArms,
+  onWalls,
   onClose,
 }: {
   b: GameBuilding;
@@ -928,10 +1002,20 @@ function BuildingPanel({
   onShips: () => void;
   onFleet: () => void;
   onExam: () => void;
+  onStudy: (unit: string) => void;
+  onBook: (page: number) => void;
+  onArms: () => void;
+  onWalls: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const name = t(`gm_b_${b.type}`);
+  const df = b.defense;
+  const walls = b.type === "wall" ? data.buildings.filter((x) => x.type === "wall") : [];
+  const wallLow = walls.length ? Math.min(...walls.map((x) => x.level)) : 0;
+  const wallTodo = walls.filter((x) => x.level === wallLow);
+  const wallNext = wallTodo[0]?.next;
+  const wallCost = wallNext ? { steel: wallNext.cost.steel * wallTodo.length, rods: wallNext.cost.rods * wallTodo.length } : null;
   const lines: string[] = [];
   if (b.rate) lines.push(t("gm_rate", { n: b.rate, res: t(b.type === "cutting" ? "gm_steel" : "gm_rods") }));
   if (b.cap) lines.push(t("gm_cap", { n: b.cap, res: t(b.type === "yard" ? "gm_steel" : "gm_rods") }));
@@ -941,7 +1025,7 @@ function BuildingPanel({
   const speedTech = left !== null ? Math.ceil(left / (data.speed_rule.tech_minutes * 60)) : 0;
   const nx = b.next;
   const block = b.block;
-  const workers = data.builders.busy >= data.builders.total;
+  const workers = !b.instant && data.builders.busy >= data.builders.total;
   return (
     <Card style={{ gap: space.sm }}>
       <PanelHead title={b.level === 0 ? t("gm_building", { name }) : `${name} · ${t("gm_level", { n: b.level })}`} onClose={onClose} />
@@ -973,12 +1057,48 @@ function BuildingPanel({
       {b.type === "dock" ? <AppButton label={t("gm_ships")} icon="boat-outline" onPress={onShips} /> : null}
       {b.type === "pier" && b.level > 0 ? <AppButton label={t("gm_fleetSee")} icon="boat-outline" onPress={onFleet} /> : null}
       {(b.type === "cutting" || b.type === "welding") && b.pending > 0 ? <AppButton label={t("gm_collectAll")} icon="cube-outline" onPress={onCollect} disabled={busy} /> : null}
-      {b.type === "academy" ? <Text style={styles.small}>{t("gm_academyLater")}</Text> : null}
+      {b.type === "academy" ? <AppButton label={t("gm_armsTitle")} icon="flask-outline" onPress={onArms} /> : null}
+      {df ? (
+        <View style={styles.next}>
+          <Text style={styles.text}>
+            {df.dmg > 0 ? t("gm_defPower", { dmg: df.dmg, range: df.range }) : df.buff ? t("gm_defBuff", { n: df.buff, range: df.range }) : t("gm_defHp", { hp: df.hp })}
+          </Text>
+          {df.unit ? (
+            <>
+              <Text style={styles.small}>{t("gm_defUnit", { no: df.unit.no, title: df.unit.title })}</Text>
+              <Text style={[styles.text, { color: df.mult < 1 ? "#FF8A80" : df.mult > 1 ? "#7FD18F" : colors.text }]}>
+                {df.rate === null ? t("gm_defRateFew", { n: df.n }) : t("gm_defRate", { rate: df.rate, mult: df.mult.toFixed(2) })}
+              </Text>
+              <Text style={styles.small}>{t("gm_defRule")}</Text>
+              <View style={styles.row2}>
+                <View style={{ flex: 1 }}>
+                  <AppButton label={t("gm_defStudy")} icon="create-outline" onPress={() => onStudy(df.unit!.key)} disabled={busy} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppButton label={t("gm_defBook")} icon="book-outline" variant="secondary" onPress={() => onBook(df.unit!.pdf_page)} />
+                </View>
+              </View>
+            </>
+          ) : (
+            <Text style={styles.small}>{t("gm_defNoBook")}</Text>
+          )}
+          {df.boost ? <Text style={styles.small}>{t("gm_defBoost")}</Text> : null}
+        </View>
+      ) : null}
+      {b.type === "wall" && walls.length > 1 && wallNext && wallCost ? (
+        <View style={styles.next}>
+          <Text style={styles.text}>{t("gm_wallsAll", { n: wallTodo.length, from: wallLow, to: wallLow + 1 })}</Text>
+          <Text style={styles.small}>{costLine(t, wallCost)}</Text>
+          {wallTodo[0].block === "hq_level" ? <Text style={styles.warn}>{t("gm_blockHq")}</Text> : (
+            <AppButton label={canPay(wallCost) ? t("gm_wallsAllBtn") : t("gm_err_money")} icon="layers-outline" disabled={busy || !canPay(wallCost)} onPress={onWalls} />
+          )}
+        </View>
+      ) : null}
       {nx && left === null ? (
         <View style={styles.next}>
           <Text style={styles.text}>{t("gm_nextLevel", { n: nx.level })}</Text>
           <Text style={styles.small}>
-            {costLine(t, nx.cost)} · {clock(nx.seconds)}
+            {costLine(t, nx.cost)} · {b.instant ? t("gm_instant") : clock(nx.seconds)}
           </Text>
           {block === "exam" && nx.exam ? (
             <>
@@ -1017,11 +1137,17 @@ function ShipPanel({
   onBuildPier,
   onNext,
   onSpeed,
+  onHull,
+  onFit,
+  onArms,
 }: {
   data: GameState;
   busy: boolean;
   canPay: (c: GameCost) => boolean;
   gone: number;
+  onHull: (id: string) => void;
+  onFit: (id: string, weapons: GameWeaponKind[]) => void;
+  onArms: () => void;
   tab: "merchant" | "war";
   setTab: (t: "merchant" | "war") => void;
   onClose: () => void;
@@ -1038,14 +1164,48 @@ function ShipPanel({
       <Text style={styles.text}>{t("gm_fleetTitle", { n: fleet.ships.length, cap: fleet.cap })}</Text>
       {fleet.cap === 0 ? <Text style={styles.small}>{t("gm_fleetNoPier")}</Text> : null}
       {fleet.ships.length === 0 && fleet.cap > 0 ? <Text style={styles.small}>{t("gm_fleetEmpty")}</Text> : null}
-      {fleet.ships.map((f) => (
-        <View key={f.id} style={styles.rowStart}>
-          <Ionicons name="boat" size={16} color={WAR_COLOR} />
-          <Text style={styles.small}>
-            {t("gm_fleetShip", { ship: t(`gm_ship_${f.kind}`), no: f.no })} · {t("gm_warStats", { hp: f.hp, power: f.power, slots: f.slots })}
-          </Text>
-        </View>
-      ))}
+      {fleet.ships.map((f) => {
+        const arms = f.weapons ?? ["gun"];
+        const have = (data.weapons?.list ?? []).filter((w) => w.level > 0).map((w) => w.kind);
+        const cycle = (i: number) => {
+          // 칸을 누를 때마다 연구한 무기를 차례로 바꿔 끼움
+          const cur = arms[i];
+          const nxt = have[(have.indexOf(cur as GameWeaponKind) + 1) % have.length];
+          const list = [...arms];
+          if (i >= list.length) list.push(have[0]);
+          else list[i] = nxt;
+          onFit(f.id, list as GameWeaponKind[]);
+        };
+        const hn = f.hull_next;
+        const hullCost = hn ? { steel: hn.cost.steel, rods: hn.cost.rods } : null;
+        const canHull = !!hn && !hn.block && !!hullCost && canPay(hullCost) && data.resources.tech >= (hn?.cost.tech ?? 0);
+        return (
+          <View key={f.id} style={styles.shipCard}>
+            <View style={styles.rowStart}>
+              <Ionicons name="boat" size={16} color={WAR_COLOR} />
+              <Text style={styles.text}>{t("gm_fleetShip", { ship: t(`gm_ship_${f.kind}`), no: f.no })}</Text>
+            </View>
+            <Text style={styles.small}>{t("gm_shipStats2", { hull: f.hull ?? 1, hp: f.max_hp ?? f.hp, attack: f.attack ?? f.power })}</Text>
+            <View style={styles.chips}>
+              {Array.from({ length: f.slots }, (_, i) => (
+                <Pressable key={i} disabled={busy || have.length === 0} onPress={() => cycle(i)} style={[styles.chip, !arms[i] && { borderStyle: "dashed" }]}>
+                  <Text style={styles.chipText}>{arms[i] ? t(`gm_w_${arms[i]}`) : t("gm_slotEmpty")}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {hn ? (
+              <Pressable disabled={busy || !canHull} onPress={() => onHull(f.id)} style={[styles.linkRow, !canHull && { opacity: 0.5 }]}>
+                <Ionicons name="arrow-up-circle-outline" size={14} color={colors.primary} />
+                <Text style={styles.linkText}>
+                  {hn.block === "hq_level" ? t("gm_hullHq") : hn.block === "max" ? t("gm_maxLevel") : t("gm_hullUp", { n: hn.level, cost: `${costLine(t, hullCost!)} · ${t("gm_tech")} ${hn.cost.tech}` })}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      })}
+      {fleet.ships.length ? <Text style={styles.small}>{t("gm_slotHint")}</Text> : null}
+      {fleet.ships.length ? <AppButton label={t("gm_armsTitle")} icon="flask-outline" variant="secondary" onPress={onArms} /> : null}
       {fleet.ships.length ? <Text style={styles.small}>{t("gm_fleetLater")}</Text> : null}
     </View>
   ) : null;
@@ -1168,6 +1328,71 @@ function ShipPanel({
         );
       })}
       {data.delivered.length ? <Text style={styles.small}>{t("gm_deliveredCount", { n: data.delivered.length })}</Text> : null}
+    </Card>
+  );
+}
+
+/** 무기 연구: 연구소 레벨에 따라 열리고 기술 포인트로 연구, 레벨 올리기 (본관 레벨까지) */
+function ArmsPanel({
+  data,
+  busy,
+  onClose,
+  onFleet,
+  onResearch,
+  onUpgrade,
+}: {
+  data: GameState;
+  busy: boolean;
+  onClose: () => void;
+  onFleet: () => void;
+  onResearch: (k: GameWeaponKind) => void;
+  onUpgrade: (k: GameWeaponKind) => void;
+}) {
+  const { t } = useTranslation();
+  const w = data.weapons;
+  const r = data.resources;
+  return (
+    <Card style={{ gap: space.sm }}>
+      <PanelHead title={t("gm_armsTitle")} onClose={onClose} />
+      <Text style={styles.small}>{t("gm_armsIntro", { n: w?.academy ?? 0 })}</Text>
+      {(w?.list ?? []).map((x) => {
+        const nx = x.next;
+        const canUp = !!nx && !nx.block && r.steel >= nx.cost.steel && r.rods >= nx.cost.rods && r.tech >= nx.cost.tech;
+        const canRes = !x.level && !x.lock && r.tech >= x.tech;
+        return (
+          <View key={x.kind} style={styles.item}>
+            <Ionicons name={x.level ? "flash" : "lock-closed-outline"} size={20} color={x.level ? "#FFD166" : colors.faint} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={styles.text}>
+                {t(`gm_w_${x.kind}`)}
+                {x.level ? <Text style={styles.small}>  {t("gm_level", { n: x.level })}</Text> : null}
+              </Text>
+              <Text style={styles.small}>{t(`gm_wdesc_${x.kind}`)}</Text>
+              {x.power > 0 ? <Text style={styles.small}>{t("gm_wPower", { n: x.power })}{nx && !nx.block ? ` → ${nx.power}` : ""}</Text> : null}
+              {!x.level ? (
+                <Text style={x.lock ? styles.warn : styles.small}>
+                  {x.lock ? t("gm_needAcademy", { n: x.academy }) : t("gm_researchCost", { n: x.tech })}
+                </Text>
+              ) : nx ? (
+                <Text style={nx.block ? styles.warn : styles.small}>
+                  {nx.block === "hq_level" ? t("gm_blockHq") : nx.block === "max" ? t("gm_maxLevel") : `${costLine(t, nx.cost)} · ${t("gm_tech")} ${nx.cost.tech}`}
+                </Text>
+              ) : null}
+            </View>
+            {!x.level ? (
+              <Pressable style={[styles.smallBtn, !canRes && { opacity: 0.4 }]} disabled={!canRes || busy} onPress={() => onResearch(x.kind)}>
+                <Text style={styles.smallBtnText}>{t("gm_research")}</Text>
+              </Pressable>
+            ) : (
+              <Pressable style={[styles.smallBtn, !canUp && { opacity: 0.4 }]} disabled={!canUp || busy} onPress={() => onUpgrade(x.kind)}>
+                <Text style={styles.smallBtnText}>{t("gm_upgradeShort")}</Text>
+              </Pressable>
+            )}
+          </View>
+        );
+      })}
+      <Text style={styles.small}>{t("gm_armsFoot")}</Text>
+      <AppButton label={t("gm_fleetSee")} icon="boat-outline" variant="secondary" onPress={onFleet} />
     </Card>
   );
 }
@@ -1556,6 +1781,12 @@ const styles = StyleSheet.create({
   smallBtnText: { color: colors.text, fontWeight: "700", fontSize: 13 },
   next: { gap: space.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
   earnRow: { flexDirection: "row", gap: space.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
+  shipCard: { gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  chip: { borderWidth: 1, borderColor: colors.primary, borderRadius: 12, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: colors.cardAlt },
+  chipText: { color: colors.text, fontSize: 12, fontWeight: "600" },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 2 },
+  linkText: { color: colors.primary, fontSize: 12 },
   partyBg: { backgroundColor: "#000000AA", alignItems: "center", justifyContent: "center" },
   partyCard: { backgroundColor: colors.card, borderRadius: radius.lg, padding: space.md, gap: space.sm, width: 420, maxWidth: "90%", borderWidth: 2, borderColor: "#FFD166", alignItems: "stretch" },
   partyTitle: { color: "#FFD166", fontSize: 22, fontWeight: "800", textAlign: "center" },

@@ -1590,7 +1590,24 @@ export const getLiveHistory = (courseId: string) =>
 
 // ---- G1 게임: 웰디의 조선소 ----
 
-export type GameBuildingType = "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock" | "pier";
+export type GameBuildingType =
+  | "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock" | "pier"
+  | "battery" | "missile" | "mine" | "asw" | "radar" | "wall";
+/** G2b 방어 시설 힘: 연결된 교재 장의 내 정답률에 따라 0.7~1.3배 */
+export type GameDefense = {
+  hp: number;
+  dmg: number;
+  range: number;
+  mult: number;
+  /** 장 정답률 % (푼 문제가 3개 미만이면 null) */
+  rate: number | null;
+  n: number;
+  /** 레이더 탑 사거리 안 */
+  boost: boolean;
+  buff?: number;
+  unit: { key: string; title: string; pdf_page: number; no: number } | null;
+};
+export type GameWeaponKind = "gun" | "sonar" | "torpedo" | "ciws" | "asm";
 export type GameCost = { steel: number; rods: number };
 export type GameRes = { steel: number; rods: number; tech: number; passes: number; fame: number };
 export type GameBlock = "busy" | "max" | "exam" | "hq_level" | null;
@@ -1620,6 +1637,11 @@ export type GameBuilding = {
   cap?: number;
   /** 군항 부두: 함대에 둘 수 있는 전투함 수 */
   fleet_cap?: number;
+  defense?: GameDefense;
+  /** 바다에 놓는 것 (기뢰밭·방파 장벽) */
+  sea?: boolean;
+  /** 작업 반장 없이 바로 짓고 올림 (방파 장벽) */
+  instant?: boolean;
 };
 /** 전투함 (G2a는 고속정·호위함만 만들 수 있음) */
 export type GameWarKind = "patrol" | "frigate" | "destroyer" | "submarine" | "landing";
@@ -1653,12 +1675,30 @@ export type GameState = {
   /** 바다 줄 수 (간척하면 늘어남) */
   sea?: number;
   buildings: GameBuilding[];
-  catalog: { type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number; coast?: boolean }[];
+  catalog: {
+    type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number; coast?: boolean;
+    /** 방어 시설: 지은 수·지금 본관에서 최대·다 지음·더 지을 수 있는 본관 레벨 */
+    defense?: boolean; have?: number; max?: number; full?: boolean; more_at?: number | null; sea?: boolean; instant?: boolean;
+  }[];
   ships: { kind: GameShipKind; cost: GameCost; fame: number; pay: { steel: number; rods: number; tech: number }; first_bonus: number; dock: number; units: number; lock: "dock" | "units" | null; seconds: number }[];
   ship: { id: string; kind: GameShipKind | GameWarKind; war?: boolean; stage: number; left: number; stage_left?: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
   delivered: GameShipKind[];
   warships?: { kind: GameWarKind; cost: GameCost; hp: number; power: number; slots: number; dock: number; hq: number; lock: GameWarLock; seconds: number }[];
-  fleet?: { cap: number; building: number; ships: { id: string; kind: GameWarKind; no: number; hp: number; power: number; slots: number }[] };
+  fleet?: {
+    cap: number;
+    building: number;
+    ships: {
+      id: string; kind: GameWarKind; no: number; hp: number; power: number; slots: number;
+      hull?: number; weapons?: GameWeaponKind[]; max_hp?: number; attack?: number; damage?: number;
+      hull_next?: { level: number; cost: GameCost & { tech: number }; block: "max" | "hq_level" | null };
+    }[];
+  };
+  /** 무기 연구 (연구소 레벨에 따라 열림) */
+  weapons?: {
+    academy: number;
+    list: { kind: GameWeaponKind; level: number; power: number; academy: number; tech: number; lock: "academy" | null;
+      next: { level: number; cost: GameCost & { tech: number }; power: number; block: "max" | "hq_level" | null } | null }[];
+  };
   reclaim?: GameReclaim;
   units: {
     done: number;
@@ -1694,6 +1734,11 @@ export const gameReclaim = () => post<GameState>("/game/reclaim", {}, GAME_TIMEO
 export const gameShipStart = (kind: GameShipKind | GameWarKind) => post<GameState>("/game/ship/start", { kind }, GAME_TIMEOUT);
 export const gameShipNext = () => post<GameState>("/game/ship/next", {}, GAME_TIMEOUT);
 export const gameGiftsSeen = (ids: string[]) => post<GameState>("/game/gifts/seen", { ids }, GAME_TIMEOUT);
+export const gameWeaponResearch = (kind: GameWeaponKind) => post<GameState>("/game/weapon/research", { kind }, GAME_TIMEOUT);
+export const gameWeaponUpgrade = (kind: GameWeaponKind) => post<GameState>("/game/weapon/upgrade", { kind }, GAME_TIMEOUT);
+export const gameWarshipHull = (id: string) => post<GameState>("/game/warship/hull", { id }, GAME_TIMEOUT);
+export const gameWarshipFit = (id: string, weapons: GameWeaponKind[]) => post<GameState>("/game/warship/fit", { id, weapons }, GAME_TIMEOUT);
+export const gameWallsUpgrade = () => post<GameState>("/game/walls/upgrade", {}, GAME_TIMEOUT);
 export const gameTutorial = (done: boolean) => post<GameState>("/game/tutorial", { done }, GAME_TIMEOUT);
 
 /** 본관 승급 시험 문제 (답은 낸 뒤에만) */
@@ -1745,7 +1790,7 @@ export type GameSupplyResult = {
   results: GameExamResult["results"];
   state: GameState;
 };
-export const gameSupplyStart = (lang: string) => post<GameSupply>("/game/supply/start", { lang }, GAME_TIMEOUT);
+export const gameSupplyStart = (lang: string, unit = "") => post<GameSupply>("/game/supply/start", { lang, unit }, GAME_TIMEOUT);
 export const gameSupplySubmit = (id: string, answers: Record<string, string | number>) =>
   post<GameSupplyResult>("/game/supply/submit", { id, answers }, GAME_TIMEOUT);
 
@@ -1765,7 +1810,7 @@ export const getGamePlayers = (q: string) => request<{ players: GamePlayer[]; to
 export const getGamePlayer = (id: string) => request<GamePlayerView>(`/admin/game/player/${id}`);
 export const gameGrant = (body: { user_id: string; memo: string } & Partial<Record<GameGrantRes, number>>) =>
   post<GamePlayerView>("/admin/game/grant", body);
-export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings");
+export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings; units?: string[]; defense?: string[] }>("/admin/game-settings");
 export const putGameSettings = (s: GameSettings) =>
   request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings", {
     method: "PUT",
