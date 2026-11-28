@@ -102,6 +102,56 @@ def pirate_base(stage_no):
     return out
 
 
+# ---- G3 이달의 해적 선단 (박사 승인 2026-11-28): 해적 6단계에서 별을 딴 사람이 매달 도전 ----
+# 7번째 단계처럼 다루되, 배치가 달마다 바뀌고(위아래 뒤집기·기뢰 줄 바꾸기·장벽 빈틈 위치) 보상은 이달 처음 딴 별마다 명성.
+FLEET_STAGE = 7
+FLEET_FAME = (15, 15, 20)        # 이달 별 1·2·3개를 처음 딸 때 명성 (예시)
+FLEET = {"power": 1.1, "hq_hp": 1500}
+
+
+def fleet_seed(month):
+    y, m = month.split("-")
+    return int(y) * 12 + int(m)
+
+
+def fleet_base(month):
+    """이달의 해적 선단 기지 (같은 달이면 늘 같은 배치)."""
+    seed = fleet_seed(month)
+    flip = seed % 2 == 1
+    swap = seed % 3 == 1
+    gap = (seed * 3) % MAP_H
+    defs = []
+    for t, lv, x, y in PIRATE_STAGES[-1]["defs"]:
+        if t == "wall" and x == 6 and y == gap:
+            continue
+        if t == "mine" and swap and x in (8, 10):
+            x = 18 - x
+        defs.append((t, min(lv + 1, 5) if t in ("battery", "missile") else lv, x, y))
+    st = {**PIRATE_STAGES[-1], **FLEET, "defs": defs}
+    out = [{"id": 0, "type": "hq", "level": 6, "x": 2, "y": 4, "w": 2, "h": 2, "hp": st["hq_hp"], "dmg": 0, "range": 0}]
+    for i, (t, lv, x, y) in enumerate(st["defs"], start=1):
+        s = game.DEFENSE_STATS[t]
+        w, h = game.BUILDINGS[t]["size"]
+        if flip:
+            y = MAP_H - y - h
+        out.append({"id": i, "type": t, "level": lv, "x": x, "y": y, "w": w, "h": h,
+                    "hp": max(1, int(s["hp"] * _lv(lv) * st["power"])) if s["hp"] else 1,
+                    "dmg": s["dmg"] * _lv(lv) * st["power"], "range": s["range"]})
+    for o in out:
+        o["max"] = o["hp"]
+    return out
+
+
+def fleet_best(rows, month):
+    """이달 이미 딴 별 수 (장부 fleet:<달>:<별>)."""
+    best = 0
+    for r in rows:
+        k = str(r.get("key", ""))
+        if k.startswith(f"fleet:{month}:"):
+            best = max(best, int(k.split(":")[2]))
+    return best
+
+
 def _center(o):
     return o["x"] + o["w"] / 2, o["y"] + o["h"] / 2
 
@@ -286,6 +336,17 @@ def pirate_view(rows, fleet, wl):
                        "guards": game_raid.PIRATE_CREWS.get(i, {}),
                        # 작전 짜기 지도용 배치 (id = 목표 순서에 쓰는 번호)
                        "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h")} for o in base]})
+    month = game.season_key()
+    fb = fleet_base(month)
+    counts = {}
+    for o in fb[1:]:
+        counts[o["type"]] = counts.get(o["type"], 0) + 1
+    stages.append({"no": FLEET_STAGE, "monthly": True, "month": month, "stars": fleet_best(rows, month),
+                   "open": best.get(len(PIRATE_STAGES), 0) >= 1,
+                   "reward": {"steel": 0, "rods": 0, "tech": 0, "fame": sum(FLEET_FAME)}, "star_fame": list(FLEET_FAME),
+                   "counts": counts, "power": max(o["level"] for o in fb[1:]),
+                   "guards": game_raid.PIRATE_CREWS.get(FLEET_STAGE, {}),
+                   "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h")} for o in fb]})
     return {"stages": stages, "ready": len(ready), "lanes": list(LANES), "max_ships": 6}
 
 

@@ -157,7 +157,7 @@ export function BattleReplay({ battle: first, onClose, defense = false, live }: 
             ? defense
               ? t("gm_rd_defTitle", { name: battle.attacker?.name ?? "" })
               : t("gm_rd_title", { name: battle.defender?.name ?? "" })
-            : t("gm_bt_title", { n: battle.stage })}
+            : battle.stage === 7 ? t("gm_fl_battleTitle") : t("gm_bt_title", { n: battle.stage })}
         </Text>
         <Text style={styles.small}>
           {battle.live

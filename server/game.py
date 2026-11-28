@@ -209,6 +209,10 @@ DEFAULTS = {
     "contest_win_rods": 150,
     "contest_win_fame": 20,
     "contest_join_steel": 100,        # 진 반에서 점수를 올린 사람
+    # G3 월 시즌·명성 순위 (박사 승인 2026-11-28, 숫자는 예시)
+    "season_on": True,                # 시즌·순위 켜기
+    "season_keep_pct": 50,            # 새 시즌(매달 1일 0시)에 남기는 명성 %
+    "gift_fame": 1,                   # 자재 지원을 보낸 사람이 받는 명성
     # G3 공정한 공격 (박사 승인 2026-11-28, 숫자는 예시, 0 = 끔)
     "raid_newbie_days": 3,            # 처음 게임을 연 날부터 신입 보호 (내가 먼저 공격하면 끝남)
     "raid_level_gap": 3,              # 본관이 이만큼 이상 낮은 상대는 공격 못 함
@@ -920,6 +924,10 @@ def load(user, sync=True):
                    run_days=lambda: _run_days(uid))
         rows = got["rows"]
         found, book, units = got["study"]
+        half = season_half_row(rows, now, st)   # 새 달이면 명성 절반 (한 번만)
+        if half:
+            _add(uid, [dict(half)])
+            rows = rows + [{**half, "created_at": _iso(now)}]
         if sync:
             have = {r["key"] for r in rows}
             found = [r for r in found if r["key"] not in have]
@@ -931,6 +939,34 @@ def load(user, sync=True):
     return {"uid": uid, "st": st, "base": base, "new": new, "now": now, "buildings": buildings, "rows": rows,
             "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": got["ship"],
             "fleet": _fleet(uid, dlv), "delivered_rows": dlv, "run_days": got["run_days"]}
+
+
+# ---- 월 시즌: 매달 1일 0시(한국 시간)에 명성을 season_keep_pct 만큼만 남김 ----
+
+def season_key(now=None):
+    return (now or _now()).astimezone(KST).strftime("%Y-%m")
+
+
+def season_start(now=None):
+    d = (now or _now()).astimezone(KST)
+    return datetime(d.year, d.month, 1, tzinfo=KST)
+
+
+def season_cut(rows, start, keep_pct):
+    """시즌 시작 전까지 모인 명성 중 덜어 낼 양 (양수)."""
+    before = sum(int(r.get("fame") or 0) for r in rows if (_dt(r.get("created_at")) or start) < start)
+    return before - before * int(keep_pct) // 100 if before > 0 else 0
+
+
+def season_half_row(rows, now, st):
+    """이번 시즌 명성 줄이기 장부 줄 (이미 했거나 덜 것이 없으면 None). 열쇠 season:<YYYY-MM>."""
+    if not st.get("season_on", True):
+        return None
+    key = f"season:{season_key(now)}"
+    if any(r.get("key") == key for r in rows):
+        return None
+    cut = season_cut(rows, season_start(now), st.get("season_keep_pct", 50))
+    return {"key": key, "fame": -cut, "note": "season"} if cut else None
 
 
 def fit_storage(found, bal, cap):
@@ -2489,7 +2525,7 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
     for k, mx in (("raid_newbie_days", 30), ("raid_level_gap", 10), ("raid_rest_days", 365), ("gift_amount", 10000),
                   ("gift_tech", 100), ("gift_recv_max", 50), ("contest_study_pct", 100), ("contest_day_cap", 1000),
                   ("contest_win_steel", 10000), ("contest_win_rods", 10000), ("contest_win_fame", 1000),
-                  ("contest_join_steel", 10000)):
+                  ("contest_join_steel", 10000), ("season_keep_pct", 100), ("gift_fame", 100)):
         if cur[k] > mx:
             _err(400, "bad_value", key=k)
     for t in DEFENSE_TYPES:

@@ -493,12 +493,12 @@ def _make_finish(kind, extra):
     if kind == "raid":
         import game_pvp as pv
         return lambda res: pv.apply_raid(extra["user"], extra["target"], res, extra["morale"], extra.get("revenge"))
-    return lambda res: apply_pirate(extra["user"], extra["stage"], res)
+    return lambda res: apply_pirate(extra["user"], extra["stage"], res, extra.get("month"))
 
 
 def _from_row(r):
     d = r.get("data") or {}
-    extra = {k: d[k] for k in ("user", "target", "morale", "revenge", "stage") if k in d}
+    extra = {k: d[k] for k in ("user", "target", "morale", "revenge", "stage", "month") if k in d}
     s = {"id": r["id"], "uid": r["user_id"], "at": float(d.get("at") or time.time()), "base": d["base"], "ships": d["ships"],
          "loads": d["loads"], "deploys": list(r.get("deploys") or []), "map": tuple(d["map"]), "info": d.get("info"),
          "defenders": d.get("defenders"), "mult": d.get("mult", 1.0), "kind": r.get("kind") or "pirate", "extra": extra,
@@ -591,7 +591,7 @@ def _finish(s, end_tick):
 @router.post("/game/live/pirate/start")
 def pirate_start(body: LoadBody, user=Depends(need_player)):
     uid = user["id"]
-    if not 1 <= body.stage <= len(gb.PIRATE_STAGES):
+    if not 1 <= body.stage <= gb.FLEET_STAGE:
         _err(400, "bad_stage")
     _finish_old(uid)
     with _lock(uid):
@@ -600,6 +600,8 @@ def pirate_start(body: LoadBody, user=Depends(need_player)):
         rows = game.ledger(uid)
         best = gb._stage_best(rows)
         if body.stage > 1 and best.get(body.stage - 1, 0) < 1:
+            _err(400, "stage_locked")
+        if body.stage == gb.FLEET_STAGE and not game.settings()["season_on"]:
             _err(400, "stage_locked")
         fleet = {f["id"]: f for f in game._fleet(uid)}
         picked = [fleet[i] for i in dict.fromkeys(body.ships) if i in fleet][:gb_max_ships()]
@@ -615,9 +617,10 @@ def pirate_start(body: LoadBody, user=Depends(need_player)):
         loads, _ = _loads(base, ships, body.loads)
         game.mark_todo(uid, "battle")
     stage = body.stage
-    extra = {"user": _who(user), "stage": stage}
+    month = game.season_key()
+    extra = {"user": _who(user), "stage": stage, "month": month}
     sid = str(uuid.uuid4())
-    s = {"id": sid, "uid": uid, "at": time.time(), "base": gb.pirate_base(stage), "ships": ships, "loads": loads, "deploys": [],
+    s = {"id": sid, "uid": uid, "at": time.time(), "base": gb.fleet_base(month) if stage == gb.FLEET_STAGE else gb.pirate_base(stage), "ships": ships, "loads": loads, "deploys": [],
          "map": (gb.MAP_W, gb.MAP_H, gb.LAND_W), "info": {"stage": stage}, "defenders": gr.PIRATE_CREWS.get(stage),
          "finish": _make_finish("pirate", extra)}
     with _live_lock:
@@ -636,7 +639,7 @@ def gb_max_ships():
     return 6
 
 
-def apply_pirate(user, stage, res):
+def apply_pirate(user, stage, res, month=None):
     """해적 기지 전투 결과 저장: 쓰러진 대원 잃음, 배 파손, 별을 처음 땄을 때만 보상, 다시 보기 기록."""
     uid = user["id"]
     with _lock(uid):
@@ -651,18 +654,27 @@ def apply_pirate(user, stage, res):
             dmg = s["max_hp"] - s["hp"]
             if dmg > 0:
                 game._sql17(lambda s=s, dmg=dmg: store.patch("game_ships", {"id": f"eq.{s['id']}"}, {"damage": dmg}))
-        best = gb._stage_best(rows)
-        prev = best.get(stage, 0)
-        rw = gb.PIRATE_STAGES[stage - 1]["reward"]
         got = {"steel": 0, "rods": 0, "tech": 0, "fame": 0}
-        for star in range(prev + 1, res["stars"] + 1):
-            share = gb.STAR_SHARE[star - 1]
-            for k in got:
-                got[k] += int(rw[k] * share)
-        if res["stars"] > prev:
-            room = game.clip_storage({"steel": got["steel"], "rods": got["rods"]}, game.balance(rows), game.caps(buildings))
-            got.update(room)
-            game._add(uid, [{"key": f"pirate:{stage}:{res['stars']}", **got, "note": f"pirate {stage}"}])
+        if stage == gb.FLEET_STAGE:
+            # 이달의 해적 선단: 이달 처음 딴 별마다 명성만
+            month = month or game.season_key()
+            prev = gb.fleet_best(rows, month)
+            for star in range(prev + 1, res["stars"] + 1):
+                got["fame"] += gb.FLEET_FAME[star - 1]
+            if res["stars"] > prev:
+                game._add(uid, [{"key": f"fleet:{month}:{res['stars']}", **got, "note": f"fleet {month}"}])
+        else:
+            best = gb._stage_best(rows)
+            prev = best.get(stage, 0)
+            rw = gb.PIRATE_STAGES[stage - 1]["reward"]
+            for star in range(prev + 1, res["stars"] + 1):
+                share = gb.STAR_SHARE[star - 1]
+                for k in got:
+                    got[k] += int(rw[k] * share)
+            if res["stars"] > prev:
+                room = game.clip_storage({"steel": got["steel"], "rods": got["rods"]}, game.balance(rows), game.caps(buildings))
+                got.update(room)
+                game._add(uid, [{"key": f"pirate:{stage}:{res['stars']}", **got, "note": f"pirate {stage}"}])
         res["got"] = got
         res["first_stars"] = max(0, res["stars"] - prev)
         bid = str(uuid.uuid4())

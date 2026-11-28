@@ -1795,6 +1795,25 @@ export type AdminContest = {
   week?: string;
   rows: { course: string; rival: string | null; score: number; rival_score: number | null; done: boolean; won: boolean | null }[];
 };
+/** 월 시즌 명성 순위 (우리 반 / 전체) */
+export type GameSeasonRow = { id: string; name: string; fame: number; rank: number; course: string; badge: string | null };
+export type GameSeason = {
+  on: boolean;
+  season?: string;
+  ends_at?: string;
+  keep_pct?: number;
+  scope?: "class" | "all";
+  courses?: { id: string; name: string }[];
+  rows?: GameSeasonRow[];
+  total?: number;
+  me?: GameSeasonRow | null;
+  my_badges?: { season: string; badge: string; rank: number; fame: number }[];
+  class_name?: string;
+};
+export const getGameSeason = (scope: "class" | "all" = "class", course?: string | null) =>
+  request<GameSeason>(`/game/season?scope=${scope}${course ? `&course=${course}` : ""}`, {}, GAME_TIMEOUT);
+export const adminSeasonFinish = () =>
+  post<{ season: string; count: number; top: { badge: string; rank: number; fame: number }[] }>("/admin/game/season/finish", {}, GAME_TIMEOUT);
 export const adminGetContest = () => request<AdminContest>("/admin/game/contest", {}, GAME_TIMEOUT);
 export const adminContestPair = () => post<AdminContest>("/admin/game/contest/pair", {}, GAME_TIMEOUT);
 export const adminContestFinish = () => post<AdminContest>("/admin/game/contest/finish", {}, GAME_TIMEOUT);
@@ -1812,7 +1831,10 @@ export const gameRepair = (id: string) => post<GameState>("/game/warship/repair"
 export type GameLane = "north" | "middle" | "south";
 export type GamePirate = {
   stages: {
-    no: number; stars: number; open: boolean; reward: { steel: number; rods: number; tech: number; fame: number }; counts: Record<string, number>; power: number;
+    no: number; stars: number; open: boolean;
+    /** 이달의 해적 선단 (7번째, 달마다 배치가 바뀜, 이달 처음 딴 별마다 명성) */
+    monthly?: boolean; month?: string; star_fame?: number[];
+    reward: { steel: number; rods: number; tech: number; fame: number }; counts: Record<string, number>; power: number;
     /** 작전 짜기 지도용 배치 (id = 목표 순서 번호) */
     base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number }[];
     guards?: Partial<Record<CrewKind, number>>;

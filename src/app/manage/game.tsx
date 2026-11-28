@@ -7,6 +7,7 @@ import {
   adminContestFinish,
   adminContestPair,
   adminGetContest,
+  adminSeasonFinish,
   getGameSettings,
   putGameSettings,
   type AdminContest,
@@ -40,10 +41,10 @@ const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "s
 /** 바다 지도·공격 칸 (약탈 %·하루 정찰 횟수). 같은 과정 공격 허용은 스위치 */
 const RAID_KEYS = ["raid_loot_pct", "scout_day_max", "raid_day_max", "raid_shield_hours", "raid_newbie_days", "raid_level_gap",
   "raid_rest_days", "raid_defend_rods", "gift_amount", "gift_tech", "gift_recv_max",
-  "contest_study_pct", "contest_day_cap", "contest_win_steel", "contest_win_rods", "contest_win_fame", "contest_join_steel",
+  "contest_study_pct", "contest_day_cap", "contest_win_steel", "contest_win_rods", "contest_win_fame", "contest_join_steel", "season_keep_pct", "gift_fame",
   "raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to", "crew_hurt_minutes"] as const;
 /** 바다 지도·공격 켜기/끄기 스위치 */
-const RAID_SWITCHES = ["raid_pvp", "raid_same_course", "raid_need_daily", "raid_time_lock", "gift_on", "contest_on"] as const;
+const RAID_SWITCHES = ["raid_pvp", "raid_same_course", "raid_need_daily", "raid_time_lock", "gift_on", "contest_on", "season_on"] as const;
 const HOUR_KEYS = ["raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to"];
 const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS, ...SUPPLY_KEYS, ...RAID_KEYS];
 /** 방어 시설과 연결할 교재 장 (0 = 자동) */
@@ -216,6 +217,7 @@ export default function GameSettingsScreen() {
         ))}
       </Card>
       <ContestAdmin />
+      <SeasonAdmin />
       <Text style={styles.section}>{t("gm_setLinkTitle")}</Text>
       <Body muted>{t("gm_setLinkHint")}</Body>
       <Card style={{ gap: space.sm }}>
@@ -309,6 +311,36 @@ function ContestAdmin() {
           <AppButton label={t("gm_ac_pair")} variant="secondary" disabled={busy} onPress={() => run(adminContestPair)} />
           <AppButton label={t("gm_ac_finish")} variant="secondary" disabled={busy || !v?.rows.some((r) => !r.done)} onPress={() => run(adminContestFinish)} />
         </View>
+      </Card>
+    </>
+  );
+}
+
+/** 월 시즌: 시험용 '지금 시즌 끝내 보기' (이번 달 지금까지로 배지를 만들어 봄, 진짜 달이 끝나면 다시 계산) */
+function SeasonAdmin() {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const run = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = await adminSeasonFinish();
+      const icon: Record<string, string> = { gold: "🥇", silver: "🥈", bronze: "🥉" };
+      setMsg(t("gm_as_done", { n: r.count }) + (r.top.length ? ` ${r.top.map((b) => `${icon[b.badge] ?? ""}${b.fame}`).join(" ")}` : ""));
+    } catch (e) {
+      setMsg(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Text style={styles.section}>{t("gm_as_title")}</Text>
+      <Body muted>{t("gm_as_hint")}</Body>
+      <Card style={{ gap: space.sm }}>
+        {msg ? <Text style={styles.label}>{msg}</Text> : null}
+        <AppButton label={t("gm_as_finish")} variant="secondary" disabled={busy} onPress={run} />
       </Card>
     </>
   );

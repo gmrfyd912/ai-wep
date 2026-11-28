@@ -116,7 +116,7 @@ def send_gift(body: GiftBody, user=Depends(need_player)):
         room = game.clip_storage({body.kind: amt}, game.balance(trows), game.caps(game._buildings(body.to)))
         if room.get(body.kind, 0) < amt:
             _err(400, "gift_full")
-        game._add(uid, [{"key": f"gift:{day}", body.kind: -amt, "tech": int(st["gift_tech"]),
+        game._add(uid, [{"key": f"gift:{day}", body.kind: -amt, "tech": int(st["gift_tech"]), "fame": int(st["gift_fame"]),
                          "note": f"gift|{body.to}|{body.kind}"}])
         game._add(body.to, [{"key": f"gift_in:{day}:{uid}", body.kind: amt, "note": f"gift_in|{user.get('name') or ''}|{body.kind}"}])
     return {"class": class_view(user), "state": game._fresh(user)}

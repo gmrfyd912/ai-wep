@@ -13,7 +13,9 @@ import { AppButton, Body, Card } from "@/components/ui";
 import {
   CREW_KINDS,
   getGameContest,
+  getGameSeason,
   type GameContest,
+  type GameSeason,
   gameBuild,
   gameWallsBuild,
   gameCollect,
@@ -77,6 +79,7 @@ import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
 import { ClassGift } from "@/components/ClassGift";
 import { ContestBody, ContestChip } from "@/components/Contest";
+import { BADGE_ICON, SeasonBody, SeasonChip } from "@/components/Season";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
 import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
@@ -85,7 +88,7 @@ import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap,
 import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon" | "todo" | "layout" | "contest";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon" | "todo" | "layout" | "contest" | "season";
 // 지도 빈 곳을 눌러도 닫지 않는 창: 문제 푸는 창(적던 답 보호)과 놓기 모드
 const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place", "layout"];
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
@@ -164,6 +167,11 @@ export default function GameScreen() {
   useEffect(() => {
     loadContest();
   }, [loadContest]);
+  // 월 시즌 명성 순위 (위 가운데 한 줄 + 순위 창)
+  const [season, setSeason] = useState<GameSeason | null>(null);
+  useEffect(() => {
+    getGameSeason().then(setSeason).catch(() => null);
+  }, []);
   // 무료 서버는 평일 낮에만 깨어 있어, 저녁·주말 첫 접속은 오래 걸릴 수 있음 → 5초 넘으면 안내
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -1055,7 +1063,10 @@ export default function GameScreen() {
             <Text style={styles.lvNum}>{hqB?.level ?? 1}</Text>
           </Pressable>
           <View>
-            <Text style={styles.lvName}>{t("gm_hudHq", { n: hqB?.level ?? 1 })}</Text>
+            <Text style={styles.lvName}>
+              {t("gm_hudHq", { n: hqB?.level ?? 1 })}
+              {season?.me?.badge ? ` ${BADGE_ICON[season.me.badge]}` : ""}
+            </Text>
             <Text style={[styles.lvSub, { color: data.run_today ? "#7FD18F" : "#FFB066" }]}>{data.run_today ? t("gm_runOnShort") : t("gm_runOffShort")}</Text>
           </View>
         </View>
@@ -1080,7 +1091,10 @@ export default function GameScreen() {
       {/* 위 가운데: 이번 주 반 대항전 */}
       {!panelOpen ? (
         <View style={[styles.hudTC, { top: 8 + insets.top }]} pointerEvents="box-none">
-          <ContestChip v={contest} onPress={() => { setSelected(null); loadContest(); setMode("contest"); }} />
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <ContestChip v={contest} onPress={() => { setSelected(null); loadContest(); setMode("contest"); }} />
+            <SeasonChip v={season} onPress={() => { setSelected(null); setMode("season"); }} />
+          </View>
         </View>
       ) : null}
 
@@ -1417,6 +1431,11 @@ export default function GameScreen() {
                 <PanelHead title={t("gm_ct_contestTitle")} info={t("gm_ct_info")} onClose={() => setMode("home")} />
                 <ContestBody v={contest} setV={setContest} onState={apply} errorText={(e) => gameError(t, e)} />
               </Card>
+            ) : mode === "season" ? (
+              <Card style={{ gap: space.sm }}>
+                <PanelHead title={t("gm_ss_title")} info={t("gm_ss_info")} onClose={() => setMode("home")} />
+                <SeasonBody first={season} onLoaded={setSeason} errorText={(e) => gameError(t, e)} />
+              </Card>
             ) : mode === "todo" && data.todo ? (
               <Card style={{ gap: space.sm }}>
                 <PanelHead title={t("gm_todoTitle")} info={t("gm_todoInfo")} onClose={() => setMode("home")} />
@@ -1510,7 +1529,7 @@ export default function GameScreen() {
       ) : null}
       {planStage && pirate ? (
         <PlanScreen
-          target={{ kind: "pirate", title: t("gm_lv_title", { n: planStage }), base: pirate.stages[planStage - 1].base, map: pirate.map, stage: planStage }}
+          target={{ kind: "pirate", title: planStage === 7 ? t("gm_fl_planTitle") : t("gm_lv_title", { n: planStage }), base: pirate.stages[planStage - 1].base, map: pirate.map, stage: planStage }}
           pirate={pirate}
           data={data}
           busy={busy}
@@ -2595,8 +2614,8 @@ function BattlePanel({
         <>
           <View style={styles.chips}>
             {pirate.stages.map((x) => (
-              <Pressable key={x.no} disabled={!x.open} onPress={() => setStage(x.no)} style={[styles.stageChip, cur === x.no && styles.stageOn, !x.open && { opacity: 0.4 }]}>
-                <Text style={styles.chipText}>{x.open ? t("gm_bt_stage", { n: x.no }) : `🔒 ${x.no}`}</Text>
+              <Pressable key={x.no} disabled={!x.open && !x.monthly} onPress={() => setStage(x.no)} style={[styles.stageChip, cur === x.no && styles.stageOn, !x.open && { opacity: 0.4 }, x.monthly && { borderColor: "#FFD166" }]}>
+                <Text style={styles.chipText}>{x.monthly ? `${x.open ? "" : "🔒 "}${t("gm_fl_chip")}` : x.open ? t("gm_bt_stage", { n: x.no }) : `🔒 ${x.no}`}</Text>
                 <Text style={styles.starText}>{[0, 1, 2].map((k) => (k < x.stars ? "★" : "☆")).join("")}</Text>
               </Pressable>
             ))}
@@ -2604,6 +2623,15 @@ function BattlePanel({
           {(() => {
             const x = pirate.stages[cur - 1];
             const parts = Object.entries(x.counts).filter(([k]) => k !== "hut").map(([k, v]) => `${t(`gm_b_${k}`)} ${v}`);
+            if (x.monthly)
+              return (
+                <View style={styles.next}>
+                  <InfoTitle title={t("gm_fl_title", { m: Number((x.month ?? "").slice(5)), lv: x.power })} info={t("gm_fl_info")} />
+                  <Text style={styles.small}>{parts.join(" · ")}</Text>
+                  <Text style={styles.text}>{t("gm_fl_reward", { a: x.star_fame?.[0] ?? 0, b: x.star_fame?.[1] ?? 0, c: x.star_fame?.[2] ?? 0 })}</Text>
+                  {!x.open ? <Text style={styles.warn}>{t("gm_fl_locked")}</Text> : null}
+                </View>
+              );
             return (
               <View style={styles.next}>
                 <InfoTitle title={t("gm_bt_stageTitle", { n: x.no, lv: x.power })} info={t("gm_bt_starRule")} />
@@ -2620,7 +2648,7 @@ function BattlePanel({
             </Pressable>
           ) : null}
           {/* 출동 준비: 배·대원을 고르고, 전투 중에 배를 한 척씩 원하는 해안으로 보냄 */}
-          <AppButton label={t("gm_lv_prepare")} icon="navigate-outline" disabled={busy || ready.length === 0} onPress={() => onPlan(cur)} />
+          <AppButton label={t("gm_lv_prepare")} icon="navigate-outline" disabled={busy || ready.length === 0 || !pirate.stages[cur - 1]?.open} onPress={() => onPlan(cur)} />
           <Text style={styles.small}>{t("gm_lv_howShort")}</Text>
           {pirate.history.length ? (
             <View style={styles.next}>
@@ -2629,7 +2657,7 @@ function BattlePanel({
                 <Pressable key={h.id} onPress={() => onReplay(h.id)} style={styles.linkRow}>
                   <Ionicons name="play-circle-outline" size={14} color={colors.primary} />
                   <Text style={styles.linkText}>
-                    {t("gm_bt_stage", { n: h.stage })} {[0, 1, 2].map((k) => (k < h.stars ? "★" : "☆")).join("")} · {h.pct ?? 0}%
+                    {h.stage === 7 ? t("gm_fl_chip") : t("gm_bt_stage", { n: h.stage })} {[0, 1, 2].map((k) => (k < h.stars ? "★" : "☆")).join("")} · {h.pct ?? 0}%
                   </Text>
                 </Pressable>
               ))}
