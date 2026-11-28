@@ -398,7 +398,7 @@ def main():
                                    "fame": 0, "note": ""})
     assert d["grid"] == 14 and d["sea"] == 2 and d["fleet"]["cap"] == 0, (d["grid"], d["fleet"])
     wl = {w["kind"]: w["lock"] for w in d["warships"]}
-    assert wl == {"patrol": "pier", "frigate": "hq", "destroyer": "soon", "submarine": "soon", "landing": "soon"}, wl
+    assert wl == {"patrol": "pier", "frigate": "hq", "destroyer": "soon", "submarine": "soon", "landing": "hq"}, wl
     assert d["reclaim"]["next"]["grid"] == 16 and d["reclaim"]["block"] == "hq_level", d["reclaim"]
     assert any(t["id"] == "pier" for t in d["tips"]), d["tips"]
     e = c.post("/game/ship/start", headers=S8, json={"kind": "patrol"}).json()["detail"]

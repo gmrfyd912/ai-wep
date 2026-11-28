@@ -227,10 +227,16 @@ export function GameMap({
       fleet.slice(0, 6).forEach((kind, i) => {
         const col = Math.floor(i / b.h), row = i % b.h;
         const sx = b.x + b.w + 0.1 + col * 1.05, sy = b.y + row + 0.2;
-        const len = kind === "frigate" ? 0.95 : 0.75;
+        const len = kind === "landing" ? 1.0 : kind === "frigate" ? 0.95 : 0.75;
         parts.push(box(sx, sy, len, 0.55, 0.22 * W, WAR_COLOR, `ws${i}`));
         parts.push(box(sx + 0.05, sy + 0.05, len - 0.1, 0.45, 0.1 * W, "#4A5561", `wd${i}`));
-        parts.push(box(sx + len * 0.35, sy + 0.12, 0.28, 0.3, 0.42 * W, "#C9D1D9", `wh${i}`));
+        if (kind === "landing") {
+          // 상륙함: 넓고 평평한 갑판 + 뒤쪽 낮은 함교 + 앞쪽 내림 문(노란 줄)
+          parts.push(box(sx + 0.05, sy + 0.1, 0.22, 0.35, 0.4 * W, "#C9D1D9", `wh${i}`));
+          parts.push(box(sx + len - 0.12, sy + 0.08, 0.07, 0.39, 0.26 * W, "#F2C230", `wr${i}`));
+        } else {
+          parts.push(box(sx + len * 0.35, sy + 0.12, 0.28, 0.3, 0.42 * W, "#C9D1D9", `wh${i}`));
+        }
       });
     } else if (b.type === "mine" && b.level > 0) {
       // 기뢰밭: 물 위에 뜬 빨간 기뢰 3개 (레벨이 오르면 조금 커짐)

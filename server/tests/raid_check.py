@@ -97,6 +97,18 @@ def main():
     rb = c.get(f"/game/battle/{bt['id']}", headers=S).json()["battle"]
     assert rb["raid"] and rb["crews"]
 
+    # 상륙함: 대원 12명까지 태움 (호위함 4명보다 많이)
+    lid = str(uuid.uuid4())
+    db.insert_rows("game_ships", {"id": lid, "user_id": uid, "kind": "landing", "stage": 4, "delivered_at": "2026-11-30T00:00:00+00:00",
+                                  "hull": 1, "weapons": ["gun"], "damage": 0})
+    for b in db.TABLES["game_bases"]:
+        b["crews"] = {"welder": 14, "fitter": 0, "forklift": 0, "transporter": 0, "pts": 0}
+    lplan = {**plan, "stage": 2, "ships": [lid]}
+    assert code(c.post("/game/pirate/attack", headers=S, json={**lplan, "crews": {"welder": 13}})) == "crew_room"
+    r = c.post("/game/pirate/attack", headers=S, json={**lplan, "crews": {"welder": 12}})
+    assert r.status_code == 200, r.text
+    assert r.json()["battle"]["crew_sent"]["welder"] == 12
+
     # 같은 입력이면 같은 결과
     base = gb.pirate_base(2)
     ships = [{"id": "a", "kind": "frigate", "max_hp": 260, "attack": 57, "weapons": ["gun"]}]

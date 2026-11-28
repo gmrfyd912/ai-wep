@@ -121,13 +121,13 @@ SHIPS = {
                   "pay": {"steel": 12500, "rods": 7000, "tech": 100}},
 }
 # 전투함 (G2a): 도크 레벨·본관 레벨·비용·공정 시간 배수·체력·공격력·무기 칸. 숫자는 예시.
-# soon = 다음 단계에서 열림 (G2a는 고속정·호위함만)
+# soon = 아직 준비 중 (지금은 고속정·호위함·상륙함을 만들 수 있음)
 WARSHIPS = {
     "patrol":    {"dock": 1, "hq": 1, "steel": 300, "rods": 150, "mult": 2, "hp": 100, "power": 20, "slots": 1},
     "frigate":   {"dock": 2, "hq": 2, "steel": 900, "rods": 500, "mult": 6, "hp": 260, "power": 45, "slots": 2},
     "destroyer": {"dock": 3, "hq": 3, "steel": 2200, "rods": 1200, "mult": 15, "hp": 480, "power": 90, "slots": 3, "soon": True},
     "submarine": {"dock": 3, "hq": 4, "steel": 2600, "rods": 1500, "mult": 18, "hp": 300, "power": 110, "slots": 2, "soon": True},
-    "landing":   {"dock": 4, "hq": 5, "steel": 3500, "rods": 2000, "mult": 22, "hp": 600, "power": 70, "slots": 2, "soon": True},
+    "landing":   {"dock": 4, "hq": 5, "steel": 3500, "rods": 2000, "mult": 22, "hp": 600, "power": 70, "slots": 2},
 }
 # 간척 단계: (땅 크기, 바다 줄 수, 본관 레벨, 강판, 용접봉, 공사 초). 숫자는 예시.
 RECLAIM = [
