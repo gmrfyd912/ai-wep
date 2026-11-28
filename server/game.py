@@ -1923,25 +1923,6 @@ class ExamStartBody(BaseModel):
     unit: str = ""      # 자재 조달: 이 장 문제만 (방어 시설 '이 장 문제 풀기')
 
 
-def _pick(book, counts, avoid=None):
-    """지금 교재 문제 은행에서 종류별로 무작위로 뽑기. avoid 에 있는 문제는 되도록 빼고, 모자라면 섞어 채운다."""
-    import random
-    avoid = avoid or set()
-    picked = []
-    for k, n in counts.items():
-        if n <= 0:
-            continue
-        pool = store.select("quiz_questions", {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active",
-                                               "select": daily.QSEL, "limit": "2000"})
-        fresh = [q for q in pool if q["id"] not in avoid]
-        got = random.sample(fresh, min(n, len(fresh)))
-        if len(got) < n:
-            rest = [q for q in pool if q["id"] in avoid]
-            got += random.sample(rest, min(n - len(got), len(rest)))
-        picked += got
-    return picked
-
-
 def _grade_all(qids, answers, lang):
     """여러 문제 채점 → (결과 목록, 맞힌 수, 채점 못 한 수)."""
     qs = daily._questions(qids)
@@ -1973,13 +1954,17 @@ def hq_exam_start(body: ExamStartBody, user=Depends(need_player)):
     target = hq["level"] + 1
     if target > BUILDINGS["hq"]["max"]:
         _err(400, "max")
-    if exam_passed(ledger(uid), target):
+    rows = ledger(uid)
+    if exam_passed(rows, target):
         _err(400, "already")
     book = textbook.current_book()
     if not book:
         _err(400, "no_questions")
     spec = exam_spec(st)
-    picked = _pick(book, spec["counts"])
+    # 자재 조달·태풍 훈련과 같은 '낸 문제 장부'로: 아직 안 낸 문제부터, 다 냈으면 가장 오래전에 낸 것부터
+    with _lock(uid):
+        seen = game_seen(uid, rows)
+    picked, _ = pick_supply(book, spec["counts"], seen, kinds=[k for k in EXAM_KINDS if spec["counts"].get(k, 0) > 0], swap=False)
     if not picked:
         _err(400, "no_questions")
     need = min(spec["pass"], len(picked))
@@ -1988,6 +1973,9 @@ def hq_exam_start(body: ExamStartBody, user=Depends(need_player)):
     with _lock(uid):
         _exams[uid] = {"id": exam_id, "target": target, "qids": [q["id"] for q in picked], "pass": need,
                        "lang": lang, "at": _now(), "book_id": book["id"]}
+        opened = _supply_open.setdefault(uid, {})   # 열었다가 그만둬도 다음 판에 또 안 나오게
+        for q in picked:
+            opened[q["id"]] = _now()
     off = book.get("page_offset") or 0
     return {"id": exam_id, "target": target, "pass": need, "total": len(picked), "short_of": spec["total"] - len(picked),
             "questions": [daily._public(q, None, lang, off) for q in picked]}
@@ -2027,6 +2015,11 @@ def hq_exam_submit(body: ExamSubmitBody, user=Depends(need_player)):
     _record_answers(uid, ex.get("book_id"), results, "hq_exam")
     passed = right >= ex["pass"]
     with _lock(uid):
+        opened = _supply_open.get(uid, {})
+        for q in ex["qids"]:
+            if not any(r["id"] == q and r.get("correct") is None for r in results):   # 채점 못 한(서술형) 건 기록이 없어 메모리에 둠
+                opened.pop(q, None)
+    with _lock(uid):
         if _exams.get(uid, {}).get("id") == ex["id"]:
             _exams.pop(uid, None)
         if passed:
@@ -2049,27 +2042,39 @@ def supply_today(rows, now=None):
     return sum(1 for r in rows if str(r.get("key", "")).startswith(pre))
 
 
-def supply_seen(uid, rows):
-    """자재 조달에서 이미 낸 문제 → 낸 순서 (클수록 최근). 장부(낸 판, 오래된 것부터) + 메모리(열었지만 안 낸 판)."""
-    seen, n = {}, 0
-    for r in rows:   # 장부는 created_at 오름차순
+def game_seen(uid, rows):
+    """게임에서 이미 낸 문제 → 마지막으로 낸 시각(ISO 글자, 클수록 최근).
+    자재 조달·승급 시험·태풍 훈련이 한 장부를 같이 써요 → 한 바퀴 다 돌 때까지 같은 문제가 안 나와요.
+    (1) 장부 메모의 자재 조달 문제  (2) game_answers(게임에서 푼 기록: 승급 시험·태풍·자재 조달)
+    (3) 메모리: 열었지만 아직 안 낸 판."""
+    seen = {}
+
+    def mark(q, at):
+        if q and at > seen.get(q, ""):
+            seen[q] = at
+    for r in rows:
         note = str(r.get("note") or "")
         if str(r.get("key", "")).startswith("supply:") and note.startswith("supply|"):
-            n += 1
             for q in note[7:].split(","):
-                if q:
-                    seen[q] = n
-    n += 1
-    for q in _supply_open.get(uid, {}):
-        seen[q] = n
+                mark(q, str(r.get("created_at") or "1"))
+    try:
+        for r in store.select("game_answers", {"user_id": f"eq.{uid}", "select": "question_id,created_at", "limit": "20000"}):
+            mark(r.get("question_id"), str(r.get("created_at") or "1"))
+    except Exception as e:  # noqa: BLE001  (step17 전)
+        print("[game] game_answers 못 읽음", str(e)[:120], flush=True)
+    for q, at in _supply_open.get(uid, {}).items():
+        mark(q, _iso(at) if isinstance(at, datetime) else str(at))
     return seen
+
+
+supply_seen = game_seen   # 예전 이름
 
 
 def _norm(text):
     return "".join(ch for ch in str(text or "").lower() if ch.isalnum())
 
 
-def pick_supply(book, counts, seen, unit=""):
+def pick_supply(book, counts, seen, unit="", kinds=None, swap=True):
     """자재 조달 문제 고르기.
     1) 아직 안 낸 문제만, 종류별로 정한 수만큼 (글이 같은 문제는 하나로 봄)
     2) 그 종류의 새 문제가 바닥나면 객관식 새 문제로 채움 (단답형은 관리자가 단답형 수를 1 이상으로 했을 때만:
@@ -2077,8 +2082,9 @@ def pick_supply(book, counts, seen, unit=""):
     3) 전부 다 냈으면 가장 오래전에 낸 문제부터 다시 (방금 낸 문제가 연달아 나오지 않게)
     서술형은 절대 안 냄."""
     import random
+    kinds = tuple(kinds or SUPPLY_FALLBACK)
     pools = {}
-    for k in SUPPLY_FALLBACK:
+    for k in kinds:
         q = {"book_id": f"eq.{book['id']}", "kind": f"eq.{k}", "status": "eq.active", "select": daily.QSEL, "limit": "2000"}
         if unit:
             q["unit_key"] = f"eq.{unit}"
@@ -2092,12 +2098,12 @@ def pick_supply(book, counts, seen, unit=""):
         for q in rows:
             if q["id"] in seen:
                 t = _norm(q.get("question"))
-                text_seen[t] = max(text_seen.get(t, 0), seen[q["id"]])
-    when = lambda q: max(seen.get(q["id"], 0), text_seen.get(_norm(q.get("question")), 0))
+                text_seen[t] = max(text_seen.get(t, ""), seen[q["id"]])
+    when = lambda q: max(seen.get(q["id"], ""), text_seen.get(_norm(q.get("question")), ""))
 
     def take(k, n, fresh):
         got = []
-        cands = [q for q in pools[k] if (when(q) == 0) == fresh]
+        cands = [q for q in pools[k] if (when(q) == "") == fresh]
         if not fresh:   # 다시 낼 때는 오래전에 낸 것부터
             cands.sort(key=when)
         for q in cands:
@@ -2111,12 +2117,20 @@ def pick_supply(book, counts, seen, unit=""):
         picked.extend(got)
         return n - len(got)
 
+    swapped = False
+    if not swap:   # 승급 시험: 관리자가 정한 종류별 수 그대로 (새 문제 먼저, 모자라면 오래전에 낸 것부터)
+        for k in kinds:
+            n = counts.get(k, 0)
+            if n > 0:
+                take(k, take(k, n, True), False)
+        rank = {k: i for i, k in enumerate(kinds)}
+        picked.sort(key=lambda q: rank.get(q["kind"], 9))
+        return picked, False
     short = 0
-    for k in SUPPLY_FALLBACK:
+    for k in kinds:
         if counts.get(k, 0) > 0:
             short += take(k, counts[k], True)
-    swapped = False
-    allowed = [k for k in SUPPLY_FALLBACK if k != "word" or counts.get("word", 0) > 0]
+    allowed = [k for k in kinds if k != "word" or counts.get("word", 0) > 0]
     for k in allowed:                  # 새 문제가 모자라면 다른 종류의 새 문제로
         if short <= 0:
             break
@@ -2128,7 +2142,7 @@ def pick_supply(book, counts, seen, unit=""):
         if short <= 0:
             break
         short = take(k, short, False)
-    rank = {k: i for i, k in enumerate(SUPPLY_FALLBACK)}
+    rank = {k: i for i, k in enumerate(kinds)}
     picked.sort(key=lambda q: rank.get(q["kind"], 9))
     return picked, swapped
 

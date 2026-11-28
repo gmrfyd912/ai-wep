@@ -151,9 +151,11 @@ def main():
     r = c.post("/game/hq-exam/submit", headers=S1, json={"id": ex["id"], "answers": ans}).json()
     assert r["passed"] is False and r["right"] == 7 and r["results"][0]["correct_choice"] is not None, r
     assert c.post("/game/hq-exam/submit", headers=S1, json={"id": ex["id"], "answers": ans}).json()["detail"]["code"] == "exam_gone"
-    # 다시 보고 8개 맞힘 → 통과
+    first = set(ids)
+    # 다시 보고 8개 맞힘 → 통과. 낸 문제 장부: 지난번에 안 나온 2문제가 꼭 들어감 (한 바퀴 돌 때까지 안 겹침)
     ex = c.post("/game/hq-exam/start", headers=S1, json={}).json()
     ids = [q["id"] for q in ex["questions"]]
+    assert (set(ox) - first) <= set(ids), (set(ox) - first, ids)
     ans = {qid: (ox[qid] if k < 8 else 1 - ox[qid]) for k, qid in enumerate(ids)}
     r = c.post("/game/hq-exam/submit", headers=S1, json={"id": ex["id"], "answers": ans}).json()
     assert r["passed"] is True and r["right"] == 8, r

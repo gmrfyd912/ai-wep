@@ -422,7 +422,7 @@ def typhoon_start(body: LangBody, user=Depends(need_player)):
     if not book:
         _err(400, "no_questions")
     with _lock(uid):
-        seen = game.supply_seen(uid, rows)
+        seen = game.game_seen(uid, rows)   # 자재 조달·승급 시험과 같은 '낸 문제 장부'
     picked, _ = game.pick_supply(book, TYPHOON["quiz"], seen)
     if not picked:
         _err(400, "no_questions")
@@ -430,6 +430,9 @@ def typhoon_start(body: LangBody, user=Depends(need_player)):
     tid = str(uuid.uuid4())
     with _lock(uid):
         _typhoons[uid] = {"id": tid, "qids": [q["id"] for q in picked], "lang": lang, "book_id": book["id"]}
+        opened = game._supply_open.setdefault(uid, {})
+        for q in picked:
+            opened[q["id"]] = game._now()
     off = book.get("page_offset") or 0
     return {"id": tid, "total": len(picked), "questions": [daily._public(q, None, lang, off) for q in picked]}
 
@@ -450,6 +453,9 @@ def typhoon_submit(body: SubmitBody, user=Depends(need_player)):
     results, right, unsure = game._grade_all(tp["qids"], body.answers, tp["lang"])
     game._record_answers(uid, tp["book_id"], results, "typhoon")
     with _lock(uid):
+        opened = game._supply_open.get(uid, {})
+        for q in tp["qids"]:
+            opened.pop(q, None)
         now = game._now()
         base, buildings = game._prep(uid, now)
         rows = game.ledger(uid)
