@@ -162,7 +162,7 @@ export default function GameScreen() {
       const gone = (Date.now() - fetchedAt.current) / 1000;
       const due =
         data.buildings.some((b) => b.left !== undefined && b.left - gone <= 0) ||
-        (data.ship && !data.ship.ready && data.ship.left - gone <= 0) ||
+        (data.ship && !data.ship.ready && (data.ship.stage_left ?? data.ship.left) - gone <= 0) ||
         (data.reclaim?.left !== undefined && data.reclaim.left - gone <= 0);
       if (due) {
         reloading.current = true;
@@ -371,7 +371,7 @@ export default function GameScreen() {
     if (typeof x.type === "string") p.name = name(x.type);
     if (typeof x.kind === "string") p.ship = t(`gm_ship_${x.kind}`);
     if (typeof x.stage === "number") p.stage = t(stageKey(x.stage, typeof x.kind === "string" && WAR_KINDS.includes(x.kind)));
-    return t(`gm_tip_${x.id}`, p);
+    return t(`gm_tip_${x.id === "ship_ready" ? "ship_done" : x.id}`, p);
   };
   const buddyLine = tutStep ? t(`gm_tut_${tutStep}`, { steel: data.earn.daily_done_steel }) : tip ? tipText(tip) : "";
 
@@ -382,7 +382,7 @@ export default function GameScreen() {
       case "study":
         return { label: t("gm_goDaily"), onPress: () => router.push("/daily") };
       case "ship_ready":
-        return { label: data.ship && data.ship.stage >= STAGES - 1 ? t("gm_shipDeliver") : t("gm_shipNext"), onPress: shipNext };
+        return { label: t(data.ship?.war ? "gm_warCommission" : "gm_shipDeliver"), onPress: shipNext };
       case "collect":
         return { label: t("gm_collectAll"), onPress: doCollect };
       case "exam":
@@ -1042,12 +1042,19 @@ function ShipPanel({
           ))}
         </View>
         <Text style={styles.small}>{Array.from({ length: STAGES }, (_, i) => t(stageKey(i, s.war))).join(" → ")}</Text>
-        <Text style={styles.text}>
-          {t("gm_stageNow", { stage: t(stageKey(s.stage, s.war)) })} · {ready ? t("gm_stageReady") : t("gm_leftLine", { time: clock(left) })}
-        </Text>
+        {ready ? (
+          <Text style={styles.text}>{t(s.war ? "gm_warAllDone" : "gm_shipAllDone")}</Text>
+        ) : (
+          <>
+            <Text style={styles.text}>
+              {t("gm_stageNow", { stage: t(stageKey(s.stage, s.war)) })} · {t("gm_shipTotalLeft", { time: clock(left) })}
+            </Text>
+            <Text style={styles.small}>{t("gm_stageAuto")}</Text>
+          </>
+        )}
         {ready ? (
           <AppButton
-            label={s.stage >= STAGES - 1 ? t(s.war ? "gm_warCommission" : "gm_shipDeliver") : t("gm_shipNext")}
+            label={t(s.war ? "gm_warCommission" : "gm_shipDeliver")}
             icon="arrow-forward-circle-outline"
             disabled={busy}
             onPress={onNext}
@@ -1114,7 +1121,7 @@ function ShipPanel({
     <Card style={{ gap: space.sm }}>
       <PanelHead title={t("gm_ships")} onClose={onClose} />
       {tabs}
-      <Text style={styles.small}>{t("gm_shipIntro")}</Text>
+      <Text style={styles.small}>{t("gm_shipIntroAuto")}</Text>
       {data.ships.map((x) => {
         const lock = x.lock === "dock" ? t("gm_shipLockDock", { n: x.dock }) : x.lock === "units" ? t("gm_shipLockUnits", { n: x.units }) : "";
         const ok = !x.lock && canPay(x.cost);

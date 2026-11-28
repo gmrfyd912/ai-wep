@@ -504,10 +504,34 @@ def _buildings(uid):
     return store.select("game_buildings", {"user_id": f"eq.{uid}", "select": "*", "order": "created_at.asc"})
 
 
-def _ship(uid):
+def _ship(uid, now=None):
+    """도크에서 만드는 배. 공정은 저절로 이어진다 (박사 요청 2026-11-28: 공정마다 누르지 않게).
+    지금 공정이 끝났으면 다음 공정을 그 끝난 시각부터 시작한 것으로 하고, 마지막 공정까지 이어서 계산한다.
+    마지막 공정이 끝나면 '인도하기'(상선) / '군항 부두로'(전투함) 한 번만 누르면 된다."""
     rows = store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "is.null", "select": "*",
                                        "order": "created_at.desc", "limit": "1"})
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    ship = rows[0]
+    now = now or _now()
+    until = _dt(ship.get("stage_until"))
+    stage = ship["stage"]
+    changed = False
+    while until and until <= now and stage < len(STAGES) - 1:
+        stage += 1
+        until = until + timedelta(seconds=ship_stage_seconds(ship["kind"], stage))
+        changed = True
+    if changed:
+        store.patch("game_ships", {"id": f"eq.{ship['id']}"}, {"stage": stage, "stage_until": _iso(until)})
+        ship["stage"], ship["stage_until"] = stage, _iso(until)
+    return ship
+
+
+def ship_total_left(ship, now):
+    """다 만들 때까지 남은 초 (지금 공정 남은 시간 + 남은 공정들)."""
+    until = _dt(ship.get("stage_until"))
+    left = max(0, int((until - now).total_seconds())) if until else 0
+    return left + sum(ship_stage_seconds(ship["kind"], i) for i in range(ship["stage"] + 1, len(STAGES)))
 
 
 def _run_days(uid):
@@ -592,7 +616,7 @@ def load(user, sync=True):
         else:
             book, units = unit_progress(uid, st)
     return {"uid": uid, "st": st, "base": base, "new": new, "now": now, "buildings": buildings, "rows": rows,
-            "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": _ship(uid),
+            "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": _ship(uid, now),
             "fleet": _fleet(uid), "run_days": _run_days(uid)}
 
 
@@ -742,9 +766,11 @@ def view(s, lang="ko"):
     ship_out = None
     if ship:
         until = _dt(ship.get("stage_until"))
-        left = max(0, int((until - now).total_seconds())) if until else 0
+        stage_left = max(0, int((until - now).total_seconds())) if until else 0
+        left = ship_total_left(ship, now)
+        # left = 다 만들 때까지 (공정은 저절로 이어짐), stage_left = 지금 공정이 끝날 때까지 (지도 그림을 바꿀 때)
         ship_out = {"id": ship["id"], "kind": ship["kind"], "war": is_war(ship["kind"]), "stage": ship["stage"],
-                    "left": left, "ready": left == 0,
+                    "left": left, "stage_left": stage_left, "ready": left == 0,
                     "stage_seconds": ship_stage_seconds(ship["kind"], ship["stage"]),
                     "speed": {"tech": math.ceil(left / TECH_SECONDS), "passes": 1}}
     fleet = s.get("fleet") or []
@@ -1143,12 +1169,14 @@ def speedup(body: SpeedBody, user=Depends(need_player)):
         _err(400, "bad_using")
     with _lock(uid):
         now = _now()
+        total = None
         if body.target == "ship":
-            ship = _ship(uid)
+            ship = _ship(uid, now)
             if not ship:
                 _err(404, "not_found")
             until = _dt(ship.get("stage_until"))
             table, row_id, col = "game_ships", ship["id"], "stage_until"
+            total = ship_total_left(ship, now)
         elif body.target == "reclaim":
             base, _ = _base(uid)
             until = _dt(base.get("reclaim_until"))
@@ -1158,6 +1186,8 @@ def speedup(body: SpeedBody, user=Depends(need_player)):
             until = _dt(b.get("busy_until"))
             table, row_id, col = "game_buildings", b["id"], "busy_until"
         left = int((until - now).total_seconds()) if until else 0
+        if total is not None:
+            left = total  # 배는 남은 공정 전체를 당김 (공정은 저절로 이어지므로)
         if left <= 0:
             _err(400, "not_busy")
         bal = balance(ledger(uid))
@@ -1212,15 +1242,15 @@ def ship_start(body: ShipBody, user=Depends(need_player)):
 
 @router.post("/game/ship/next")
 def ship_next(user=Depends(need_player)):
-    """지금 공정이 끝났으면 다음 공정 시작. 마지막(인도)이 끝났으면 인도 → 명성."""
+    """모든 공정이 끝났으면 인도(상선 → 대금·명성) 또는 군항 부두로(전투함). 공정 사이는 저절로 이어지므로 누를 필요 없음."""
     uid = user["id"]
     with _lock(uid):
-        ship = _ship(uid)
+        now = _now()
+        ship = _ship(uid, now)
         if not ship:
             _err(404, "not_found")
-        now = _now()
         until = _dt(ship.get("stage_until"))
-        if until and until > now:
+        if (until and until > now) or ship["stage"] < len(STAGES) - 1:
             _err(400, "not_ready")
         stage = ship["stage"] + 1
         war = is_war(ship["kind"])
