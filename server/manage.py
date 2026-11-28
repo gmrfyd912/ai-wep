@@ -313,6 +313,9 @@ def manage_update_member(uid: str, body: MemberPatch, user=Depends(need_members)
         if body.status not in ("active", "disabled"):
             _err(400, "bad_status")
         fields["status"] = body.status
+        if body.status == "active" and target.get("status") == "graduated":
+            # 수료로 막힌 계정을 다시 열면, 오래 안 들어왔다고 바로 다시 막히지 않게
+            fields["last_login_at"] = datetime.now(timezone.utc).isoformat()
     if body.permissions is not None:
         if user["role"] != "admin":  # 추가 권한은 시스템관리자만 준다
             _err(403, "forbidden")

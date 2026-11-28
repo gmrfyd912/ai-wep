@@ -150,7 +150,8 @@ export default function ManageMember() {
             </>
           ) : null}
 
-          {m.status === "disabled" ? (
+          {m.status === "graduated" ? <Body muted>{t("manage_statusGraduatedInfo")}</Body> : null}
+          {m.status === "disabled" || m.status === "graduated" ? (
             <AppButton label={t("manage_enable")} variant="secondary" onPress={() => setStatus("active")} disabled={busy} />
           ) : m.status === "active" ? (
             <AppButton label={t("manage_disable")} variant="danger" onPress={() => setStatus("disabled")} disabled={busy} />

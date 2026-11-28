@@ -119,7 +119,7 @@ export function SeaMap({
                   <Circle cx={b.x * k} cy={b.y * k} r={b.r * k} fill={mine ? "#2B7FBF55" : "#2B7FBF33"} stroke={mine ? SAME : "#9CC9E8"}
                     strokeWidth={mine ? 2 : 1} strokeDasharray={mine ? undefined : "6,5"} onPress={() => tapOk() && closeCard()} />
                   <SvgText x={b.lx * k} y={b.ly * k + fs / 2} fill="#fff" fontSize={fs + 2} fontWeight="700" textAnchor="middle">
-                    {b.name || t("gm_sea_noCourse")}
+                    {b.name || t("gm_sea_noCourse")}{b.done ? ` · ${t("gm_sea_doneCourse")}` : ""}
                   </SvgText>
                 </G>
               );
@@ -268,7 +268,9 @@ function ScoutCard({ s, sea, onPlan, onRaid, onOther }: {
         <Text style={styles.tag}>{t("gm_sc_power", { n: s.score })}</Text>
         {s.tier ? <Text style={[styles.tag, { backgroundColor: tierC }]}>{t(`gm_sea_${s.tier}`)}</Text> : null}
         {s.same ? <Text style={[styles.tag, { borderWidth: 1, borderColor: SAME }]}>{t("gm_sc_same")}</Text> : null}
+        {s.grad ? <Text style={styles.tag}>{t("gm_sc_grad")}</Text> : null}
       </View>
+      {s.grad ? <Text style={styles.small}>{t("gm_sc_gradInfo")}</Text> : null}
       <MiniBase s={s} />
       {counts.length ? <Text style={styles.small}>{counts.join(" · ")}</Text> : null}
       <Text style={styles.small}>
