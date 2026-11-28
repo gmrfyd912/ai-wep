@@ -1,15 +1,21 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Image, Modal, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 
-import { answerLive, getLiveNow, NetworkError, type LaunchNews, type LiveNow } from "@/lib/api";
+import { answerLive, getLiveNow, NetworkError, type GameGift, type LaunchNews, type LiveNow } from "@/lib/api";
 import { useSession } from "@/state/session";
 import { colors, radius, space } from "@/theme";
 
 const POLL_MS = 3000;
+const GIFT_RES = ["steel", "rods", "tech", "passes", "fame"] as const;
+
+/** 선생님이 보낸 자원 한 줄: "강판 +5000 · 용접봉 +300" */
+export function giftLine(t: (k: string) => string, g: GameGift) {
+  return GIFT_RES.filter((k) => (g[k] ?? 0) > 0).map((k) => `${t(`gm_${k}`)} +${g[k]}`).join(" · ");
+}
 const BUDDY = require("../../assets/buddy/m0.png");
 
 /**
@@ -36,12 +42,24 @@ function LiveOxPoller() {
   const newsQueue = useRef<LaunchNews[]>([]);
   const newsSeen = useRef<Set<string>>(new Set());
   const newsFirst = useRef(true);
+  const [gift, setGift] = useState<GameGift | null>(null);
+  const giftQueue = useRef<GameGift[]>([]);
+  const giftSeen = useRef<Set<string>>(new Set());
+  // 조선소 화면에서는 그 화면이 직접 '선물' 창을 띄우므로 위 알림은 안 보임
+  const inGame = usePathname() === "/game";
   const active = useRef(AppState.currentState === "active");
 
   const poll = useCallback(async () => {
     if (!active.current) return;
     try {
-      const { quiz: q, launches } = await getLiveNow(i18n.language);
+      const { quiz: q, launches, gifts } = await getLiveNow(i18n.language);
+      // 선생님이 보낸 자원: 앱 어디서든 한 번씩 (게임 화면에서 '받았어요'를 누르면 서버가 더 안 보냄)
+      for (const g of gifts ?? []) {
+        if (giftSeen.current.has(g.id)) continue;
+        giftSeen.current.add(g.id);
+        giftQueue.current.push(g);
+      }
+      setGift((cur) => cur ?? giftQueue.current.shift() ?? null);
       setQuiz(q);
       // 같은 반 친구 진수식: 처음 켤 때 이미 지난 것은 건너뛰고, 새로 생긴 것만 하나씩
       for (const l of launches ?? []) {
@@ -81,7 +99,31 @@ function LiveOxPoller() {
     return () => clearTimeout(timer);
   }, [news]);
 
-  const banner = news ? (
+  useEffect(() => {
+    if (!gift) return;
+    const timer = setTimeout(() => setGift(giftQueue.current.shift() ?? null), 9000);
+    return () => clearTimeout(timer);
+  }, [gift]);
+
+  const giftBanner = gift && !inGame ? (
+    <Pressable
+      style={[styles.news, styles.gift, news ? { top: 112 } : null]}
+      onPress={() => {
+        setGift(giftQueue.current.shift() ?? null);
+        router.push("/game");
+      }}
+    >
+      <Ionicons name="gift" size={30} color="#FFD166" />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.newsTitle}>{t("gm_giftTitle")}</Text>
+        <Text style={styles.newsText}>{giftLine(t, gift)}</Text>
+        {gift.memo ? <Text style={styles.newsText}>{t("gm_giftMemo", { memo: gift.memo })}</Text> : null}
+        <Text style={styles.giftTap}>{t("gm_giftTap")}</Text>
+      </View>
+    </Pressable>
+  ) : null;
+
+  const newsBanner = news ? (
     <Pressable
       style={styles.news}
       onPress={() => {
@@ -96,6 +138,13 @@ function LiveOxPoller() {
       </View>
     </Pressable>
   ) : null;
+  const banner =
+    newsBanner || giftBanner ? (
+      <>
+        {newsBanner}
+        {giftBanner}
+      </>
+    ) : null;
 
   const open = quiz?.phase === "open";
   useEffect(() => {
@@ -243,6 +292,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   newsBuddy: { width: 34, height: 50 },
+  gift: { borderColor: "#E05A9B" },
+  giftTap: { color: "#FFD166", fontSize: 11, marginTop: 2 },
   newsTitle: { color: "#FFD166", fontSize: 13, fontWeight: "800" },
   newsText: { color: "#fff", fontSize: 13, lineHeight: 18 },
   wrap: { flex: 1, backgroundColor: colors.bg },

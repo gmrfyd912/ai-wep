@@ -14,6 +14,7 @@ import {
   gameBuild,
   gameCollect,
   gameExamStart,
+  gameGiftsSeen,
   gameSupplyStart,
   gameSupplySubmit,
   gameExamSubmit,
@@ -40,6 +41,7 @@ import {
   type GameTip,
 } from "@/lib/api";
 import { PanZoom } from "@/components/PanZoom";
+import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
@@ -733,6 +735,24 @@ export default function GameScreen() {
       ) : null}
 
       {party ? <LaunchParty info={party} onClose={() => setParty(null)} /> : null}
+      {!party && data.gifts?.length ? (
+        <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
+          <View style={[styles.partyCard, { borderColor: "#E05A9B" }]}>
+            <View style={[styles.rowStart, { justifyContent: "center" }]}>
+              <Ionicons name="gift" size={26} color="#E05A9B" />
+              <Text style={styles.partyTitle}>{t("gm_giftTitle")}</Text>
+            </View>
+            <StudyBuddy compact size={52} text={t("gm_giftBuddy")} />
+            {data.gifts.map((g) => (
+              <View key={g.id} style={{ gap: 2, alignItems: "center" }}>
+                <Text style={styles.partyItemText}>{giftLine(t, g)}</Text>
+                {g.memo ? <Text style={styles.small}>{t("gm_giftMemo", { memo: g.memo })}</Text> : null}
+              </View>
+            ))}
+            <AppButton label={t("gm_giftOk")} icon="checkmark" disabled={busy} onPress={() => run(() => gameGiftsSeen(data.gifts!.map((g) => g.id)))} />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

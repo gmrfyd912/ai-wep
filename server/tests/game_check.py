@@ -476,6 +476,20 @@ def main():
     assert c.post("/admin/game/grant", headers=T1, json={"user_id": s8, "steel": 1}).status_code == 403
     d = c.get("/game/state", headers=S8).json()
     assert d["resources"]["steel"] == g["resources"]["steel"]
+    # 지급 알림: 받은 것(양수)만, 빼기만 한 줄은 알림 없음. 앱 어디서든(/live/now) + 게임 화면(받았어요 누를 때까지)
+    gifts = d["gifts"]
+    assert len(gifts) == 1 and gifts[0]["steel"] == 99999 and gifts[0]["passes"] == 3 and gifts[0]["memo"] == "시험 / 보상", gifts
+    now = c.get("/live/now", headers=S8).json()
+    assert [x["steel"] for x in now["gifts"]] == [99999], now
+    assert c.get("/live/now", headers=S1).json()["gifts"] == []
+    d = c.post("/game/gifts/seen", headers=S8, json={"ids": [gifts[0]["id"], "남의것"]}).json()
+    assert d["gifts"] == [] and d["resources"]["steel"] == g["resources"]["steel"], d["gifts"]
+    assert c.get("/live/now", headers=S8).json()["gifts"] == []
+    # 일주일 지난 지급은 게임 화면 알림에서 빠짐
+    c.post("/admin/game/grant", headers=A, json={"user_id": s8, "rods": 5})
+    assert len(c.get("/game/state", headers=S8).json()["gifts"]) == 1
+    tick(8 * 86400)
+    assert c.get("/game/state", headers=S8).json()["gifts"] == []
     print("game_check OK")
 
 

@@ -1514,7 +1514,9 @@ export type LiveNow = {
 };
 /** 같은 반 친구의 최근 진수식 (G1 웰디의 조선소, 10분 동안) */
 export type LaunchNews = { id: string; name: string; kind: GameShipKind; at: string };
-export const getLiveNow = (lang: string) => request<{ quiz: LiveNow | null; launches?: LaunchNews[] }>(`/live/now?lang=${lang}`, {}, 8000);
+/** 관리자(선생님)가 보낸 게임 자원 (받은 것만) */
+export type GameGift = { id: string; memo: string; at: string | null; steel?: number; rods?: number; tech?: number; passes?: number; fame?: number };
+export const getLiveNow = (lang: string) => request<{ quiz: LiveNow | null; launches?: LaunchNews[]; gifts?: GameGift[] }>(`/live/now?lang=${lang}`, {}, 8000);
 export const answerLive = (quiz_id: string, answer: number) =>
   request<{ ok: boolean }>("/live/answer", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ quiz_id, answer }) }, 8000);
 
@@ -1678,6 +1680,8 @@ export type GameState = {
   delivered_now?: { kind: GameShipKind; fame: number; first: boolean; count: number; got: { fame: number; steel: number; rods: number; tech: number; passes?: number } };
   /** 방금 군항 부두에 들어온 전투함 */
   commissioned_now?: { kind: GameWarKind; no: number; count: number; cap: number };
+  /** 선생님이 보낸 자원 중 아직 '받았어요'를 안 누른 것 */
+  gifts?: GameGift[];
 };
 const GAME_TIMEOUT = 90000;
 export const getGame = (lang: string) => request<GameState>(`/game/state?lang=${lang}`, {}, GAME_TIMEOUT);
@@ -1689,6 +1693,7 @@ export const gameSpeedup = (target: string, using: "tech" | "pass") => post<Game
 export const gameReclaim = () => post<GameState>("/game/reclaim", {}, GAME_TIMEOUT);
 export const gameShipStart = (kind: GameShipKind | GameWarKind) => post<GameState>("/game/ship/start", { kind }, GAME_TIMEOUT);
 export const gameShipNext = () => post<GameState>("/game/ship/next", {}, GAME_TIMEOUT);
+export const gameGiftsSeen = (ids: string[]) => post<GameState>("/game/gifts/seen", { ids }, GAME_TIMEOUT);
 export const gameTutorial = (done: boolean) => post<GameState>("/game/tutorial", { done }, GAME_TIMEOUT);
 
 /** 본관 승급 시험 문제 (답은 낸 뒤에만) */
