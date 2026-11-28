@@ -753,7 +753,7 @@ def raid_start(body: RaidLoadBody, user=Depends(need_player)):
     pv.need_sql19()
     _finish_old(uid)
     tg0 = pv._target(user, body.target, st)
-    code, extra = pv.block_reason(uid, body.target, st, tg0["base"], tg0["same"])
+    code, extra = pv.target_block(uid, body.target, st, tg0)
     if code:
         _err(400, "raid_" + code, **extra)
     if _busy(body.target, uid):
@@ -765,7 +765,7 @@ def raid_start(body: RaidLoadBody, user=Depends(need_player)):
     with la, lb:
         now = game._now()
         tg = pv._target(user, body.target, st)
-        code, extra = pv.block_reason(uid, body.target, st, tg["base"], tg["same"], now=now)
+        code, extra = pv.target_block(uid, body.target, st, tg, now=now)
         if code:
             _err(400, "raid_" + code, **extra)
         base, buildings = game._prep(uid, now)
@@ -796,4 +796,5 @@ def raid_start(body: RaidLoadBody, user=Depends(need_player)):
     with _live_lock:
         _live[sid] = s
     _save_new(s, "raid", extra)
+    pv.end_newbie(uid)   # 먼저 공격하면 신입 보호는 끝남
     return {"id": sid, "battle": _run(s), "results": results}

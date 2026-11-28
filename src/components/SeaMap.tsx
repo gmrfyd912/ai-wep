@@ -142,9 +142,9 @@ export function SeaMap({
                 <G key={s.id} onPress={() => (s.me ? closeCard() : open({ kind: "user", id: s.id }))}>
                   <Circle cx={x} cy={y} r={r * 1.6} fill="transparent" />
                   {s.same && !s.me ? <Circle cx={x} cy={y} r={r + 3} fill="none" stroke={SAME} strokeWidth={2} /> : null}
-                  <Circle cx={x} cy={y} r={r} fill="#D8C08A" stroke={s.me ? ME : s.shield ? SHIELD : TIER_COLOR[s.tier]} strokeWidth={s.me ? 3 : 2.5} />
-                  <Rect x={x - r * 0.35} y={y - r * 0.55} width={r * 0.7} height={r * 0.7} fill={s.me ? "#2F5F9E" : s.shield ? SHIELD : TIER_COLOR[s.tier]} />
-                  {s.shield ? <Circle cx={x} cy={y} r={r + 6} fill="#FFFFFF22" stroke="#FFFFFFAA" strokeWidth={1.5} strokeDasharray="3 3" /> : null}
+                  <Circle cx={x} cy={y} r={r} fill="#D8C08A" stroke={s.me ? ME : s.shield || s.protect ? SHIELD : TIER_COLOR[s.tier]} strokeWidth={s.me ? 3 : 2.5} />
+                  <Rect x={x - r * 0.35} y={y - r * 0.55} width={r * 0.7} height={r * 0.7} fill={s.me ? "#2F5F9E" : s.shield || s.protect ? SHIELD : TIER_COLOR[s.tier]} />
+                  {s.shield || s.protect ? <Circle cx={x} cy={y} r={r + 6} fill="#FFFFFF22" stroke="#FFFFFFAA" strokeWidth={1.5} strokeDasharray="3 3" /> : null}
                   {s.me || zoom >= NAME_ZOOM ? (
                     <SvgText x={x} y={y + r + fs} fill="#fff" fontSize={fs} fontWeight={s.me ? "700" : "400"} textAnchor="middle">
                       {s.me ? `★ ${t("gm_sea_me")}` : s.name}

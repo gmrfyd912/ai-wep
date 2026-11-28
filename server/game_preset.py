@@ -195,6 +195,8 @@ def preset_apply(body: PresetBody, user=Depends(need_admin)):
         rows.append({"key": f"preset:{uuid.uuid4()}", "created_at": iso,
                      "note": f"preset|{user.get('login_id') or ''}|{p['level']}|{old_hq['level'] if old_hq else 0}"})
         game._add(uid, rows)
+    import game_pvp
+    game_pvp.clear_protection(uid)   # 관리자가 레벨을 맞추면 보호막·신입 보호 없앰 (박사 요청 2026-11-28)
     return {"plan": summary(p), **player_info(uid)}
 
 
@@ -211,6 +213,8 @@ def preset_undo(body: PresetBody, user=Depends(need_admin)):
         game._add(uid, [{"key": f"preset:{uuid.uuid4()}", "created_at": game._iso(game._now()),
                          "note": f"preset|{user.get('login_id') or ''}|undo|{b.get('level') or 0}"}])
         store.delete("app_settings", {"key": f"eq.{_key(uid)}"})
+    import game_pvp
+    game_pvp.clear_protection(uid)
     return info_after(uid)
 
 

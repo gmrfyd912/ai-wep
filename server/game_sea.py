@@ -160,6 +160,7 @@ def _world_fetch():
         courses=lambda: store.select("courses", {"active": "eq.true", "select": "id,name,sort", "order": "sort.asc,name.asc"}),
         links=lambda: store.select("user_courses", {"select": "user_id,course_id"}),
         bases=_bases,
+        newbie_off=lambda: {r["user_id"] for r in store.select("game_ledger", {"key": f"eq.{game_pvp.NEWBIE_KEY}", "select": "user_id"})},
         builds=lambda: store.select("game_buildings", {"type": f"in.(hq,{','.join(game.DEFENSE_TYPES)})",
                                                        "select": "user_id,type,level"}),
     )
@@ -169,7 +170,7 @@ def _world_fetch():
 def _bases():
     """모든 조선소 (보호막 시각 포함, step19 전이면 보호막 없이)."""
     try:
-        return store.select("game_bases", {"select": "user_id,reclaim,shield_until"})
+        return store.select("game_bases", {"select": "user_id,reclaim,shield_until,created_at,last_seen_at"})
     except Exception:  # noqa: BLE001
         return store.select("game_bases", {"select": "user_id,reclaim"})
 
@@ -182,11 +183,22 @@ def sea_view(user):
     names.setdefault(uid, user.get("name") or "")
     has_base = {b["user_id"] for b in w["bases"]}
     shields = {b["user_id"]: game_pvp.shield_left(b) for b in w["bases"]}
-    players = [i for i in names if i in has_base or i == uid]
+    # 신입 보호·쉬는 중 (G3 공정한 공격): 보호막처럼 표시하고 공격 못 함
+    protect = {}
+    for b in w["bases"]:
+        nb = game_pvp.newbie_left(b, st, off=b["user_id"] in w["newbie_off"])
+        if nb:
+            protect[b["user_id"]] = "newbie"
+            shields[b["user_id"]] = max(shields.get(b["user_id"], 0), nb)
+        elif game_pvp.resting(b, st):
+            protect[b["user_id"]] = "resting"
     order = {c["id"]: i for i, c in enumerate(w["courses"])}
     cids: dict[str, set] = {}
     for l in w["links"]:
         cids.setdefault(l["user_id"], set()).add(l["course_id"])
+    # 수료한 교육생(들어 있던 과정이 모두 끝남)은 지도에서 숨김
+    players = [i for i in names if (i in has_base or i == uid)
+               and (i == uid or not cids.get(i) or _course_of(cids[i], order) is not None)]
     course = {p: _course_of(cids.get(p, set()), order) or NO_COURSE for p in players}
     bays = [{"id": c["id"], "name": c["name"]} for c in w["courses"] if any(course[p] == c["id"] for p in players)]
     if any(course[p] == NO_COURSE for p in players):
@@ -199,6 +211,8 @@ def sea_view(user):
     for b in w["builds"]:
         blds.setdefault(b["user_id"], []).append(b)
     my_score = base_score(blds.get(uid, []))
+    my_hq = max([int(b["level"]) for b in blds.get(uid, []) if b["type"] == "hq"] or [1])
+    gap = int(st.get("raid_level_gap") or 0)
     my_courses = cids.get(uid, set())
     same_ok = bool(st["raid_same_course"])
     islands = []
@@ -210,7 +224,8 @@ def sea_view(user):
         same = bool(cids.get(p, set()) & my_courses)
         islands.append({"id": p, "name": names.get(p, ""), "course": course[p], "x": spots[p][0], "y": spots[p][1],
                         "hq": hq, "score": sc, "tier": tier(sc, my_score), "me": p == uid, "same": same,
-                        "attackable": p != uid and (same_ok or not same), "shield": shields.get(p, 0)})
+                        "attackable": p != uid and (same_ok or not same) and p not in protect and not (gap and my_hq - hq >= gap),
+                        "shield": shields.get(p, 0), "protect": protect.get(p), "gap": bool(gap and my_hq - hq >= gap)})
     rows = game.ledger(uid)
     best = game_battle._stage_best(rows)
     pirates = []
@@ -338,7 +353,8 @@ def scout_user(me, target, st):
     sc, my_sc = base_score(blds), base_score(got["mine"])
     tr = tier(sc, my_sc)
     attackable = st["raid_same_course"] or not same
-    block, block_info = game_pvp.block_reason(uid, target, st, base, same)
+    block, block_info = game_pvp.block_reason(uid, target, st, base, same, my_hq=my_hq, target_hq=hq,
+                                              newbie_off=any(r.get("key") == game_pvp.NEWBIE_KEY for r in got["rows"]))
     items = []
     for b in blds:
         w, h = game.BUILDINGS[b["type"]]["size"]

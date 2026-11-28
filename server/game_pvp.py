@@ -69,6 +69,55 @@ def shield_left(base, now=None):
     return max(0, int((end - (now or game._now())).total_seconds()))
 
 
+NEWBIE_KEY = "newbie_off"     # 장부 열쇠: 신입 보호 끝 (먼저 공격했거나 관리자가 조선소를 바꿈)
+
+
+def newbie_left(base, st, now=None, off=None):
+    """신입 보호 남은 초 (처음 게임을 연 날부터 raid_newbie_days 일, 먼저 공격하면 끝)."""
+    days = int(st.get("raid_newbie_days") or 0)
+    made = game._dt((base or {}).get("created_at"))
+    if not days or not made:
+        return 0
+    left = int((made + timedelta(days=days) - (now or game._now())).total_seconds())
+    if left <= 0:
+        return 0
+    if off is None:
+        uid = (base or {}).get("user_id")
+        off = bool(uid and store.select("game_ledger", {"user_id": f"eq.{uid}", "key": f"eq.{NEWBIE_KEY}", "select": "key"}))
+    return 0 if off else left
+
+
+def resting(base, st, now=None):
+    """raid_rest_days 일 넘게 게임을 안 연 교육생 (다시 들어오면 저절로 풀림)."""
+    days = int(st.get("raid_rest_days") or 0)
+    seen = game._dt((base or {}).get("last_seen_at"))
+    return bool(days and seen and (now or game._now()) - seen > timedelta(days=days))
+
+
+def end_newbie(uid):
+    """신입 보호 끝내기 (먼저 공격할 때)."""
+    game._add(uid, [{"key": NEWBIE_KEY, "note": "newbie_off"}])
+
+
+def clear_protection(uid):
+    """관리자가 조선소를 바꾸면(레벨 맞추기·자원 지급) 보호막·신입 보호를 없앰 (박사 요청 2026-11-28)."""
+    end_newbie(uid)
+    try:
+        store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"shield_until": None})
+    except Exception as e:  # noqa: BLE001  (step19 전)
+        print("[pvp] 보호막 지우기 실패", str(e)[:120], flush=True)
+    try:
+        import game_sea
+        game_sea.forget_world()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _hq_level(uid):
+    rows = store.select("game_buildings", {"user_id": f"eq.{uid}", "type": "eq.hq", "select": "level"})
+    return max([int(r["level"]) for r in rows] or [1])
+
+
 def _my_raids_today(uid):
     """오늘 내가 교육생을 공격한 기록 [{defender_id}] (step19 전이면 빈 목록)."""
     start = game._now().astimezone(game.KST).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -80,8 +129,10 @@ def _my_raids_today(uid):
         return []
 
 
-def block_reason(me_id, target_id, st, target_base, same, today_rows=None, daily_done=None, now=None):
-    """친구 조선소를 지금 공격할 수 없는 이유 (code, 덧붙일 값) — 없으면 (None, {})."""
+def block_reason(me_id, target_id, st, target_base, same, today_rows=None, daily_done=None, now=None,
+                 my_hq=None, target_hq=None, newbie_off=None):
+    """친구 조선소를 지금 공격할 수 없는 이유 (code, 덧붙일 값) — 없으면 (None, {}).
+    my_hq·target_hq·newbie_off 를 안 주면 여기서 읽음."""
     if target_id == me_id:
         return "self", {}
     if not st["raid_pvp"]:
@@ -92,9 +143,20 @@ def block_reason(me_id, target_id, st, target_base, same, today_rows=None, daily
     if why:
         return "time_lock", {"why": why, "class_from": st["raid_class_from"], "class_to": st["raid_class_to"],
                              "night_from": st["raid_night_from"], "night_to": st["raid_night_to"]}
+    nb = newbie_left(target_base, st, now, newbie_off)
+    if nb:
+        return "newbie", {"left": nb, "d": nb // 86400, "h": (nb % 86400) // 3600}
+    if resting(target_base, st, now):
+        return "resting", {"days": int(st["raid_rest_days"])}
     left = shield_left(target_base, now)
     if left:
         return "shield", {"left": left, "h": left // 3600, "m": (left % 3600) // 60}
+    gap = int(st.get("raid_level_gap") or 0)
+    if gap:
+        mine = _hq_level(me_id) if my_hq is None else my_hq
+        theirs = _hq_level(target_id) if target_hq is None else target_hq
+        if mine - theirs >= gap:
+            return "level_gap", {"gap": gap, "mine": mine, "theirs": theirs}
     rows = _my_raids_today(me_id) if today_rows is None else today_rows
     if any(r.get("defender_id") == target_id for r in rows):
         return "same_today", {}
@@ -161,7 +223,15 @@ def _target(me, target_id, st):
     if not got["base"]:
         _err(404, "not_found")
     return {"user": rows[0], "base": got["base"][0], "blds": got["blds"], "rows": got["rows"], "mine": got["mine"],
-            "same": bool(got["mc"] & got["tc"]), "units": got["prog"][1]}
+            "same": bool(got["mc"] & got["tc"]), "units": got["prog"][1],
+            "hq": _hq_lv(got["blds"]), "my_hq": _hq_lv(got["mine"]),
+            "newbie_off": any(r.get("key") == NEWBIE_KEY for r in got["rows"])}
+
+
+def target_block(me_id, target_id, st, tg, **kw):
+    """_target 로 받은 정보로 block_reason (다시 읽지 않게)."""
+    return block_reason(me_id, target_id, st, tg["base"], tg["same"], my_hq=tg["my_hq"], target_hq=tg["hq"],
+                        newbie_off=tg["newbie_off"], **kw)
 
 
 def need_sql19():
@@ -194,7 +264,7 @@ def raid_target(target_id: str, user=Depends(need_player)):
     need_sql19()
     tg = _target(user, target_id, st)
     base, mp = battle_base(tg["blds"], st, tg["units"], game.grid_of(tg["base"]), game.sea_of(tg["base"]))
-    code, extra = block_reason(user["id"], target_id, st, tg["base"], tg["same"])
+    code, extra = target_block(user["id"], target_id, st, tg)
     loot, half = loot_full(tg)
     return {"id": target_id, "name": tg["user"].get("name") or "", "hq": _hq_lv(tg["blds"]),
             "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h")} for o in base], "map": mp,
@@ -387,7 +457,7 @@ def defense_log(user=Depends(need_player)):
         if not item["revenge_used"]:
             if today_rows is None:
                 today_rows = _my_raids_today(uid)
-            tb = store.select("game_bases", {"user_id": f"eq.{r['user_id']}", "select": "shield_until"})
+            tb = store.select("game_bases", {"user_id": f"eq.{r['user_id']}", "select": "user_id,shield_until,created_at,last_seen_at"})
             same = bool(manage.course_ids_of(uid) & manage.course_ids_of(r["user_id"]))
             code, extra = block_reason(uid, r["user_id"], st, tb[0] if tb else {}, same, today_rows=today_rows)
             item["revenge_block"] = code

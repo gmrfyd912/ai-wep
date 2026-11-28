@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import accounts
 import app as server
 import game
+import game_sea as gs
 import game_pvp as gp
 from tests import fake_db as db
 from tests.textbook_check import H
@@ -249,6 +250,63 @@ def main():
     r = c.post("/game/live/raid/start", headers=hd["s1"], json=body)
     assert code(r) in ("exam_gone", "raid_shield", "raid_same_target"), r.text
     print("  live raid stars", lv["stars"], lv["lost"])
+
+    # ---- G3 공정한 공격: 신입 보호·쉬는 중·레벨 차이·관리자가 바꾸면 보호 끝 ----
+    st = game.settings()
+    assert st["raid_newbie_days"] == 3 and st["raid_level_gap"] == 3 and st["raid_rest_days"] == 7
+    NOW[0] = NOW[0] + timedelta(days=1)
+    for b in db.TABLES["game_bases"]:
+        b["shield_until"] = None
+        b["created_at"] = "2020-01-01T00:00:00+00:00"
+        b["last_seen_at"] = NOW[0].isoformat()
+    b3 = next(b for b in db.TABLES["game_bases"] if b["user_id"] == ids["s3"])
+    b3["created_at"] = (NOW[0] - timedelta(days=1)).isoformat()      # s3 은 어제 처음 들어온 신입
+    assert any(x["key"] == gp.NEWBIE_KEY and x["user_id"] == ids["s3"] for x in db.TABLES["game_ledger"])   # 앞에서 먼저 공격함
+    db.TABLES["game_ledger"] = [x for x in db.TABLES["game_ledger"] if x["key"] != gp.NEWBIE_KEY]
+    tg = c.get(f"/game/raid/target/{ids['s3']}", headers=hd["s1"]).json()
+    assert tg["block"] == "newbie" and tg["block_info"]["d"] == 2, (tg["block"], tg["block_info"])   # 3일 중 2일 남음
+    sea = c.get("/game/sea", headers=hd["s1"]).json()
+    i3 = next(i for i in sea["islands"] if i["id"] == ids["s3"])
+    assert i3["protect"] == "newbie" and i3["shield"] > 0 and not i3["attackable"], i3
+    # 신입이 먼저 공격하면 보호 끝
+    gp.end_newbie(ids["s3"])
+    assert c.get(f"/game/raid/target/{ids['s3']}", headers=hd["s1"]).json()["block"] != "newbie"
+    # 7일 넘게 안 들어온 교육생은 쉬는 중
+    b3["last_seen_at"] = (NOW[0] - timedelta(days=8)).isoformat()
+    assert c.get(f"/game/raid/target/{ids['s3']}", headers=hd["s1"]).json()["block"] == "resting"
+    b3["last_seen_at"] = NOW[0].isoformat()
+    # 본관이 3레벨 이상 낮으면 공격 못 함 (2레벨 차이는 약탈 절반만)
+    hq1 = next(b for b in db.TABLES["game_buildings"] if b["user_id"] == ids["s1"] and b["type"] == "hq")
+    hq3 = next(b for b in db.TABLES["game_buildings"] if b["user_id"] == ids["s3"] and b["type"] == "hq")
+    hq3["level"], hq1["level"] = 1, 4
+    gs.forget_world()
+    tg = c.get(f"/game/raid/target/{ids['s3']}", headers=hd["s1"]).json()
+    assert tg["block"] == "level_gap" and tg["block_info"]["gap"] == 3, (tg["block"], tg["block_info"])
+    i3 = next(i for i in c.get("/game/sea", headers=hd["s1"]).json()["islands"] if i["id"] == ids["s3"])
+    assert i3["gap"] and not i3["attackable"]
+    # 낮은 쪽은 높은 쪽을 칠 수 있음
+    assert c.get(f"/game/raid/target/{ids['s1']}", headers=hd["s3"]).json()["block"] != "level_gap"
+    hq1["level"] = 3
+    assert c.get(f"/game/raid/target/{ids['s3']}", headers=hd["s1"]).json()["block"] != "level_gap"
+    hq1["level"] = 1
+    # 관리자가 자원을 주거나 레벨을 맞추면 보호막·신입 보호가 없어짐
+    adm = db.insert_rows("users", {"login_id": "adm", "login_key": "adm", "name": "adm", "role": "admin", "status": "active",
+                                   "password_hash": accounts.hash_password("p")})[0]
+    ha = H(c.post("/auth/login", json={"login_id": "adm", "password": "p"}).json()["token"])
+    b2 = next(b for b in db.TABLES["game_bases"] if b["user_id"] == ids["s2"])
+    b2["shield_until"] = (NOW[0] + timedelta(hours=5)).isoformat()
+    b2["created_at"] = NOW[0].isoformat()
+    assert c.get(f"/game/raid/target/{ids['s2']}", headers=hd["s1"]).json()["block"] == "newbie"
+    r = c.post("/admin/game/grant", headers=ha, json={"user_id": ids["s2"], "steel": 100})
+    assert r.status_code == 200, r.text
+    assert b2["shield_until"] is None
+    assert c.get(f"/game/raid/target/{ids['s2']}", headers=hd["s1"]).json()["block"] not in ("newbie", "shield")
+    assert adm["id"]
+    # 수료(과정이 모두 끝남)한 교육생은 바다 지도에서 숨김
+    next(x for x in db.TABLES["courses"] if x["id"] == ca)["active"] = False
+    gs.forget_world()
+    isl = {i["id"] for i in c.get("/game/sea", headers=hd["s3"]).json()["islands"]}
+    assert ids["s1"] not in isl and ids["s2"] not in isl and ids["s3"] in isl, isl
     print("pvp_check OK", {"stars": bt["stars"], "lost": bt["lost"]})
 
 
