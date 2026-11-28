@@ -1691,6 +1691,11 @@ export type GameState = {
       id: string; kind: GameWarKind; no: number; hp: number; power: number; slots: number;
       hull?: number; weapons?: GameWeaponKind[]; max_hp?: number; attack?: number; damage?: number;
       hull_next?: { level: number; cost: GameCost & { tech: number }; block: "max" | "hq_level" | null };
+      /** 수리 중이면 남은 초 */
+      repair_left?: number;
+      repair_speed?: { tech: number; passes: number };
+      /** 다쳤고 수리 전이면 수리 비용·시간 */
+      repair?: { rods: number; seconds: number };
     }[];
   };
   /** 무기 연구 (연구소 레벨에 따라 열림) */
@@ -1738,6 +1743,50 @@ export const gameWeaponResearch = (kind: GameWeaponKind) => post<GameState>("/ga
 export const gameWeaponUpgrade = (kind: GameWeaponKind) => post<GameState>("/game/weapon/upgrade", { kind }, GAME_TIMEOUT);
 export const gameWarshipHull = (id: string) => post<GameState>("/game/warship/hull", { id }, GAME_TIMEOUT);
 export const gameWarshipFit = (id: string, weapons: GameWeaponKind[]) => post<GameState>("/game/warship/fit", { id, weapons }, GAME_TIMEOUT);
+export const gameRepair = (id: string) => post<GameState>("/game/warship/repair", { id }, GAME_TIMEOUT);
+export type GameLane = "north" | "middle" | "south";
+export type GamePirate = {
+  stages: { no: number; stars: number; open: boolean; reward: { steel: number; rods: number; tech: number; fame: number }; counts: Record<string, number>; power: number }[];
+  ready: number;
+  lanes: GameLane[];
+  max_ships: number;
+  history: { id: string; stage: number; stars: number; at: string | null; pct: number | null }[];
+  typhoon: { done_today: boolean; wall_pct: number; wall_part: number; quiz: number; steel: number; rods: number; tech: number };
+};
+/** 자동 전투 결과 + 다시 보기 기록 */
+export type GameBattle = {
+  id: string;
+  stage: number;
+  lane: GameLane;
+  target: "defense" | "hq";
+  stars: number;
+  pct: number;
+  hq_down: boolean;
+  ticks: number;
+  tick_sec: number;
+  sonar: boolean;
+  base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number; max: number }[];
+  ships: { id: string; kind: GameWarKind; max_hp: number; hp: number; out: boolean; weapons: GameWeaponKind[] }[];
+  /** s = 전투함 [x, y, 체력, 물러남], b = 해적 시설 체력, f = 쏜 것 ["s"|"d", 쏜 쪽, 맞은 쪽] */
+  frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][] }[];
+  events: { t: number; down?: number; boom?: number; ship?: number; spot?: number; retreat?: number }[];
+  map: { w: number; h: number; land: number };
+  note: { id: string };
+  got?: { steel: number; rods: number; tech: number; fame: number };
+  first_stars?: number;
+};
+export const getPirate = () => request<GamePirate>("/game/pirate", {}, GAME_TIMEOUT);
+export const gamePirateAttack = (body: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) =>
+  post<{ battle: GameBattle; state: GameState }>("/game/pirate/attack", body, GAME_TIMEOUT);
+export const getBattle = (id: string) => request<{ battle: GameBattle }>(`/game/battle/${id}`, {}, GAME_TIMEOUT);
+export type GameTyphoon = { id: string; total: number; questions: GameExamQuestion[] };
+export type GameTyphoonResult = {
+  pct: number; wall_pct: number; quiz_pct: number; right: number; total: number; unsure: number;
+  got: { steel: number; rods: number; tech: number }; results: GameExamResult["results"]; state: GameState;
+};
+export const gameTyphoonStart = (lang: string) => post<GameTyphoon>("/game/typhoon/start", { lang }, GAME_TIMEOUT);
+export const gameTyphoonSubmit = (id: string, answers: Record<string, string | number>) =>
+  post<GameTyphoonResult>("/game/typhoon/submit", { id, answers }, GAME_TIMEOUT);
 export const gameWallsUpgrade = () => post<GameState>("/game/walls/upgrade", {}, GAME_TIMEOUT);
 export const gameTutorial = (done: boolean) => post<GameState>("/game/tutorial", { done }, GAME_TIMEOUT);
 

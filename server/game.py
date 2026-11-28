@@ -310,7 +310,17 @@ def _fleet(uid):
     """군항 부두에 있는 전투함 (진수 끝난 것), 오래된 것부터."""
     rows = store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "not.is.null", "select": "*",
                                        "order": "created_at.asc", "limit": "500"})
-    return [r for r in rows if is_war(r["kind"])]
+    now = _now()
+    out = []
+    for r in rows:
+        if not is_war(r["kind"]):
+            continue
+        end = _dt(r.get("repair_until"))
+        if end and end <= now:   # 수리 끝 → 다시 출격 가능
+            store.patch("game_ships", {"id": f"eq.{r['id']}"}, {"damage": 0, "repair_until": None})
+            r["damage"], r["repair_until"] = 0, None
+        out.append(r)
+    return out
 
 
 def _finish_reclaim(uid, base, buildings, now):
@@ -1003,6 +1013,13 @@ def view(s, lang="ko"):
         sp = WARSHIPS[f["kind"]]
         ws = warship_stats(f, wl)
         nh = ws["hull"] + 1
+        rep_end = _dt(f.get("repair_until"))
+        if rep_end:
+            left = max(0, int((rep_end - now).total_seconds()))
+            ws["repair_left"] = left
+            ws["repair_speed"] = {"tech": math.ceil(left / TECH_SECONDS), "passes": 1}
+        elif ws["damage"]:
+            ws["repair"] = {"rods": ws["damage"] * 1, "seconds": ws["damage"] * 6}
         fleet_out.append({"id": f["id"], "kind": f["kind"], "no": count[f["kind"]], "hp": sp["hp"], "power": sp["power"],
                           "slots": sp["slots"], **ws,
                           "hull_next": {"level": nh, "cost": hull_up_cost(f["kind"], ws["hull"]),
@@ -1156,6 +1173,18 @@ def tips(d, s):
         free = [x for x in d["warships"] if not x["lock"]]
         if free:
             out.append({"id": "warship", "kind": free[-1]["kind"], "n": len(fl["ships"]), "cap": fl["cap"]})
+    ships = fl["ships"]
+    hurt = [x for x in ships if x.get("repair")]
+    if hurt:
+        out.append({"id": "repair", "kind": hurt[0]["kind"], "no": hurt[0]["no"]})
+    ready = [x for x in ships if not x.get("damage") and "repair_left" not in x]
+    if ready:
+        import game_battle
+        best = game_battle._stage_best(s["rows"])
+        nxt = next((i for i in range(1, len(game_battle.PIRATE_STAGES) + 1) if best.get(i, 0) < 3
+                    and (i == 1 or best.get(i - 1, 0) >= 1)), None)
+        if nxt:
+            out.append({"id": "pirate", "lv": nxt, "n": len(ready)})
     defs = [b for b in d["buildings"] if b.get("defense") and b["level"] >= 1]
     if d["hq_level"] >= 2 and not defs:
         out.append({"id": "defense"})
@@ -1481,6 +1510,10 @@ def speedup(body: SpeedBody, user=Depends(need_player)):
             until = _dt(ship.get("stage_until"))
             table, row_id, col = "game_ships", ship["id"], "stage_until"
             total = ship_total_left(ship, now)
+        elif body.target.startswith("repair:"):
+            f = _my_warship(uid, body.target[7:])
+            until = _dt(f.get("repair_until"))
+            table, row_id, col = "game_ships", f["id"], "repair_until"
         elif body.target == "reclaim":
             base, _ = _base(uid)
             until = _dt(base.get("reclaim_until"))

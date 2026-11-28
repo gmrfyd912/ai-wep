@@ -14,6 +14,12 @@ import {
   gameBuild,
   gameCollect,
   gameExamStart,
+  gamePirateAttack,
+  gameRepair,
+  gameTyphoonStart,
+  gameTyphoonSubmit,
+  getBattle,
+  getPirate,
   gameGiftsSeen,
   gameSupplyStart,
   gameSupplySubmit,
@@ -45,13 +51,19 @@ import {
   type GameState,
   type GameTip,
   type GameWeaponKind,
+  type GameBattle,
+  type GameLane,
+  type GamePirate,
+  type GameTyphoon,
+  type GameTyphoonResult,
 } from "@/lib/api";
+import { BattleReplay } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon";
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
 const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall"];
 const STAGES = 5;
@@ -97,6 +109,10 @@ export default function GameScreen() {
   const [supply, setSupply] = useState<GameSupply | null>(null);
   const [supplyRes, setSupplyRes] = useState<GameSupplyResult | null>(null);
   const [supplyUnit, setSupplyUnit] = useState("");
+  const [pirate, setPirate] = useState<GamePirate | null>(null);
+  const [battle, setBattle] = useState<GameBattle | null>(null);
+  const [typhoon, setTyphoon] = useState<GameTyphoon | null>(null);
+  const [typhoonRes, setTyphoonRes] = useState<GameTyphoonResult | null>(null);
   const [data, setData] = useState<GameState | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -362,6 +378,70 @@ export default function GameScreen() {
     }
   };
 
+  // 해적 연습 전투 (G2b-2)
+  const openBattle = async () => {
+    setSelected(null);
+    setInfo(null);
+    setMode("battle");
+    setExamErr("");
+    try {
+      setPirate(await getPirate());
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    }
+  };
+  const attack = async (plan: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) => {
+    if (busy) return;
+    setBusy(true);
+    setExamErr("");
+    try {
+      const r = await gamePirateAttack(plan);
+      apply(r.state);
+      setBattle(r.battle);
+      setPirate(await getPirate());
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const replay = async (id: string) => {
+    try {
+      setBattle((await getBattle(id)).battle);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    }
+  };
+  const openTyphoon = async () => {
+    setMode("typhoon");
+    setTyphoon(null);
+    setTyphoonRes(null);
+    setAnswers({});
+    setExamErr("");
+    setBusy(true);
+    try {
+      setTyphoon(await gameTyphoonStart(i18n.language));
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submitTyphoon = async () => {
+    if (!typhoon || busy) return;
+    setBusy(true);
+    setExamErr("");
+    try {
+      const r = await gameTyphoonSubmit(typhoon.id, answers);
+      setTyphoonRes(r);
+      apply(r.state);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // 자원 칩을 누르면: 무엇인지·어떻게 얻는지·어디에 쓰는지 (+ 쓸 곳으로 가기)
   const busyB = data.buildings.find((b) => b.busy_until) ?? null;
   const shipBusy = data.ship && !data.ship.ready ? data.ship : null;
@@ -402,6 +482,10 @@ export default function GameScreen() {
         return { label: t("gm_supplyGo"), onPress: () => openSupply() };
       case "defense":
         return { label: t("gm_build"), onPress: () => { setSelected(null); setMode("build"); } };
+      case "pirate":
+        return { label: t("gm_bt_go"), onPress: openBattle };
+      case "repair":
+        return { label: t("gm_fleetSee"), onPress: openWar };
       case "weak": {
         const b = data.buildings.find((k) => k.id === x.bid);
         return b?.defense?.unit ? { label: t("gm_defStudy"), onPress: () => openSupply(b.defense!.unit!.key) } : null;
@@ -626,6 +710,7 @@ export default function GameScreen() {
           <Fab icon="boat" label={t("gm_ships")} onPress={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }} badge={data.ship?.ready ? "!" : undefined} />
           <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
           <Fab icon="cart" label={t("gm_supplyShort")} onPress={() => openSupply()} />
+          <Fab icon="flag" label={t("gm_bt_short")} onPress={openBattle} />
           <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
           <Fab
             icon="book"
@@ -776,9 +861,40 @@ export default function GameScreen() {
               />
             ) : mode === "ship" ? (
               <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} tab={shipTab} setTab={setShipTab} onClose={() => setMode("home")}
+                onRepair={(id) => run(() => gameRepair(id))} onRepairSpeed={(id, using) => run(() => gameSpeedup(`repair:${id}`, using))}
                 onHull={(id) => run(() => gameWarshipHull(id))} onFit={(id, w) => run(() => gameWarshipFit(id, w))} onArms={() => setMode("arms")}
                 onStart={(k) => run(() => gameShipStart(k))} onBuildPier={() => startPlace("pier")}
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
+            ) : mode === "battle" ? (
+              <BattlePanel data={data} pirate={pirate} busy={busy} error={examErr} onClose={() => setMode("home")}
+                onAttack={attack} onReplay={replay} onTyphoon={openTyphoon} onFleet={openWar} />
+            ) : mode === "typhoon" ? (
+              <Card style={{ gap: space.sm }}>
+                <PanelHead title={t("gm_ty_title")} onClose={() => { setMode("battle"); openBattle(); }} />
+                <Text style={styles.small}>{t("gm_ty_rule", { wall: pirate?.typhoon.wall_part ?? 60, quiz: 100 - (pirate?.typhoon.wall_part ?? 60) })}</Text>
+                {examErr ? <Text style={styles.warn}>{examErr}</Text> : null}
+                {!typhoon && !examErr ? <ActivityIndicator color={colors.primary} /> : null}
+                {typhoon ? <QuizList questions={typhoon.questions} answers={answers} setAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))} result={typhoonRes} /> : null}
+                {typhoon && !typhoonRes ? (
+                  <AppButton
+                    label={t("gm_examSubmit", { done: typhoon.questions.filter((q) => String(answers[q.id] ?? "").trim() !== "").length, total: typhoon.total })}
+                    icon="checkmark-done-outline"
+                    disabled={busy || typhoon.questions.some((q) => String(answers[q.id] ?? "").trim() === "")}
+                    onPress={submitTyphoon}
+                  />
+                ) : null}
+                {typhoonRes ? (
+                  <View style={[styles.examResult, { borderColor: typhoonRes.pct >= 80 ? colors.success : colors.warning }]}>
+                    <Text style={[styles.cardTitle, { color: typhoonRes.pct >= 80 ? colors.success : colors.warning }]}>{t("gm_ty_result", { pct: typhoonRes.pct })}</Text>
+                    <Text style={styles.small}>{t("gm_ty_parts", { wall: typhoonRes.wall_pct, quiz: typhoonRes.quiz_pct, right: typhoonRes.right, total: typhoonRes.total })}</Text>
+                    <Text style={styles.text}>
+                      {t("gm_steel")} +{typhoonRes.got.steel} · {t("gm_rods")} +{typhoonRes.got.rods}
+                      {typhoonRes.got.tech ? ` · ${t("gm_tech")} +${typhoonRes.got.tech}` : ""}
+                    </Text>
+                    <StudyBuddy compact size={40} text={t(typhoonRes.wall_pct < (pirate?.typhoon.wall_part ?? 60) ? "gm_ty_moreWalls" : "gm_ty_good")} />
+                  </View>
+                ) : null}
+              </Card>
             ) : mode === "arms" ? (
               <ArmsPanel data={data} busy={busy} onClose={() => setMode("home")} onFleet={openWar}
                 onResearch={(k) => run(() => gameWeaponResearch(k))} onUpgrade={(k) => run(() => gameWeaponUpgrade(k))} />
@@ -805,6 +921,7 @@ export default function GameScreen() {
       ) : null}
 
       {party ? <LaunchParty info={party} onClose={() => setParty(null)} /> : null}
+      {battle ? <BattleReplay battle={battle} onClose={() => setBattle(null)} /> : null}
       {!party && data.gifts?.length ? (
         <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
           <View style={[styles.partyCard, { borderColor: "#E05A9B" }]}>
@@ -1140,6 +1257,8 @@ function ShipPanel({
   onHull,
   onFit,
   onArms,
+  onRepair,
+  onRepairSpeed,
 }: {
   data: GameState;
   busy: boolean;
@@ -1149,6 +1268,8 @@ function ShipPanel({
   onFit: (id: string, weapons: GameWeaponKind[]) => void;
   onArms: () => void;
   tab: "merchant" | "war";
+  onRepair: (id: string) => void;
+  onRepairSpeed: (id: string, using: "tech" | "pass") => void;
   setTab: (t: "merchant" | "war") => void;
   onClose: () => void;
   onStart: (k: GameShipKind | GameWarKind) => void;
@@ -1193,6 +1314,27 @@ function ShipPanel({
                 </Pressable>
               ))}
             </View>
+            {f.repair_left !== undefined ? (
+              <View style={{ gap: 4 }}>
+                <Text style={styles.warn}>{t("gm_repairing", { time: clock(Math.max(0, f.repair_left - gone)) })}</Text>
+                <View style={styles.row2}>
+                  <Pressable disabled={busy || data.resources.tech < (f.repair_speed?.tech ?? 0)} onPress={() => onRepairSpeed(f.id, "tech")} style={styles.chip}>
+                    <Text style={styles.chipText}>{t("gm_speedTech", { n: f.repair_speed?.tech ?? 0 })}</Text>
+                  </Pressable>
+                  <Pressable disabled={busy || data.resources.passes < 1} onPress={() => onRepairSpeed(f.id, "pass")} style={styles.chip}>
+                    <Text style={styles.chipText}>{t("gm_speedPass")}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : f.repair ? (
+              <View style={{ gap: 4 }}>
+                <Text style={styles.warn}>{t("gm_damaged", { n: f.damage ?? 0, max: f.max_hp ?? f.hp })}</Text>
+                <Pressable disabled={busy || data.resources.rods < f.repair.rods} onPress={() => onRepair(f.id)} style={[styles.linkRow, data.resources.rods < f.repair.rods && { opacity: 0.5 }]}>
+                  <Ionicons name="construct-outline" size={14} color={colors.primary} />
+                  <Text style={styles.linkText}>{t("gm_repairBtn", { rods: f.repair.rods, time: clock(f.repair.seconds) })}</Text>
+                </Pressable>
+              </View>
+            ) : null}
             {hn ? (
               <Pressable disabled={busy || !canHull} onPress={() => onHull(f.id)} style={[styles.linkRow, !canHull && { opacity: 0.5 }]}>
                 <Ionicons name="arrow-up-circle-outline" size={14} color={colors.primary} />
@@ -1328,6 +1470,144 @@ function ShipPanel({
         );
       })}
       {data.delivered.length ? <Text style={styles.small}>{t("gm_deliveredCount", { n: data.delivered.length })}</Text> : null}
+    </Card>
+  );
+}
+
+/** 해적 연습 전투: 단계 고르기 → 출격할 전투함·들어갈 길·먼저 칠 목표 → 출격 (자동 전투, 다시 보기) + 태풍 대비 훈련 */
+function BattlePanel({
+  data,
+  pirate,
+  busy,
+  error,
+  onClose,
+  onAttack,
+  onReplay,
+  onTyphoon,
+  onFleet,
+}: {
+  data: GameState;
+  pirate: GamePirate | null;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onAttack: (plan: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) => void;
+  onReplay: (id: string) => void;
+  onTyphoon: () => void;
+  onFleet: () => void;
+}) {
+  const { t } = useTranslation();
+  const ships = data.fleet?.ships ?? [];
+  const ready = ships.filter((f) => !f.damage && f.repair_left === undefined);
+  const [stage, setStage] = useState<number | null>(null);
+  const [pick, setPick] = useState<string[] | null>(null);
+  const [lane, setLane] = useState<GameLane>("middle");
+  const [target, setTarget] = useState<"defense" | "hq">("defense");
+  const open = pirate?.stages.filter((x) => x.open) ?? [];
+  const cur = stage ?? (open.find((x) => x.stars < 3) ?? open[open.length - 1])?.no ?? 1;
+  const chosen = (pick ?? ready.map((f) => f.id)).filter((id) => ready.some((f) => f.id === id));
+  const ty = pirate?.typhoon;
+  return (
+    <Card style={{ gap: space.sm }}>
+      <PanelHead title={t("gm_bt_panel")} onClose={onClose} />
+      <Text style={styles.small}>{t("gm_bt_intro")}</Text>
+      {error ? <Text style={styles.warn}>{error}</Text> : null}
+      {!pirate && !error ? <ActivityIndicator color={colors.primary} /> : null}
+      {pirate ? (
+        <>
+          <View style={styles.chips}>
+            {pirate.stages.map((x) => (
+              <Pressable key={x.no} disabled={!x.open} onPress={() => setStage(x.no)} style={[styles.stageChip, cur === x.no && styles.stageOn, !x.open && { opacity: 0.4 }]}>
+                <Text style={styles.chipText}>{x.open ? t("gm_bt_stage", { n: x.no }) : `🔒 ${x.no}`}</Text>
+                <Text style={styles.starText}>{[0, 1, 2].map((k) => (k < x.stars ? "★" : "☆")).join("")}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {(() => {
+            const x = pirate.stages[cur - 1];
+            const parts = Object.entries(x.counts).filter(([k]) => k !== "hut").map(([k, v]) => `${t(`gm_b_${k}`)} ${v}`);
+            return (
+              <View style={styles.next}>
+                <Text style={styles.text}>{t("gm_bt_stageTitle", { n: x.no, lv: x.power })}</Text>
+                <Text style={styles.small}>{parts.join(" · ")}</Text>
+                <Text style={styles.small}>
+                  {t("gm_bt_reward")}: {costLine(t, { steel: x.reward.steel, rods: x.reward.rods })} · {t("gm_tech")} {x.reward.tech} · {t("gm_fame")} {x.reward.fame}
+                </Text>
+                <Text style={styles.small}>{t("gm_bt_starRule")}</Text>
+              </View>
+            );
+          })()}
+          <Text style={styles.text}>{t("gm_bt_ships", { n: chosen.length })}</Text>
+          {ships.length === 0 ? <Text style={styles.warn}>{t("gm_bt_noFleet")}</Text> : null}
+          <View style={styles.chips}>
+            {ships.map((f) => {
+              const ok = ready.some((r) => r.id === f.id);
+              const on = chosen.includes(f.id);
+              return (
+                <Pressable
+                  key={f.id}
+                  disabled={!ok}
+                  onPress={() => setPick(on ? chosen.filter((id) => id !== f.id) : [...chosen, f.id])}
+                  style={[styles.chip, on && styles.stageOn, !ok && { opacity: 0.4 }]}
+                >
+                  <Text style={styles.chipText}>
+                    {t("gm_fleetShip", { ship: t(`gm_ship_${f.kind}`), no: f.no })}
+                    {ok ? ` · ${f.attack ?? f.power}` : ` · ${t("gm_bt_hurt")}`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {ships.length > ready.length ? (
+            <Pressable onPress={onFleet} style={styles.linkRow}>
+              <Ionicons name="construct-outline" size={14} color={colors.primary} />
+              <Text style={styles.linkText}>{t("gm_bt_repairGo")}</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.text}>{t("gm_bt_laneTitle")}</Text>
+          <View style={styles.row2}>
+            {(["north", "middle", "south"] as GameLane[]).map((k) => (
+              <Pressable key={k} onPress={() => setLane(k)} style={[styles.tab, lane === k && styles.tabOn]}>
+                <Text style={[styles.tabText, lane === k && styles.tabTextOn]}>{t(`gm_bt_lane_${k}`)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.text}>{t("gm_bt_tgtTitle")}</Text>
+          <View style={styles.row2}>
+            {(["defense", "hq"] as const).map((k) => (
+              <Pressable key={k} onPress={() => setTarget(k)} style={[styles.tab, target === k && styles.tabOn]}>
+                <Text style={[styles.tabText, target === k && styles.tabTextOn]}>{t(k === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={() => onAttack({ stage: cur, ships: chosen, lane, target })} />
+          {pirate.history.length ? (
+            <View style={styles.next}>
+              <Text style={styles.text}>{t("gm_bt_history")}</Text>
+              {pirate.history.map((h) => (
+                <Pressable key={h.id} onPress={() => onReplay(h.id)} style={styles.linkRow}>
+                  <Ionicons name="play-circle-outline" size={14} color={colors.primary} />
+                  <Text style={styles.linkText}>
+                    {t("gm_bt_stage", { n: h.stage })} {[0, 1, 2].map((k) => (k < h.stars ? "★" : "☆")).join("")} · {h.pct ?? 0}%
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {ty ? (
+            <View style={styles.next}>
+              <Text style={styles.cardTitle}>{t("gm_ty_title")}</Text>
+              <Text style={styles.small}>{t("gm_ty_intro", { n: ty.quiz, steel: ty.steel, rods: ty.rods, tech: ty.tech })}</Text>
+              <Text style={styles.small}>{t("gm_ty_walls", { pct: ty.wall_pct, max: ty.wall_part })}</Text>
+              {ty.done_today ? (
+                <Text style={styles.text}>{t("gm_ty_done")}</Text>
+              ) : (
+                <AppButton label={t("gm_ty_start")} icon="thunderstorm-outline" disabled={busy} onPress={onTyphoon} />
+              )}
+            </View>
+          ) : null}
+        </>
+      ) : null}
     </Card>
   );
 }
@@ -1712,7 +1992,7 @@ function SupplyPanel({
 }
 
 const HUD = "#0B2033D9";
-const FAB_ROW = 6 * 64 + 8;   // 아래 오른쪽 메뉴 단추 6개 자리
+const FAB_ROW = 7 * 64 + 8;   // 아래 오른쪽 메뉴 단추 7개 자리
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#1F6FA8" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
@@ -1781,6 +2061,9 @@ const styles = StyleSheet.create({
   smallBtnText: { color: colors.text, fontWeight: "700", fontSize: 13 },
   next: { gap: space.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
   earnRow: { flexDirection: "row", gap: space.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
+  stageChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingVertical: 4, paddingHorizontal: 8, alignItems: "center", backgroundColor: colors.cardAlt },
+  stageOn: { borderColor: "#FFD166", borderWidth: 2 },
+  starText: { color: "#FFD166", fontSize: 11 },
   shipCard: { gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { borderWidth: 1, borderColor: colors.primary, borderRadius: 12, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: colors.cardAlt },
