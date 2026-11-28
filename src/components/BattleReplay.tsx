@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } fr
 import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 import { useTranslation } from "react-i18next";
 
+import { PanZoom } from "@/components/PanZoom";
 import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton } from "@/components/ui";
 import { CrewGlyph, CREW_COLOR } from "@/components/CrewFigure";
@@ -131,7 +132,12 @@ export function BattleReplay({ battle: first, onClose, defense = false, live }: 
 
   const fr = battle.frames[Math.min(i, n - 1)];
   const { w: MW, h: MH, land } = battle.map;
-  const cell = Math.floor(Math.min((width * 0.92) / MW, (height - (liveOn ? 150 : 120)) / MH));
+  // 지도 칸: 화면에 다 들어오는 크기 × 손가락 확대 배율 (두 손가락으로 벌리면 확대, 한 손가락으로 끌어 옮김)
+  const areaW = Math.floor(width * 0.94), areaH = Math.max(120, height - (liveOn ? 150 : 120));
+  const fit = Math.floor(Math.min(areaW / MW, areaH / MH));
+  const [zoom, setZoom] = useState(1);
+  const moving = useRef({ on: false, at: 0 });
+  const cell = fit * zoom;
   const W = cell * MW, H = cell * MH;
   const C = (o: { x: number; y: number; w: number; h: number }): [number, number] => [(o.x + o.w / 2) * cell, (o.y + o.h / 2) * cell];
   const booms = useMemo(() => battle.events.filter((e) => e.boom !== undefined), [battle.events]);
@@ -188,6 +194,9 @@ export function BattleReplay({ battle: first, onClose, defense = false, live }: 
       <View style={styles.bar}>
         <View style={[styles.barFill, { width: `${((i + 1) / (liveOn ? battle.max_ticks ?? n : n)) * 100}%` }]} />
       </View>
+      <View style={{ width: areaW, height: areaH, overflow: "hidden" }}>
+      <PanZoom width={areaW} height={areaH} contentW={W} contentH={H} zoom={zoom} minZoom={1} maxZoom={3} edge={0}
+        onZoom={(z) => setZoom(Math.min(3, Math.max(1, z)))} onMove={(on) => { moving.current = { on, at: Date.now() }; }}>
       <View style={{ width: W, height: H }}>
       <Svg width={W} height={H}>
         <Rect x={0} y={0} width={land * cell} height={H} fill="#C9B98F" />
@@ -298,6 +307,8 @@ export function BattleReplay({ battle: first, onClose, defense = false, live }: 
           <Pressable
             style={{ position: "absolute", left: land * cell, top: 0, width: (MW - land) * cell, height: H }}
             onPress={(e) => {
+              // 지도를 끌거나 확대한 직후의 '톡'은 배 보내기로 보지 않음
+              if (moving.current.on || Date.now() - moving.current.at < 250) return;
               // 휴대폰은 locationY, 웹은 offsetY (누른 칸 안에서의 높이)
               const ne = e.nativeEvent as { locationY?: number; offsetY?: number };
               const py = ne.locationY ?? ne.offsetY;
@@ -308,6 +319,8 @@ export function BattleReplay({ battle: first, onClose, defense = false, live }: 
           />
         ) : null}
       </View>
+      </PanZoom>
+      </View>
       {liveOn ? (
         <View style={styles.shipBar}>
           {battle.ships.map((s, k) => {
@@ -316,7 +329,7 @@ export function BattleReplay({ battle: first, onClose, defense = false, live }: 
               <Pressable key={s.id} disabled={s.sent !== false} onPress={() => setSel(k)}
                 style={[styles.shipBtn, on && styles.shipOn, s.sent !== false && { opacity: 0.4 }]}>
                 <Text style={styles.ctlText}>
-                  {s.sent !== false ? "✓ " : ""}{t(`gm_ship_${s.kind}`)} {k + 1}{s.load ? ` · 👷${s.load}` : ""}
+                  {s.sent !== false ? "✓ " : ""}{t(`gm_ship_${s.kind}`)} {k + 1}{s.load || s.kind === "landing" ? ` · 👷${s.load ?? 0}` : ""}
                 </Text>
               </Pressable>
             );

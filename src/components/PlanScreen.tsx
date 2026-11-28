@@ -138,6 +138,20 @@ export function PlanScreen({
   const free = (k: CrewKind) => Math.max(0, (crews.have[k] ?? 0) - (crews.hurt?.[k] ?? 0));
   const seat = (k: CrewKind) => crews.specs[k]?.seats ?? 1;
   const sent = CREW_KINDS.reduce((a, k) => a + Math.min(send[k], free(k)) * seat(k), 0);
+  // 처음엔 가진 대원을 배 자리만큼 미리 태워 둠 (상륙함이 빈 채로 가지 않게). 사람이 +/−를 누르면 그 뒤로는 그대로
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (touched) return;
+    const fill = Object.fromEntries(CREW_KINDS.map((k) => [k, 0])) as Record<CrewKind, number>;
+    let left = room;
+    for (const k of [...CREW_KINDS].sort((a, b) => seat(b) - seat(a))) {
+      const n = Math.min(free(k), Math.floor(left / seat(k)));
+      fill[k] = n;
+      left -= n * seat(k);
+    }
+    setSend(fill);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, crews, touched]);
   const shown = CREW_KINDS.filter((k) => (crews.have[k] ?? 0) > 0 || (crews.trainhall ?? 0) >= (crews.specs[k]?.unlock ?? 1));
   const guardText = Object.entries(target.guards ?? {}).filter(([, n]) => n).map(([k, n]) => `${t(`gm_crew_${k}`)} ${n}`).join(" · ");
 
@@ -330,11 +344,11 @@ export function PlanScreen({
                         {seat(k) > 1 ? `${t("gm_ct_seats", { n: seat(k) })} · ` : ""}{t(`gm_crew_${k}_role`)}
                       </Text>
                     </View>
-                    <Pressable disabled={send[k] <= 0} onPress={() => setSend((s) => ({ ...s, [k]: s[k] - 1 }))} style={[styles.pm, send[k] <= 0 && styles.dim]}>
+                    <Pressable disabled={send[k] <= 0} onPress={() => { setTouched(true); setSend((s) => ({ ...s, [k]: s[k] - 1 })); }} style={[styles.pm, send[k] <= 0 && styles.dim]}>
                       <Ionicons name="remove" size={16} color="#fff" />
                     </Pressable>
                     <Text style={styles.count}>{Math.min(send[k], free(k))}</Text>
-                    <Pressable disabled={full} onPress={() => setSend((s) => ({ ...s, [k]: s[k] + 1 }))} style={[styles.pm, full && styles.dim]}>
+                    <Pressable disabled={full} onPress={() => { setTouched(true); setSend((s) => ({ ...s, [k]: s[k] + 1 })); }} style={[styles.pm, full && styles.dim]}>
                       <Ionicons name="add" size={16} color="#fff" />
                     </Pressable>
                   </View>
