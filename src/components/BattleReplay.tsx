@@ -13,12 +13,13 @@ import { colors, radius, space } from "@/theme";
 
 const PIRATE_COLOR: Record<string, string> = { hq: "#3B2A2A", hut: "#7A5A3A" };
 const SHORT: Record<string, string> = { battery: "B", missile: "M", asw: "A", radar: "R", hq: "☠", hut: "" };
+const SHORT_USER: Record<string, string> = { battery: "B", missile: "M", asw: "A", radar: "R", hq: "⚑" };
 
 /**
  * 해적 연습 전투 다시 보기 (위에서 내려다본 그림).
  * 서버가 계산한 기록(frames)을 0.5초씩 넘기며 보여 준다. 끝나면 별·부순 비율·받은 것·웰디 한 줄 평.
  */
-export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose: () => void }) {
+export function BattleReplay({ battle, onClose, defense = false }: { battle: GameBattle; onClose: () => void; /** 내 조선소가 공격받은 전투 */ defense?: boolean }) {
   const { t } = useTranslation();
   const { width, height } = useWindowDimensions();
   const [i, setI] = useState(0);
@@ -28,7 +29,9 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
   const [cheer, setCheer] = useState(0);   // 이긴 상륙 전투: 끝나고 대원 환호 (0 = 안 함, 1~ = 환호 중 장면 번호)
   const n = battle.frames.length;
   const landedAny = battle.frames.some((f) => f.c?.length);
-  const willCheer = !!battle.raid && battle.stars > 0 && landedAny;
+  const pvp = battle.kind === "raid";
+  const willCheer = !!battle.raid && battle.stars > 0 && landedAny && !defense;
+  const short = pvp ? SHORT_USER : SHORT;
 
   useEffect(() => {
     if (!play || done) return;
@@ -70,7 +73,13 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
   return (
     <View style={[StyleSheet.absoluteFill, styles.bg]}>
       <View style={styles.top}>
-        <Text style={styles.title}>{t("gm_bt_title", { n: battle.stage })}</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {pvp
+            ? defense
+              ? t("gm_rd_defTitle", { name: battle.attacker?.name ?? "" })
+              : t("gm_rd_title", { name: battle.defender?.name ?? "" })
+            : t("gm_bt_title", { n: battle.stage })}
+        </Text>
         <Text style={styles.small}>
           {t(`gm_bt_lane_${battle.lane}`)} ·{" "}
           {battle.raid ? t("gm_pl_pierAt", { n: (battle.landing ?? 0) + 1 }) : t(battle.target === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}
@@ -108,13 +117,13 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
           if (o.type === "mine") {
             return alive ? <Circle key={o.id} cx={cx} cy={cy} r={cell * 0.2} fill={BUILDING_COLOR.mine} stroke="#3A0D0A" /> : null;
           }
-          const color = PIRATE_COLOR[o.type] ?? BUILDING_COLOR[o.type] ?? "#999";
+          const color = (pvp ? undefined : PIRATE_COLOR[o.type]) ?? BUILDING_COLOR[o.type] ?? "#999";
           return (
             <G key={o.id} opacity={alive ? 1 : 0.35}>
               <Rect x={o.x * cell + 2} y={o.y * cell + 2} width={o.w * cell - 4} height={o.h * cell - 4} rx={3} fill={color} stroke="#0006" />
-              {SHORT[o.type] ? (
+              {short[o.type] ? (
                 <SvgText x={cx} y={cy + cell * 0.15} fontSize={cell * (o.type === "hq" ? 0.7 : 0.42)} fill="#fff" textAnchor="middle" fontWeight="bold">
-                  {SHORT[o.type]}
+                  {short[o.type]}
                 </SvgText>
               ) : null}
               {!alive ? (
@@ -185,14 +194,14 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
       </Svg>
       {cheer > 0 && !showCard ? <Text style={styles.cheer}>{t("gm_pl_cheer")}</Text> : null}
       <View style={styles.legend}>
-        <Leg color={WAR_COLOR} label={t("gm_bt_legShip")} />
+        <Leg color={WAR_COLOR} label={t(defense ? "gm_rd_legEnemyShip" : "gm_bt_legShip")} />
         <Leg color={BUILDING_COLOR.battery} label={`B ${t("gm_b_battery")}`} />
         <Leg color={BUILDING_COLOR.missile} label={`M ${t("gm_b_missile")}`} />
         <Leg color={BUILDING_COLOR.mine} label={t("gm_b_mine")} />
         <Leg color={BUILDING_COLOR.wall} label={t("gm_b_wall")} />
-        <Leg color={PIRATE_COLOR.hq} label={`☠ ${t("gm_bt_hq")}`} />
-        <Leg color="#FFD166" label={t("gm_bt_legMine")} />
-        <Leg color="#FF5252" label={t("gm_bt_legTheirs")} />
+        {pvp ? <Leg color={BUILDING_COLOR.hq} label={`⚑ ${t("gm_b_hq")}`} /> : <Leg color={PIRATE_COLOR.hq} label={`☠ ${t("gm_bt_hq")}`} />}
+        <Leg color="#FFD166" label={t(defense ? "gm_rd_legEnemyShots" : "gm_bt_legMine")} />
+        <Leg color="#FF5252" label={t(defense ? "gm_rd_legMyShots" : pvp ? "gm_rd_legTheirShots" : "gm_bt_legTheirs")} />
         {battle.raid
           ? CREW_KINDS.filter((k) => battle.crew_sent?.[k]).map((k) => <Leg key={k} color={CREW_COLOR[k]} label={t(`gm_crew_${k}`)} />)
           : null}
@@ -203,9 +212,37 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
           <ScrollView contentContainerStyle={styles.resWrap}>
             <View style={styles.card}>
               <Text style={styles.stars}>{[0, 1, 2].map((k) => (k < battle.stars ? "★" : "☆")).join(" ")}</Text>
+              {defense ? (
+                <>
+                  <Text style={styles.resTitle}>{t(battle.stars <= 1 ? "gm_rd_defWin" : "gm_rd_defLose", { name: battle.attacker?.name ?? "", pct: battle.pct })}</Text>
+                  <StudyBuddy compact size={48} text={t("gm_rd_defNote")} />
+                  <View style={styles.items}>
+                    {(["steel", "rods"] as const).map((k) =>
+                      battle.lost?.[k] ? (
+                        <View key={k} style={styles.item}>
+                          <View style={[styles.dot, { backgroundColor: RES_COLOR[k] }]} />
+                          <Text style={styles.itemText}>{t(`gm_${k}`)} −{battle.lost[k]}</Text>
+                        </View>
+                      ) : null,
+                    )}
+                    {(["rods", "fame"] as const).map((k) =>
+                      battle.defend?.[k] ? (
+                        <View key={`d${k}`} style={styles.item}>
+                          <View style={[styles.dot, { backgroundColor: RES_COLOR[k] }]} />
+                          <Text style={styles.itemText}>{t(`gm_${k}`)} +{battle.defend[k]}</Text>
+                        </View>
+                      ) : null,
+                    )}
+                  </View>
+                </>
+              ) : (
+                <>
               <Text style={styles.resTitle}>{t(battle.stars ? "gm_bt_win" : "gm_bt_lose", { pct: battle.pct })}</Text>
               <StudyBuddy compact size={48} text={t(`gm_bt_note_${battle.note.id}`)} />
-              {battle.got && battle.first_stars ? (
+              {battle.morale ? (
+                <Text style={styles.smallC}>{t("gm_rd_moraleGot", { right: battle.morale.right, total: battle.morale.total, mult: battle.morale.mult })}</Text>
+              ) : null}
+              {battle.got && (battle.first_stars || (pvp && Object.values(battle.got).some(Boolean))) ? (
                 <View style={styles.items}>
                   {(["steel", "rods", "tech", "fame"] as const).map((k) =>
                     battle.got![k] ? (
@@ -219,15 +256,17 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
                   )}
                 </View>
               ) : (
-                <Text style={styles.smallC}>{t("gm_bt_noReward")}</Text>
+                <Text style={styles.smallC}>{t(pvp ? "gm_rd_noLoot" : "gm_bt_noReward")}</Text>
               )}
-              {battle.ships.map((s, k) => (
+                </>
+              )}
+              {(defense ? [] : battle.ships).map((s, k) => (
                 <Text key={s.id} style={styles.smallC}>
                   {t(`gm_ship_${s.kind}`)} {k + 1}: {s.out ? t("gm_bt_shipOut") : t("gm_bt_shipHp", { hp: s.hp, max: s.max_hp })}
                 </Text>
               ))}
-              {battle.ships.some((s) => s.hp < s.max_hp) ? <Text style={styles.smallC}>{t("gm_bt_repairNote")}</Text> : null}
-              {battle.raid && battle.crew_sent && Object.values(battle.crew_sent).some(Boolean) ? (
+              {!defense && battle.ships.some((s) => s.hp < s.max_hp) ? <Text style={styles.smallC}>{t("gm_bt_repairNote")}</Text> : null}
+              {!defense && battle.raid && battle.crew_sent && Object.values(battle.crew_sent).some(Boolean) ? (
                 <Text style={styles.smallC}>
                   {CREW_KINDS.filter((k) => battle.crew_sent![k])
                     .map((k) => t("gm_pl_crewBack", { name: t(`gm_crew_${k}`), back: battle.crew_sent![k] - (battle.crew_lost?.[k] ?? 0), sent: battle.crew_sent![k] }))

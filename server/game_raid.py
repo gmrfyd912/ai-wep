@@ -28,7 +28,7 @@ CREWS = {
     "welder":      {"hp": 30, "dmg": 1.6, "speed": 0.25, "cost": 1},
     "fitter":      {"hp": 22, "dmg": 1.2, "speed": 0.42, "cost": 1, "pref": "defense"},
     "forklift":    {"hp": 120, "dmg": 0.8, "speed": 0.16, "cost": 3, "taunt": True},
-    "transporter": {"hp": 60, "dmg": 1.2, "speed": 0.2, "cost": 2, "pref": "hq", "x2": ("hq", "hut")},
+    "transporter": {"hp": 60, "dmg": 1.2, "speed": 0.2, "cost": 2, "pref": "hq", "x2": ("hq", "hut", "yard", "rodstore")},
 }
 CREW_KINDS = tuple(CREWS)
 CAPACITY = {"patrol": 2, "frigate": 4, "destroyer": 6, "submarine": 0, "landing": 12}
@@ -87,7 +87,7 @@ def _edge(pos, o):
 DEF_TYPES = ("battery", "missile", "asw", "radar")
 
 
-def simulate_raid(base, ships, lane, landing, order, crews, map_w, map_h, land_w, lanes, info=None):
+def simulate_raid(base, ships, lane, landing, order, crews, map_w, map_h, land_w, lanes, info=None, crew_mult=1.0):
     """base = 구조물 목록 [{id,type,level,x,y,w,h,hp,dmg,range,max}] (id = 목록 순서), ships = [{id,kind,max_hp,attack,weapons}],
     landing = 상륙 부두 y (해안 바로 앞 바다 칸), order = 대원이 부술 건물 id 순서, crews = {종류: 수}.
     → 결과 + 다시 보기 기록 (frames: s 배, b 건물 체력, c 대원 [x,y,체력,종류 번호], f 쏜 것)."""
@@ -116,7 +116,8 @@ def simulate_raid(base, ships, lane, landing, order, crews, map_w, map_h, land_w
     team = []        # 대원 (아직 안 내림)
     for k in CREW_KINDS:
         for _ in range(int(crews.get(k, 0))):
-            team.append({"kind": k, "ki": CREW_KINDS.index(k), **CREWS[k], "hp": CREWS[k]["hp"], "max": CREWS[k]["hp"],
+            team.append({"kind": k, "ki": CREW_KINDS.index(k), **CREWS[k], "dmg": CREWS[k]["dmg"] * crew_mult,
+                         "hp": CREWS[k]["hp"], "max": CREWS[k]["hp"],
                          "x": land_w - 0.4, "y": landing + 0.5, "on": False, "down": False, "tgt": None})
     landed_at = None
     frames, hits = [], {}

@@ -1760,8 +1760,46 @@ export type GamePirate = {
   history: { id: string; stage: number; stars: number; at: string | null; pct: number | null }[];
   typhoon: { done_today: boolean; wall_pct: number; wall_part: number; quiz: number; steel: number; rods: number; tech: number };
   crews: GameCrews;
-  map: { w: number; h: number; land: number };
+  map: GameRaidMap;
 };
+/** 작전 짜기·상륙 전투 지도 (lanes = 바닷길 y 위치) */
+export type GameRaidMap = { w: number; h: number; land: number; lanes?: Record<GameLane, number> };
+/** 친구 조선소를 지금 공격할 수 없는 이유 */
+export type RaidBlock = "self" | "pvp_off" | "same_course" | "time_lock" | "shield" | "same_today" | "day_max" | "need_daily";
+/** G2c-3 작전 짜기용 친구 조선소 */
+export type GameRaidTarget = {
+  id: string;
+  name: string;
+  hq: number;
+  base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number }[];
+  map: GameRaidMap;
+  loot: { steel: number; rods: number };
+  loot_half: boolean;
+  same: boolean;
+  block: RaidBlock | null;
+  block_info: Record<string, number | string>;
+  morale: number;
+};
+export type GameRaidAttack = {
+  target: string; ships: string[]; lane: GameLane; landing: number; order: number[];
+  crews: Partial<Record<CrewKind, number>>; morale_id: string; answers: Record<string, string | number>; revenge?: string | null;
+};
+/** 방어 기록 한 줄 */
+export type GameDefenseRow = {
+  id: string; at: string | null; stars: number; pct: number | null; lane: GameLane | null; by: string; by_id: string;
+  lost: { steel?: number; rods?: number }; defend: { rods?: number; fame?: number }; seen: boolean; revenge_used: boolean;
+  revenge_block?: RaidBlock | null; revenge_info?: Record<string, number | string>;
+};
+export type GameDefenseLog = {
+  log: GameDefenseRow[]; unseen: number; tip: { id: string; lane?: GameLane; n?: number }; shield: number; ready: boolean;
+};
+export const getRaidTarget = (id: string) => request<GameRaidTarget>(`/game/raid/target/${id}`, {}, GAME_TIMEOUT);
+export const gameMoraleStart = (lang: string) =>
+  post<{ id: string; total: number; questions: GameExamQuestion[] }>("/game/raid/morale/start", { lang }, GAME_TIMEOUT);
+export const gameRaidAttack = (body: GameRaidAttack) =>
+  post<{ battle: GameBattle; results: GameExamResult["results"]; state: GameState }>("/game/raid/attack", body, GAME_TIMEOUT);
+export const getDefense = () => request<GameDefenseLog>("/game/defense", {}, GAME_TIMEOUT);
+export const gameDefenseSeen = () => post<{ ok: boolean }>("/game/defense/seen", {}, GAME_TIMEOUT);
 /** G2c-2 상륙 대원 */
 export type CrewKind = "welder" | "fitter" | "forklift" | "transporter";
 export const CREW_KINDS: CrewKind[] = ["welder", "fitter", "forklift", "transporter"];
@@ -1795,7 +1833,7 @@ export type GameBattle = {
   /** s = 전투함 [x, y, 체력, 물러남], b = 해적 시설 체력, f = 쏜 것 ["s"|"d", 쏜 쪽, 맞은 쪽] */
   frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][]; c?: [number, number, number, number][] }[];
   events: { t: number; down?: number; boom?: number; ship?: number; spot?: number; retreat?: number }[];
-  map: { w: number; h: number; land: number };
+  map: GameRaidMap;
   note: { id: string };
   got?: { steel: number; rods: number; tech: number; fame: number };
   first_stars?: number;
@@ -1807,6 +1845,14 @@ export type GameBattle = {
   crews?: { kind: CrewKind; max: number }[];
   crew_sent?: Record<CrewKind, number>;
   crew_lost?: Record<CrewKind, number>;
+  /** G2c-3 친구 조선소 공격 */
+  kind?: "pirate" | "raid";
+  attacker?: { id: string; name: string };
+  defender?: { id: string; name: string };
+  lost?: { steel: number; rods: number };
+  defend?: { rods: number; fame: number };
+  morale?: { right: number; total: number; mult: number };
+  revenge?: boolean;
 };
 export const getPirate = () => request<GamePirate>("/game/pirate", {}, GAME_TIMEOUT);
 export const gamePirateAttack = (body: RaidPlan) =>
@@ -1816,7 +1862,7 @@ export type SeaTier = "easy" | "even" | "hard";
 export type GameSea = {
   size: { w: number; h: number };
   bays: { id: string; name: string; x: number; y: number; r: number; lx: number; ly: number }[];
-  islands: { id: string; name: string; course: string; x: number; y: number; hq: number; score: number; tier: SeaTier; me: boolean; same: boolean; attackable: boolean }[];
+  islands: { id: string; name: string; course: string; x: number; y: number; hq: number; score: number; tier: SeaTier; me: boolean; same: boolean; attackable: boolean; shield?: number }[];
   pirates: { stage: number; x: number; y: number; stars: number; open: boolean; score: number; tier: SeaTier }[];
   me: { id: string; course: string; score: number };
   scouts: { used: number; max: number };
@@ -1844,6 +1890,9 @@ export type GameScout = {
   same?: boolean;
   attackable?: boolean;
   raid_open?: boolean;
+  block?: RaidBlock | null;
+  block_info?: Record<string, number | string>;
+  shield?: number;
   tip: string;
   scouts: { used: number; max: number };
 };

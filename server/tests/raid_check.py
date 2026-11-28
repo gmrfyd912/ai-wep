@@ -43,7 +43,7 @@ def main():
     p = c.get("/game/pirate", headers=S).json()
     cr = p["crews"]
     assert cr["have"] == {"welder": 0, "fitter": 0, "forklift": 0, "transporter": 0} and cr["pts"] == 0 and cr["cap"] == 14, cr
-    assert p["map"] == {"w": 14, "h": 10, "land": 6}
+    assert p["map"] == {"w": 14, "h": 10, "land": 6, "lanes": gb.LANES}
 
     # 대원 훈련: 문제 3개(OX 2 + 객관식 1) → 맞힌 수만큼 훈련 점수
     t = c.post("/game/crew/train/start", headers=S, json={"lang": "ko"}).json()

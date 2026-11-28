@@ -9,7 +9,7 @@
   방어 시설의 '정답률 배수'(남의 공부 성적)는 보여 주지 않는다.
 - 같은 과정 동료도 기본으로 공격 대상(박사 결정 2026-11-28). 관리자 설정 raid_same_course 로 끌 수 있다.
   약탈은 창고 강재·용접봉의 raid_loot_pct %(기본 20). 본관이 2레벨 이상 낮은 상대는 절반.
-- 교육생끼리 실제 공격은 G2c-3. 여기서는 정찰까지 (해적 섬은 기존 연습 전투로 이어짐).
+- 교육생끼리 실제 공격은 game_pvp.py (정찰 창의 [작전 짜기] → 친구 조선소 작전 짜기).
 - 숫자는 모두 예시.
 """
 import math
@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 import game
 import game_battle
+import game_pvp
 import manage
 import store
 from game import _err, need_player
@@ -139,11 +140,19 @@ def _world():
         users=lambda: store.select("users", {"role": "eq.student", "status": "eq.active", "select": "id,name"}),
         courses=lambda: store.select("courses", {"active": "eq.true", "select": "id,name,sort", "order": "sort.asc,name.asc"}),
         links=lambda: store.select("user_courses", {"select": "user_id,course_id"}),
-        bases=lambda: store.select("game_bases", {"select": "user_id,reclaim"}),
+        bases=_bases,
         builds=lambda: store.select("game_buildings", {"type": f"in.(hq,{','.join(game.DEFENSE_TYPES)})",
                                                        "select": "user_id,type,level"}),
     )
     return got
+
+
+def _bases():
+    """모든 조선소 (보호막 시각 포함, step19 전이면 보호막 없이)."""
+    try:
+        return store.select("game_bases", {"select": "user_id,reclaim,shield_until"})
+    except Exception:  # noqa: BLE001
+        return store.select("game_bases", {"select": "user_id,reclaim"})
 
 
 def sea_view(user):
@@ -153,6 +162,7 @@ def sea_view(user):
     names = {u["id"]: u.get("name") or "" for u in w["users"]}
     names.setdefault(uid, user.get("name") or "")
     has_base = {b["user_id"] for b in w["bases"]}
+    shields = {b["user_id"]: game_pvp.shield_left(b) for b in w["bases"]}
     players = [i for i in names if i in has_base or i == uid]
     order = {c["id"]: i for i, c in enumerate(w["courses"])}
     cids: dict[str, set] = {}
@@ -181,7 +191,7 @@ def sea_view(user):
         same = bool(cids.get(p, set()) & my_courses)
         islands.append({"id": p, "name": names.get(p, ""), "course": course[p], "x": spots[p][0], "y": spots[p][1],
                         "hq": hq, "score": sc, "tier": tier(sc, my_score), "me": p == uid, "same": same,
-                        "attackable": p != uid and (same_ok or not same)})
+                        "attackable": p != uid and (same_ok or not same), "shield": shields.get(p, 0)})
     rows = game.ledger(uid)
     best = game_battle._stage_best(rows)
     pirates = []
@@ -194,7 +204,7 @@ def sea_view(user):
     return {"size": {"w": MAP_W, "h": MAP_H}, "bays": out_bays, "islands": islands, "pirates": pirates,
             "me": {"id": uid, "course": course.get(uid, NO_COURSE), "score": my_score},
             "scouts": {"used": used, "max": mx}, "same_course_ok": same_ok, "loot_pct": int(st["raid_loot_pct"]),
-            "raid_open": False}
+            "raid_open": bool(st["raid_pvp"])}
 
 
 @router.get("/game/sea")
@@ -308,6 +318,7 @@ def scout_user(me, target, st):
     sc, my_sc = base_score(blds), base_score(got["mine"])
     tr = tier(sc, my_sc)
     attackable = st["raid_same_course"] or not same
+    block, block_info = game_pvp.block_reason(uid, target, st, base, same)
     items = []
     for b in blds:
         w, h = game.BUILDINGS[b["type"]]["size"]
@@ -315,7 +326,8 @@ def scout_user(me, target, st):
     return {"kind": "user", "id": target, "name": rows[0].get("name") or "", "hq": hq, "score": sc, "tier": tr,
             "grid": {"w": game.grid_of(base), "h": game.grid_of(base), "sea": game.sea_of(base)},
             "buildings": items, "counts": _counts(blds), "loot": loot, "loot_half": half, "same": same,
-            "attackable": bool(attackable), "raid_open": False,
+            "attackable": bool(attackable), "raid_open": bool(st["raid_pvp"]), "block": block, "block_info": block_info,
+            "shield": game_pvp.shield_left(base),
             "tip": "user_weak" if half else "user_hard" if tr == "hard" else "user_easy" if tr == "easy" else "user_even"}
 
 

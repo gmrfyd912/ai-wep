@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,16 +16,19 @@ import {
   type GameCrews,
   type GameExamQuestion,
   type GameExamResult,
+  gameMoraleStart,
   type GameLane,
   type GamePirate,
+  type GameRaidMap,
   type GameState,
-  type RaidPlan,
+  type RaidBlock,
 } from "@/lib/api";
 import { BUILDING_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
 const PIRATE_COLOR: Record<string, string> = { hq: "#3B2A2A", hut: "#7A5A3A" };
 const SHORT: Record<string, string> = { battery: "B", missile: "M", asw: "A", radar: "R", hq: "☠", hut: "" };
+const SHORT_USER: Record<string, string> = { battery: "B", missile: "M", asw: "A", radar: "R", hq: "⚑" };
 const LANE_Y: Record<GameLane, number> = { north: 2, middle: 5, south: 8 };
 const MAX_ORDER = 3;
 
@@ -36,13 +39,31 @@ export type QuizRender = (p: {
   result: { results: GameExamResult["results"] } | null;
 }) => ReactNode;
 
+/** 작전 짜기 상대: 해적 기지 단계 또는 친구 조선소 */
+export type PlanTarget = {
+  kind: "pirate" | "user";
+  title: string;
+  base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number }[];
+  map: GameRaidMap;
+  stage?: number;
+  loot?: { steel: number; rods: number };
+  lootHalf?: boolean;
+  block?: string | null;
+  morale?: number;
+};
+export type PlanLaunch = {
+  ships: string[]; lane: GameLane; landing: number; order: number[]; crews: Partial<Record<CrewKind, number>>;
+  morale_id?: string; answers?: Record<string, string | number>;
+};
+
 /**
- * G2c-2 작전 짜기 (전체 화면). 해적 기지 지도를 눌러서 정한다:
+ * 작전 짜기 (전체 화면). 해적 기지·친구 조선소 지도를 눌러서 정한다:
  * ① 들어갈 바닷길(오른쪽 화살표) ② 상륙 부두(해안 앞 점선 칸) ③ 대원이 부술 목표 순서(건물, 최대 3)
  * 오른쪽 창: 출격할 전투함·태울 대원(배마다 자리 수)·대원 훈련(문제 → 훈련 점수 → 대원 뽑기)·출격.
+ * 친구 조선소는 출격 전에 3문제(사기)를 풀고 [출동!].
  */
 export function PlanScreen({
-  stage,
+  target,
   pirate,
   data,
   busy,
@@ -54,14 +75,14 @@ export function PlanScreen({
   errorText,
   renderQuiz,
 }: {
-  stage: number;
+  target: PlanTarget;
   pirate: GamePirate;
   data: GameState;
   busy: boolean;
   error: string;
   lang: string;
   onClose: () => void;
-  onLaunch: (plan: RaidPlan) => void;
+  onLaunch: (plan: PlanLaunch) => void;
   onCrews: (c: GameCrews) => void;
   errorText: (e: unknown) => string;
   renderQuiz: QuizRender;
@@ -69,8 +90,11 @@ export function PlanScreen({
   const { t } = useTranslation();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const st = pirate.stages[stage - 1];
-  const map = pirate.map;
+  const st = target;
+  const map = target.map;
+  const laneY = map.lanes ?? LANE_Y;
+  const user = target.kind === "user";
+  const short = user ? SHORT_USER : SHORT;
   const crews = pirate.crews;
   const ships = data.fleet?.ships ?? [];
   const ready = ships.filter((f) => !f.damage && f.repair_left === undefined);
@@ -79,7 +103,7 @@ export function PlanScreen({
   const [order, setOrder] = useState<number[]>([]);
   const [pick, setPick] = useState<string[] | null>(null);
   const [send, setSend] = useState<Record<CrewKind, number>>({ welder: 0, fitter: 0, forklift: 0, transporter: 0 });
-  const [view, setView] = useState<"plan" | "train">("plan");
+  const [view, setView] = useState<"plan" | "train" | "morale">("plan");
   const chosen = (pick ?? ready.map((f) => f.id)).filter((id) => ready.some((f) => f.id === id));
   const room = chosen.reduce((a, id) => a + (crews.capacity[ships.find((f) => f.id === id)?.kind ?? ""] ?? 0), 0);
   const sent = CREW_KINDS.reduce((a, k) => a + Math.min(send[k], crews.have[k]), 0);
@@ -93,13 +117,13 @@ export function PlanScreen({
   const toggle = (id: number) =>
     setOrder((o) => (o.includes(id) ? o.filter((x) => x !== id) : o.length >= MAX_ORDER ? o : [...o, id]));
   const step = landing === null ? 2 : order.length === 0 ? 3 : 4;
-  const tName = (type: string) => (type === "hq" ? t("gm_bt_hq") : type === "hut" ? t("gm_pl_hut") : t(`gm_b_${type}`));
+  const tName = (type: string) => (type === "hq" ? t(user ? "gm_b_hq" : "gm_bt_hq") : type === "hut" ? t("gm_pl_hut") : t(`gm_b_${type}`));
 
-  const launch = () => {
+  const launch = (morale?: { id: string; answers: Record<string, string | number> }) => {
     if (landing === null) return;
     const c: Partial<Record<CrewKind, number>> = {};
     for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], crews.have[k]);
-    onLaunch({ stage, ships: chosen, lane, target: "defense", landing, order, crews: c });
+    onLaunch({ ships: chosen, lane, landing, order, crews: c, morale_id: morale?.id, answers: morale?.answers });
   };
   const dock = landing === null ? null : { x: (map.land + 0.45) * cell, y: (landing + 0.5) * cell };
 
@@ -109,7 +133,7 @@ export function PlanScreen({
         <Pressable onPress={onClose} style={styles.round} hitSlop={8} accessibilityLabel={t("common_back")}>
           <Ionicons name="arrow-back" size={18} color="#fff" />
         </Pressable>
-        <Text style={styles.title} numberOfLines={1}>{t("gm_pl_title", { n: stage })}</Text>
+        <Text style={styles.title} numberOfLines={1}>{target.title}</Text>
         <Text style={styles.hint} numberOfLines={2}>
           {t(`gm_pl_step${step}`)}
         </Text>
@@ -126,7 +150,7 @@ export function PlanScreen({
           ))}
           {/* 들어갈 길 → 상륙 부두 */}
           {dock ? (
-            <Line x1={W - cell * 0.5} y1={LANE_Y[lane] * cell} x2={dock.x} y2={dock.y} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
+            <Line x1={W - cell * 0.5} y1={laneY[lane] * cell} x2={dock.x} y2={dock.y} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
           ) : null}
           {/* 상륙 부두 고르는 칸 (해안 바로 앞 바다) */}
           {Array.from({ length: map.h }, (_, y) => {
@@ -145,16 +169,16 @@ export function PlanScreen({
             const [cx, cy] = C(o);
             if (o.type === "mine") return <Circle key={o.id} cx={cx} cy={cy} r={cell * 0.2} fill={BUILDING_COLOR.mine} stroke="#3A0D0A" />;
             if (o.type === "wall" && o.x === map.land) return null;   // 부두 칸 위 장벽은 ▦ 로
-            const color = PIRATE_COLOR[o.type] ?? BUILDING_COLOR[o.type] ?? "#999";
+            const color = (user ? undefined : PIRATE_COLOR[o.type]) ?? BUILDING_COLOR[o.type] ?? "#999";
             const n = order.indexOf(o.id);
             const tap = o.type !== "wall";
             return (
               <G key={o.id} onPress={tap ? () => toggle(o.id) : undefined}>
                 <Rect x={o.x * cell + 2} y={o.y * cell + 2} width={o.w * cell - 4} height={o.h * cell - 4} rx={3} fill={color}
                   stroke={n >= 0 ? "#FFD166" : "#0006"} strokeWidth={n >= 0 ? 3 : 1} />
-                {SHORT[o.type] ? (
+                {short[o.type] ? (
                   <SvgText x={cx} y={cy + cell * 0.15} fontSize={cell * (o.type === "hq" ? 0.7 : 0.42)} fill="#fff" textAnchor="middle" fontWeight="bold">
-                    {SHORT[o.type]}
+                    {short[o.type]}
                   </SvgText>
                 ) : null}
                 {n >= 0 ? (
@@ -170,7 +194,7 @@ export function PlanScreen({
           })}
           {/* 들어갈 바닷길 화살표 */}
           {(Object.keys(LANE_Y) as GameLane[]).map((l) => {
-            const y = LANE_Y[l] * cell, x = W - cell * 0.15, on = lane === l;
+            const y = laneY[l] * cell, x = W - cell * 0.15, on = lane === l;
             return (
               <G key={l} onPress={() => setLane(l)}>
                 <Rect x={W - cell * 1.1} y={y - cell * 0.55} width={cell * 1.1} height={cell * 1.1} fill="transparent" />
@@ -181,7 +205,7 @@ export function PlanScreen({
           {/* 고른 전투함 (출발 자리) */}
           {chosen.slice(0, 6).map((id, i) => {
             const off = (i - (Math.min(chosen.length, 6) - 1) / 2) * 0.8;
-            const px = (map.w - 1.4) * cell, py = (LANE_Y[lane] + off) * cell, r = cell * 0.3;
+            const px = (map.w - 1.4) * cell, py = (laneY[lane] + off) * cell, r = cell * 0.3;
             return <Polygon key={id} points={`${px - r},${py} ${px + r * 0.8},${py - r * 0.55} ${px + r * 0.8},${py + r * 0.55}`} fill={WAR_COLOR} stroke="#fff" strokeWidth={1} opacity={0.8} />;
           })}
         </Svg>
@@ -189,7 +213,7 @@ export function PlanScreen({
           <Text style={styles.legText}>▶ {t("gm_pl_legLane")}</Text>
           <Text style={styles.legText}>⚓ {t("gm_pl_legPier")}</Text>
           <Text style={styles.legText}>①②③ {t("gm_pl_legOrder")}</Text>
-          <Text style={styles.legText}>☠ {t("gm_bt_hq")}  B {t("gm_b_battery")}  M {t("gm_b_missile")}</Text>
+          <Text style={styles.legText}>{user ? `⚑ ${t("gm_b_hq")}` : `☠ ${t("gm_bt_hq")}`}  B {t("gm_b_battery")}  M {t("gm_b_missile")}</Text>
         </View>
       </View>
 
@@ -197,6 +221,9 @@ export function PlanScreen({
         <ScrollView contentContainerStyle={{ gap: space.sm, padding: space.sm }}>
           {view === "train" ? (
             <CrewTrain crews={crews} lang={lang} onCrews={onCrews} onBack={() => setView("plan")} errorText={errorText} renderQuiz={renderQuiz} />
+          ) : view === "morale" ? (
+            <MoraleQuiz lang={lang} busy={busy} error={error} onBack={() => setView("plan")} errorText={errorText} renderQuiz={renderQuiz}
+              onGo={(id, answers) => launch({ id, answers })} />
           ) : (
             <>
               <Row ok label={t("gm_pl_lane")} value={t(`gm_bt_lane_${lane}`)} />
@@ -252,8 +279,20 @@ export function PlanScreen({
               ))}
               {room === 0 && chosen.length ? <Text style={styles.warnSm}>{t("gm_pl_noRoom")}</Text> : null}
               <AppButton label={t("gm_pl_train", { pts: crews.pts })} icon="school-outline" variant="secondary" onPress={() => setView("train")} />
+              {user && target.loot ? (
+                <Text style={styles.small}>
+                  {t("gm_rd_loot", { steel: target.loot.steel, rods: target.loot.rods })}
+                  {target.lootHalf ? ` ${t("gm_sc_lootHalf")}` : ""}
+                </Text>
+              ) : null}
+              {user && target.block ? <Text style={styles.warn}>{t(`gm_rd_block_${target.block as RaidBlock}`)}</Text> : null}
               {error ? <Text style={styles.warn}>{error}</Text> : null}
-              <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || landing === null || chosen.length === 0} onPress={launch} />
+              {user ? (
+                <AppButton label={t("gm_rd_toMorale", { n: target.morale ?? 3 })} icon="school-outline"
+                  disabled={busy || landing === null || chosen.length === 0 || !!target.block} onPress={() => setView("morale")} />
+              ) : (
+                <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || landing === null || chosen.length === 0} onPress={() => launch()} />
+              )}
               {landing === null ? <Text style={styles.small}>{t("gm_pl_needPier")}</Text> : null}
             </>
           )}
@@ -272,6 +311,59 @@ function Row({ ok, label, value }: { ok: boolean; label: string; value: string }
         <Text style={styles.small}>{value}</Text>
       </View>
     </View>
+  );
+}
+
+/** 친구 조선소 출동 전 3문제: 맞힌 만큼 사기(0.8~1.2배) → [출동!] 하면 서버가 채점하고 바로 전투 */
+function MoraleQuiz({
+  lang,
+  busy,
+  error,
+  onBack,
+  onGo,
+  errorText,
+  renderQuiz,
+}: {
+  lang: string;
+  busy: boolean;
+  error: string;
+  onBack: () => void;
+  onGo: (id: string, answers: Record<string, string | number>) => void;
+  errorText: (e: unknown) => string;
+  renderQuiz: QuizRender;
+}) {
+  const { t } = useTranslation();
+  const [quiz, setQuiz] = useState<{ id: string; questions: GameExamQuestion[] } | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string | number>>({});
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let live = true;
+    gameMoraleStart(lang)
+      .then((q) => live && setQuiz(q))
+      .catch((e) => live && setErr(errorText(e)));
+    return () => {
+      live = false;
+    };
+  }, [lang, errorText]);
+  const done = quiz ? quiz.questions.filter((q) => String(answers[q.id] ?? "").trim() !== "").length : 0;
+  return (
+    <>
+      <View style={styles.rowBetween}>
+        <Text style={styles.cardTitle}>{t("gm_rd_moraleTitle")}</Text>
+        <Pressable onPress={onBack} hitSlop={10} accessibilityLabel={t("common_back")}>
+          <Ionicons name="close" size={20} color="#fff" />
+        </Pressable>
+      </View>
+      <Text style={styles.small}>{t("gm_rd_moraleRule")}</Text>
+      {err ? <Text style={styles.warn}>{err}</Text> : null}
+      {!quiz && !err ? <ActivityIndicator color={colors.primary} /> : null}
+      {quiz ? renderQuiz({ questions: quiz.questions, answers, setAnswer: (id, v) => setAnswers((a) => ({ ...a, [id]: v })), result: null }) : null}
+      {error ? <Text style={styles.warn}>{error}</Text> : null}
+      {quiz ? (
+        <AppButton label={t("gm_rd_go", { done, total: quiz.questions.length })} icon="flag-outline"
+          disabled={busy || done < quiz.questions.length} onPress={() => onGo(quiz.id, answers)} />
+      ) : null}
+    </>
   );
 }
 

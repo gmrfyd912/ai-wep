@@ -294,7 +294,7 @@ def pirate_state(user=Depends(need_player)):
 
     def _history():
         try:
-            return store.select("game_battles", {"user_id": f"eq.{uid}", "select": "id,stage,stars,created_at,result",
+            return store.select("game_battles", {"user_id": f"eq.{uid}", "kind": "eq.pirate", "select": "id,stage,stars,created_at,result",
                                                  "order": "created_at.desc", "limit": "5"})
         except Exception as e:  # noqa: BLE001  (step17 전)
             print("[battle] 기록 못 읽음", str(e)[:120], flush=True)
@@ -309,7 +309,7 @@ def pirate_state(user=Depends(need_player)):
                        "pct": (b.get("result") or {}).get("pct")} for b in got["history"]]
     out["typhoon"] = typhoon_view(uid, rows, base, got["buildings"])
     out["crews"] = game_raid.crew_view(base, got["buildings"])   # G2c-2 상륙 대원
-    out["map"] = {"w": MAP_W, "h": MAP_H, "land": LAND_W}
+    out["map"] = {"w": MAP_W, "h": MAP_H, "land": LAND_W, "lanes": LANES}
     return out
 
 
@@ -405,8 +405,9 @@ def battle_replay(bid: str, user=Depends(need_player)):
         uuid.UUID(bid)
     except ValueError:
         _err(404, "not_found")
-    rows = store.select("game_battles", {"id": f"eq.{bid}", "user_id": f"eq.{user['id']}", "select": "result"})
-    if not rows:
+    rows = store.select("game_battles", {"id": f"eq.{bid}", "select": "*"})
+    # 내가 공격한 전투, 또는 (G2c-3) 내 조선소가 공격받은 전투
+    if not rows or user["id"] not in (rows[0].get("user_id"), rows[0].get("defender_id")):
         _err(404, "not_found")
     return {"battle": rows[0]["result"]}
 
