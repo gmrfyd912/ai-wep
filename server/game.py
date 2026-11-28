@@ -177,6 +177,17 @@ DEFAULTS = {
     "raid_same_course": True,         # 같은 과정(반) 동료끼리 공격 허용
     "raid_loot_pct": 20,              # 약탈: 상대 창고 강판·용접봉의 %
     "scout_day_max": 20,              # 하루 정찰 횟수 (0 = 무제한, 같은 날 같은 섬은 한 번만 셈)
+    # 교육생끼리 공격 (G2c 계획안 '공정함 안전장치', 숫자는 예시)
+    "raid_pvp": True,                 # 교육생끼리 공격 켜기 (끄면 해적만)
+    "raid_need_daily": True,          # 오늘 매일 문제를 다 풀어야 친구 조선소 공격 가능
+    "raid_day_max": 3,                # 한 사람이 하루에 다른 교육생을 공격하는 최대 횟수 (같은 친구는 하루 1번)
+    "raid_shield_hours": 8,           # 공격받은 조선소 보호막 시간
+    "raid_defend_rods": 20,           # 막아 냄(상대 별 0~1개) 보상 용접봉
+    "raid_time_lock": True,           # 수업 시간·밤에는 친구 공격 잠금
+    "raid_class_from": 9,             # 수업 시간 (평일) 시작 시
+    "raid_class_to": 18,              # 수업 시간 끝 시
+    "raid_night_from": 22,            # 밤 잠금 시작 시
+    "raid_night_to": 7,               # 밤 잠금 끝 시
 }
 EXAM_KINDS = ("ox", "mc", "word", "short")
 EXAM_MAX_EACH = 20
@@ -2266,6 +2277,11 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         _err(400, "bad_value", key="supply_ox")
     if cur["raid_loot_pct"] > 100:
         _err(400, "bad_value", key="raid_loot_pct")
+    for k in ("raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to"):
+        if cur[k] > 24:
+            _err(400, "bad_value", key=k)
+    if cur["raid_shield_hours"] > 72:
+        _err(400, "bad_value", key="raid_shield_hours")
     for t in DEFENSE_TYPES:
         if cur[f"link_{t}"] > 200:
             _err(400, "bad_value", key=f"link_{t}")

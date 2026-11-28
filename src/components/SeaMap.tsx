@@ -14,6 +14,7 @@ import { colors, radius, space } from "@/theme";
 
 /** 섬 색 = 내 조선소와 비교한 힘 (범례와 같음) */
 export const TIER_COLOR: Record<SeaTier, string> = { easy: "#2E9D5B", even: "#E0B23A", hard: "#D0453A" };
+const SHIELD = "#8A949E";
 const SAME = "#57C4E5";      // 같은 과정 테두리
 const ME = "#FFFFFF";
 const PIRATE_BLD: Record<string, string> = { hq: "#3B2A2A", hut: "#7A5A3A" };
@@ -30,12 +31,19 @@ type Target = { kind: "pirate" | "user"; id: string };
 export function SeaMap({
   onClose,
   onPlan,
+  onRaid,
+  onDefense,
+  defenseNew = 0,
   onPractice,
   errorText,
 }: {
   onClose: () => void;
   /** 해적 섬 '작전 짜기' → 해적 연습 전투 창을 그 단계로 */
   onPlan: (stage: number) => void;
+  /** 친구 섬 '작전 짜기' */
+  onRaid: (id: string) => void;
+  onDefense: () => void;
+  defenseNew?: number;
   onPractice: () => void;
   errorText: (e: unknown) => string;
 }) {
@@ -134,8 +142,9 @@ export function SeaMap({
                 <G key={s.id} onPress={() => (s.me ? closeCard() : open({ kind: "user", id: s.id }))}>
                   <Circle cx={x} cy={y} r={r * 1.6} fill="transparent" />
                   {s.same && !s.me ? <Circle cx={x} cy={y} r={r + 3} fill="none" stroke={SAME} strokeWidth={2} /> : null}
-                  <Circle cx={x} cy={y} r={r} fill="#D8C08A" stroke={s.me ? ME : TIER_COLOR[s.tier]} strokeWidth={s.me ? 3 : 2.5} />
-                  <Rect x={x - r * 0.35} y={y - r * 0.55} width={r * 0.7} height={r * 0.7} fill={s.me ? "#2F5F9E" : TIER_COLOR[s.tier]} />
+                  <Circle cx={x} cy={y} r={r} fill="#D8C08A" stroke={s.me ? ME : s.shield ? SHIELD : TIER_COLOR[s.tier]} strokeWidth={s.me ? 3 : 2.5} />
+                  <Rect x={x - r * 0.35} y={y - r * 0.55} width={r * 0.7} height={r * 0.7} fill={s.me ? "#2F5F9E" : s.shield ? SHIELD : TIER_COLOR[s.tier]} />
+                  {s.shield ? <Circle cx={x} cy={y} r={r + 6} fill="#FFFFFF22" stroke="#FFFFFFAA" strokeWidth={1.5} strokeDasharray="3 3" /> : null}
                   {s.me || zoom >= NAME_ZOOM ? (
                     <SvgText x={x} y={y + r + fs} fill="#fff" fontSize={fs} fontWeight={s.me ? "700" : "400"} textAnchor="middle">
                       {s.me ? `★ ${t("gm_sea_me")}` : s.name}
@@ -183,6 +192,10 @@ export function SeaMap({
             <Text style={styles.legText}>{t("gm_sea_same")}</Text>
           </View>
           <View style={styles.legItem}>
+            <View style={[styles.dot, { backgroundColor: SHIELD }]} />
+            <Text style={styles.legText}>🛡 {t("gm_sea_shield")}</Text>
+          </View>
+          <View style={styles.legItem}>
             <Text style={styles.legText}>☠ {t("gm_sea_pirate")}</Text>
           </View>
         </View>
@@ -204,10 +217,16 @@ export function SeaMap({
       {/* 아래 왼쪽: 해적 연습 전투·태풍 훈련 (기존 창) */}
       {!target ? (
         <View style={[styles.hudBL, { bottom: 8 + insets.bottom, left: 8 + insets.left }]}>
-          <Pressable onPress={onPractice} style={styles.pill}>
-            <Ionicons name="flag" size={16} color="#fff" />
-            <Text style={styles.pillText}>{t("gm_sea_practice")}</Text>
-          </Pressable>
+          <View style={styles.row}>
+            <Pressable onPress={onPractice} style={styles.pill}>
+              <Ionicons name="flag" size={16} color="#fff" />
+              <Text style={styles.pillText}>{t("gm_sea_practice")}</Text>
+            </Pressable>
+            <Pressable onPress={onDefense} style={styles.pill}>
+              <Ionicons name="shield-half-outline" size={16} color="#fff" />
+              <Text style={styles.pillText}>{t("gm_df_title")}{defenseNew ? ` (${defenseNew})` : ""}</Text>
+            </Pressable>
+          </View>
         </View>
       ) : null}
 
@@ -225,7 +244,7 @@ export function SeaMap({
             </View>
             {scoutErr ? <Text style={styles.warn}>{scoutErr}</Text> : null}
             {!scout && !scoutErr ? <ActivityIndicator color={colors.primary} /> : null}
-            {scout ? <ScoutCard s={scout} sea={sea} onPlan={onPlan} onOther={closeCard} /> : null}
+            {scout ? <ScoutCard s={scout} sea={sea} onPlan={onPlan} onRaid={onRaid} onOther={closeCard} /> : null}
             {scoutErr ? <AppButton label={t("gm_sc_other")} icon="search-outline" variant="secondary" onPress={closeCard} /> : null}
           </ScrollView>
         </View>
@@ -235,7 +254,9 @@ export function SeaMap({
 }
 
 /** 정찰 결과: 본관·힘·배치 그림·방어 시설 수·가져올 것·(해적) 예상 별·웰디 한마디·단추 */
-function ScoutCard({ s, sea, onPlan, onOther }: { s: GameScout; sea: GameSea | null; onPlan: (stage: number) => void; onOther: () => void }) {
+function ScoutCard({ s, sea, onPlan, onRaid, onOther }: {
+  s: GameScout; sea: GameSea | null; onPlan: (stage: number) => void; onRaid: (id: string) => void; onOther: () => void;
+}) {
   const { t } = useTranslation();
   const [info, setInfo] = useState<"loot" | "expect" | null>(null);
   const tierC = s.tier ? TIER_COLOR[s.tier] : undefined;
@@ -290,8 +311,8 @@ function ScoutCard({ s, sea, onPlan, onOther }: { s: GameScout; sea: GameSea | n
         <AppButton label={t("gm_sc_plan")} icon="navigate-outline" onPress={() => onPlan(s.stage ?? 1)} />
       ) : (
         <>
-          <AppButton label={t("gm_sc_plan")} icon="navigate-outline" disabled onPress={() => undefined} />
-          <Text style={styles.small}>{s.attackable ? t("gm_sc_raidSoon") : t("gm_sc_noRaid")}</Text>
+          <AppButton label={t("gm_sc_plan")} icon="navigate-outline" disabled={!!s.block} onPress={() => onRaid(s.id)} />
+          {s.block ? <Text style={styles.warnSm}>{t(`gm_rd_block_${s.block}`, s.block_info as Record<string, unknown>)}</Text> : null}
         </>
       )}
       <AppButton label={t("gm_sc_other")} icon="search-outline" variant="secondary" onPress={onOther} />

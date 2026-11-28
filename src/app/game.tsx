@@ -56,13 +56,21 @@ import {
   type GameLane,
   type RaidPlan,
   type GamePirate,
+  type GameDefenseLog,
+  type GameDefenseRow,
+  type GameRaidTarget,
+  getDefense,
+  getRaidTarget,
+  gameDefenseSeen,
+  gameRaidAttack,
   type GameTyphoon,
   type GameTyphoonResult,
 } from "@/lib/api";
 import { BattleReplay } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
-import { PlanScreen } from "@/components/PlanScreen";
+import { PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
+import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
@@ -120,6 +128,13 @@ export default function GameScreen() {
   const [battleStage, setBattleStage] = useState<number | null>(null);   // 바다 지도에서 고른 해적 단계
   const [planStage, setPlanStage] = useState<number | null>(null);       // G2c-2 작전 짜기 (전체 화면)
   const [battle, setBattle] = useState<GameBattle | null>(null);
+  const [battleDef, setBattleDef] = useState(false);                     // 다시 보기가 내 조선소 방어 전투인지
+  // G2c-3 친구 조선소 공격·방어 기록
+  const [raidId, setRaidId] = useState<string | null>(null);
+  const [raid, setRaid] = useState<{ target: GameRaidTarget; revenge?: string } | null>(null);
+  const [defense, setDefense] = useState<GameDefenseLog | null>(null);
+  const [defOpen, setDefOpen] = useState(false);
+  const [defNotice, setDefNotice] = useState(false);
   const [typhoon, setTyphoon] = useState<GameTyphoon | null>(null);
   const [typhoonRes, setTyphoonRes] = useState<GameTyphoonResult | null>(null);
   const [data, setData] = useState<GameState | null>(null);
@@ -266,6 +281,21 @@ export default function GameScreen() {
 
   // 바다 지도 오류 문구 (훅이라 아래 "불러오는 중" return 보다 먼저)
   const seaError = useCallback((e: unknown) => gameError(t, e), [t]);
+  // G2c-3 방어 기록 (훅이라 아래 "불러오는 중" return 보다 먼저)
+  const loadDefense = useCallback(async (notice: boolean) => {
+    try {
+      const d = await getDefense();
+      setDefense(d);
+      if (notice && d.unseen) setDefNotice(true);
+    } catch {
+      /* 방어 기록은 없어도 게임은 됨 */
+    }
+  }, []);
+  // 다음에 앱을 열면 웰디가 공격받은 일을 알려 줌
+  useEffect(() => {
+    loadDefense(true);
+  }, [loadDefense]);
+
   if (!data) {
     return (
       <View style={[styles.full, styles.center]}>
@@ -492,13 +522,73 @@ export default function GameScreen() {
       setBusy(false);
     }
   };
-  const replay = async (id: string) => {
+  const replay = async (id: string, def = false) => {
     try {
-      setBattle((await getBattle(id)).battle);
+      const b = (await getBattle(id)).battle;
+      setBattleDef(def);
+      setBattle(b);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+      setMsg(gameError(t, e));
+    }
+  };
+  // 작전 짜기(해적) → 출격
+  const planAttack = (p: PlanLaunch) => {
+    if (!planStage) return;
+    attack({ stage: planStage, ships: p.ships, lane: p.lane, target: "defense", landing: p.landing, order: p.order, crews: p.crews });
+  };
+  // G2c-3 친구 조선소: 작전 짜기 열기 (정찰 창·방어 기록의 복수하기)
+  const openRaid = async (id: string, revenge?: string) => {
+    setSeaOpen(false);
+    setDefOpen(false);
+    setSelected(null);
+    setInfo(null);
+    setMode("home");
+    setExamErr("");
+    setRaid(null);
+    setRaidId(id);
+    try {
+      const [tg, pr] = await Promise.all([getRaidTarget(id), getPirate()]);
+      setPirate(pr);
+      setRaid({ target: tg, revenge });
     } catch (e) {
       setExamErr(gameError(t, e));
     }
   };
+  const closeRaid = () => {
+    setRaid(null);
+    setRaidId(null);
+  };
+  const raidAttack = async (p: PlanLaunch) => {
+    if (busy || !raid || !p.morale_id) return;
+    setBusy(true);
+    setExamErr("");
+    try {
+      const r = await gameRaidAttack({ target: raid.target.id, ships: p.ships, lane: p.lane, landing: p.landing, order: p.order,
+        crews: p.crews, morale_id: p.morale_id, answers: p.answers ?? {}, revenge: raid.revenge ?? null });
+      apply(r.state);
+      setBattleDef(false);
+      setBattle(r.battle);
+      closeRaid();
+      getPirate().then(setPirate).catch(() => undefined);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openDefense = async () => {
+    setDefNotice(false);
+    setDefOpen(true);
+    await loadDefense(false);
+    gameDefenseSeen().catch(() => undefined);
+  };
+  const closeNotice = () => {
+    setDefNotice(false);
+    setDefense((d) => (d ? { ...d, unseen: 0, log: d.log.map((r) => ({ ...r, seen: true })) } : d));
+    gameDefenseSeen().catch(() => undefined);
+  };
+  const revenge = (row: GameDefenseRow) => openRaid(row.by_id, row.id);
   const openTyphoon = async () => {
     setMode("typhoon");
     setTyphoon(null);
@@ -1021,20 +1111,23 @@ export default function GameScreen() {
         <SeaMap
           onClose={() => setSeaOpen(false)}
           onPlan={openPlan}
+          onRaid={(id) => openRaid(id)}
+          onDefense={openDefense}
+          defenseNew={defense?.unseen ?? 0}
           onPractice={() => { setSeaOpen(false); setBattleStage(null); openBattle(); }}
           errorText={seaError}
         />
       ) : null}
       {planStage && pirate ? (
         <PlanScreen
-          stage={planStage}
+          target={{ kind: "pirate", title: t("gm_pl_title", { n: planStage }), base: pirate.stages[planStage - 1].base, map: pirate.map, stage: planStage }}
           pirate={pirate}
           data={data}
           busy={busy}
           error={examErr}
           lang={i18n.language}
           onClose={() => setPlanStage(null)}
-          onLaunch={attack}
+          onLaunch={planAttack}
           onCrews={(c) => setPirate((p) => (p ? { ...p, crews: c } : p))}
           errorText={seaError}
           renderQuiz={(q) => <QuizList questions={q.questions} answers={q.answers} setAnswer={q.setAnswer} result={q.result} />}
@@ -1046,7 +1139,56 @@ export default function GameScreen() {
           {examErr ? <AppButton label={t("common_back")} onPress={() => setPlanStage(null)} /> : null}
         </View>
       ) : null}
-      {battle ? <BattleReplay battle={battle} onClose={() => setBattle(null)} /> : null}
+      {raid && pirate ? (
+        <PlanScreen
+          target={{
+            kind: "user", title: t(raid.revenge ? "gm_rd_revengeTitle" : "gm_rd_planTitle", { name: raid.target.name }), base: raid.target.base,
+            map: raid.target.map, loot: raid.target.loot, lootHalf: raid.target.loot_half, block: raid.target.block, morale: raid.target.morale,
+          }}
+          pirate={pirate}
+          data={data}
+          busy={busy}
+          error={examErr}
+          lang={i18n.language}
+          onClose={closeRaid}
+          onLaunch={raidAttack}
+          onCrews={(c) => setPirate((p) => (p ? { ...p, crews: c } : p))}
+          errorText={seaError}
+          renderQuiz={(q) => <QuizList questions={q.questions} answers={q.answers} setAnswer={q.setAnswer} result={q.result} />}
+        />
+      ) : null}
+      {raidId && !raid ? (
+        <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: "#0B1A2A" }]}>
+          {examErr ? <Text style={styles.warn}>{examErr}</Text> : <ActivityIndicator color="#fff" />}
+          {examErr ? <AppButton label={t("common_back")} onPress={closeRaid} /> : null}
+        </View>
+      ) : null}
+      {defOpen && defense ? (
+        <DefenseLog data={defense} onClose={() => setDefOpen(false)} onReplay={(id) => replay(id, true)} onRevenge={revenge} />
+      ) : null}
+      {defNotice && defense && !party && !battle ? (
+        <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
+          <View style={[styles.partyCard, { borderColor: "#57C4E5" }]}>
+            <View style={[styles.rowStart, { justifyContent: "center" }]}>
+              <Ionicons name="shield-half" size={26} color="#57C4E5" />
+              <Text style={styles.partyTitle}>{t("gm_df_noticeTitle")}</Text>
+            </View>
+            {defense.log.filter((r) => !r.seen).slice(0, 3).map((r) => (
+              <StudyBuddy key={r.id} compact size={40}
+                text={t(r.stars <= 1 ? "gm_df_noticeHeld" : "gm_df_noticeBroken", { name: r.by, steel: r.lost.steel ?? 0, rods: r.lost.rods ?? 0 })} />
+            ))}
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <View style={{ flex: 1 }}>
+                <AppButton label={t("gm_df_open")} icon="shield-half-outline" variant="secondary" onPress={openDefense} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppButton label={t("gm_partyOk")} icon="checkmark" onPress={closeNotice} />
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
+      {battle ? <BattleReplay battle={battle} defense={battleDef} onClose={() => setBattle(null)} /> : null}
       {!party && data.gifts?.length ? (
         <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
           <View style={[styles.partyCard, { borderColor: "#E05A9B" }]}>
