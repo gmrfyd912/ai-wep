@@ -1286,7 +1286,7 @@ const vi: Translation = {
   gm_delivered: "Đã bàn giao {{ship}}! Danh tiếng +{{fame}}",
   gm_mapHint: "Nhấn vào công trình để xem chi tiết.",
   gm_placeHint: "Nhấn vào ô đất xanh để chọn chỗ.",
-  gm_placePicked: "Nếu chỗ này đúng, hãy nhấn nút bên dưới. Có thể nhấn ô xanh khác để đổi.",
+  gm_placePicked: "Đã đặt sẵn ở chỗ phù hợp. Kéo công trình hoặc nhấn ô xanh khác để đổi, rồi nhấn nút bên dưới.",
   gm_zoomIn: "Phóng to",
   gm_zoomOut: "Thu nhỏ",
   gm_legendFree: "Đất trống",

@@ -22,6 +22,8 @@ export function PanZoom({
   onMove,
   onTapEmpty,
   zoomNonce = 0,
+  grab = null,
+  onGrab,
   children,
 }: {
   width: number;
@@ -39,6 +41,10 @@ export function PanZoom({
   onTapEmpty?: () => void;
   /** 확대 단추로 zoom 을 바꿀 때 함께 1 올림 → 그 변화는 되돌리지 않고 바로 보이게 */
   zoomNonce?: number;
+  /** 끌어서 옮길 수 있는 것(놓을 건물 미리보기)이 지도 그림에서 차지하는 네모. 여기서 끌기 시작하면 지도 대신 그것을 옮김 */
+  grab?: { x1: number; y1: number; x2: number; y2: number } | null;
+  /** grab 을 끄는 중: 지도 그림 안의 손가락 위치 (시작 start → 움직임 move → 끝 end) */
+  onGrab?: (phase: "start" | "move" | "end", x: number, y: number) => void;
   children: ReactNode;
 }) {
   const s = useSharedValue(1);
@@ -51,6 +57,15 @@ export function PanZoom({
   const fy = useSharedValue(0);
   const z = useSharedValue(zoom);
   const dim = useSharedValue({ w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom });
+  const box = useSharedValue<{ x1: number; y1: number; x2: number; y2: number } | null>(grab);
+  const dragging = useSharedValue(false);
+  useEffect(() => {
+    box.value = grab;
+  }, [grab, box]);
+  // 제스처 설정은 처음 것을 계속 쓸 수 있어서, 최신 onGrab 은 ref 로 부름
+  const grabRef = useRef(onGrab);
+  grabRef.current = onGrab;
+  const grabJS = (phase: "start" | "move" | "end", x: number, y: number) => grabRef.current?.(phase, x, y);
 
   useEffect(() => {
     dim.value = { w: width, h: height, cw: contentW, ch: contentH, min: minZoom, max: maxZoom };
@@ -118,22 +133,46 @@ export function PanZoom({
       runOnJS(moved)(false);
     },
   });
+  // 화면 위 점 → 지도 그림 안의 점
+  const toContent = (sx: number, sy: number) => {
+    "worklet";
+    const d = dim.value;
+    return { x: (sx - d.w / 2 - tx.value) / s.value + d.cw / 2, y: (sy - d.h / 2 - ty.value) / s.value + d.ch / 2 };
+  };
   const pan = usePanGesture({
     minDistance: 10,
     maxPointers: 1,
-    onActivate: () => {
+    onActivate: (e) => {
       "worklet";
       runOnJS(moved)(true);
       tx0.value = tx.value;
       ty0.value = ty.value;
+      const b = box.value;
+      const p0 = toContent(e.x - e.translationX, e.y - e.translationY);
+      if (b && p0.x >= b.x1 && p0.x <= b.x2 && p0.y >= b.y1 && p0.y <= b.y2) {
+        dragging.value = true;
+        runOnJS(grabJS)("start", p0.x, p0.y);
+        const p = toContent(e.x, e.y);
+        runOnJS(grabJS)("move", p.x, p.y);
+      }
     },
     onUpdate: (e) => {
       "worklet";
+      if (dragging.value) {
+        const p = toContent(e.x, e.y);
+        runOnJS(grabJS)("move", p.x, p.y);
+        return;
+      }
       tx.value = clampX(tx0.value + e.translationX, s.value);
       ty.value = clampY(ty0.value + e.translationY, s.value);
     },
-    onDeactivate: () => {
+    onDeactivate: (e) => {
       "worklet";
+      if (dragging.value) {
+        dragging.value = false;
+        const p = toContent(e.x, e.y);
+        runOnJS(grabJS)("end", p.x, p.y);
+      }
       runOnJS(moved)(false);
     },
   });

@@ -1301,7 +1301,7 @@ const ko = {
   gm_delivered: "{{ship}}을(를) 인도했어요! 명성 +{{fame}}",
   gm_mapHint: "건물을 누르면 자세히 볼 수 있어요.",
   gm_placeHint: "초록 땅을 눌러 자리를 고르세요.",
-  gm_placePicked: "이 자리가 맞으면 아래 버튼을 누르세요. 다른 초록 땅을 눌러 바꿀 수도 있어요.",
+  gm_placePicked: "알맞은 자리에 먼저 놓아 두었어요. 건물을 손가락으로 끌거나 다른 초록 땅을 눌러 옮기고, 맞으면 아래 버튼을 누르세요.",
   gm_zoomIn: "크게",
   gm_zoomOut: "작게",
   gm_legendFree: "놓을 수 있는 땅",

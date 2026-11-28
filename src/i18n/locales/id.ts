@@ -1286,7 +1286,7 @@ const id: Translation = {
   gm_delivered: "{{ship}} diserahkan! Reputasi +{{fame}}",
   gm_mapHint: "Tekan bangunan untuk melihat detail.",
   gm_placeHint: "Tekan tanah hijau untuk memilih tempat.",
-  gm_placePicked: "Jika tempat ini benar, tekan tombol di bawah. Bisa juga tekan tanah hijau lain untuk mengganti.",
+  gm_placePicked: "Sudah ditaruh di tempat yang pas. Seret bangunan atau tekan tanah hijau lain untuk memindah, lalu tekan tombol di bawah.",
   gm_zoomIn: "Perbesar",
   gm_zoomOut: "Perkecil",
   gm_legendFree: "Tanah kosong",

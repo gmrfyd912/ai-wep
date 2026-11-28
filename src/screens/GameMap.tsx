@@ -49,6 +49,62 @@ export function mapSize(grid: number, W: number, sea = 2) {
   return { width: (grid + sea + 0.6) * W, height: (grid / 2 + 3.6) * W };
 }
 
+/** 놓을 건물 크기·조건 */
+export type PlaceRule = { w: number; h: number; coast?: boolean; sea?: boolean; skipId?: string };
+
+/** 그 칸(x, y)에 놓을 수 있나 (서버 _free 와 같은 규칙: 겹침·해안·바다·배 물길) */
+export function canPlace(buildings: GameBuilding[], r: PlaceRule, grid: number, sea: number, x: number, y: number) {
+  if (y < 0 || x < 0 || y + r.h > grid) return false;
+  const used = new Set<string>();
+  const berth = new Set<string>();
+  for (const b of buildings) {
+    if (b.id === r.skipId) continue;
+    for (let i = 0; i < b.w; i++) for (let j = 0; j < b.h; j++) used.add(`${b.x + i},${b.y + j}`);
+    if (b.type === "dock") for (let j = 0; j < b.h; j++) berth.add(`${grid},${b.y + j}`);
+    if (b.type === "pier") for (let i = 0; i < 2; i++) for (let j = 0; j < b.h; j++) berth.add(`${grid + i},${b.y + j}`);
+  }
+  if (r.sea) {
+    if (x < grid || x + r.w > grid + sea) return false;
+    for (let i = 0; i < r.w; i++) for (let j = 0; j < r.h; j++) {
+      const k = `${x + i},${y + j}`;
+      if (used.has(k) || berth.has(k)) return false;
+    }
+    return true;
+  }
+  if (x + r.w > grid) return false;
+  if (r.coast && x + r.w !== grid) return false;
+  for (let i = 0; i < r.w; i++) for (let j = 0; j < r.h; j++) if (used.has(`${x + i},${y + j}`)) return false;
+  return true;
+}
+
+/** 처음 놓을 자리: 놓을 수 있는 칸 중 본관(없으면 가운데)에 가장 가까운 곳 */
+export function autoSpot(buildings: GameBuilding[], r: PlaceRule, grid: number, sea: number) {
+  const hq = buildings.find((b) => b.type === "hq");
+  const cx = hq ? hq.x + hq.w / 2 : grid / 2, cy = hq ? hq.y + hq.h / 2 : grid / 2;
+  let best: { x: number; y: number; d: number } | null = null;
+  for (let y = 0; y < grid; y++)
+    for (let x = 0; x < grid + sea; x++) {
+      if (!canPlace(buildings, r, grid, sea, x, y)) continue;
+      const d = (x + r.w / 2 - cx) ** 2 + (y + r.h / 2 - cy) ** 2;
+      if (!best || d < best.d) best = { x, y, d };
+    }
+  return best ? { x: best.x, y: best.y } : null;
+}
+
+/** 지도 그림 안의 점(px, py) → 칸 좌표 (소수). GameMap 의 비스듬한 그리기를 거꾸로 */
+export function cellAt(px: number, py: number, grid: number, W: number) {
+  const a = (px - (grid / 2 + 0.3) * W) / (W / 2);
+  const b = (py - 2.6 * W) / (W / 4);
+  return { x: (a + b) / 2, y: (b - a) / 2 };
+}
+
+/** 칸 영역 (x, y, w, h)이 지도 그림에서 차지하는 네모 (건물 높이 z 만큼 위로) */
+export function cellBox(x: number, y: number, w: number, h: number, grid: number, W: number, z = 0.6 * W) {
+  const P = (cx: number, cy: number) => [(grid / 2 + 0.3) * W + ((cx - cy) * W) / 2, 2.6 * W + ((cx + cy) * W) / 4];
+  const c = [P(x, y), P(x + w, y), P(x + w, y + h), P(x, y + h)];
+  return { x1: Math.min(...c.map((p) => p[0])), x2: Math.max(...c.map((p) => p[0])), y1: Math.min(...c.map((p) => p[1])) - z, y2: Math.max(...c.map((p) => p[1])) };
+}
+
 /**
  * 조선소 지도 (비스듬히 내려다보는 2D, react-native-svg — Expo Go·웹 모두 됨).
  * - 건물을 누르면 onSelect, 놓기 모드(place)면 놓을 수 있는 칸이 초록으로 보이고 누르면 onPlace.
@@ -112,41 +168,7 @@ export function GameMap({
     );
   };
 
-  const occupied = useMemo(() => {
-    const s = new Set<string>();
-    for (const b of buildings) {
-      if (place?.skipId === b.id) continue;
-      for (let i = 0; i < b.w; i++) for (let j = 0; j < b.h; j++) s.add(`${b.x + i},${b.y + j}`);
-    }
-    return s;
-  }, [buildings, place?.skipId]);
-
-  // 배가 드나드는 물길 (도크 앞 한 줄, 군항 부두 옆 두 줄): 기뢰·장벽을 못 놓음
-  const berth = useMemo(() => {
-    const s = new Set<string>();
-    for (const b of buildings) {
-      if (b.type === "dock") for (let j = 0; j < b.h; j++) s.add(`${grid},${b.y + j}`);
-      if (b.type === "pier") for (let i = 0; i < 2; i++) for (let j = 0; j < b.h; j++) s.add(`${grid + i},${b.y + j}`);
-    }
-    return s;
-  }, [buildings, grid]);
-
-  const fits = (x: number, y: number) => {
-    if (!place) return false;
-    if (y + place.h > grid) return false;
-    if (place.sea) {
-      if (x < grid || x + place.w > grid + WATER_COLS) return false;
-      for (let i = 0; i < place.w; i++) for (let j = 0; j < place.h; j++) {
-        const k = `${x + i},${y + j}`;
-        if (occupied.has(k) || berth.has(k)) return false;
-      }
-      return true;
-    }
-    if (x + place.w > grid) return false;
-    if (place.coast && x + place.w !== grid) return false;
-    for (let i = 0; i < place.w; i++) for (let j = 0; j < place.h; j++) if (occupied.has(`${x + i},${y + j}`)) return false;
-    return true;
-  };
+  const fits = (x: number, y: number) => !!place && canPlace(buildings, place, grid, WATER_COLS, x, y);
 
   // 땅·바다
   const ground: React.ReactNode[] = [];
@@ -189,7 +211,8 @@ export function GameMap({
 
   // 방파제 (아래쪽 가장자리)
   const wall: React.ReactNode[] = [];
-  for (let x = 0; x < grid; x++) wall.push(box(x, grid - 0.35, 1, 0.35, 0.28 * W, "#7D7D7D", `w${x}`));
+  // 땅 바깥(아래쪽 바다 쪽)에 붙여 세움 → 가장자리 칸에 놓은 건물과 겹치지 않음
+  for (let x = 0; x < grid; x++) wall.push(box(x, grid, 1, 0.35, 0.28 * W, "#7D7D7D", `w${x}`));
 
   const tagInfo: { b: GameBuilding; sel: boolean; cx: number; y: number }[] = [];
   const sorted = [...buildings].sort((a, b) => a.x + a.w + a.y + a.h - (b.x + b.w + b.y + b.h));
