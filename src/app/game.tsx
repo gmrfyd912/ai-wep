@@ -86,6 +86,11 @@ const WAR_KINDS = ["patrol", "frigate", "destroyer", "submarine", "landing"];
 const stageKey = (i: number, war?: boolean) => (war && i === STAGES - 1 ? "gm_stage_4w" : `gm_stage_${i}`);
 
 /** 남은 초 → "1:05:03" / "4:09" */
+/** 처음 보는 칸 너비: 땅이 화면보다 조금 크게 (끌어서 해안·바다를 봄) */
+function fitWOf(width: number, height: number, grid: number) {
+  return Math.floor(Math.max(width * 1.2, height * 2.2) / grid);
+}
+
 export function clock(sec: number) {
   const s = Math.max(0, Math.ceil(sec));
   const h = Math.floor(s / 3600);
@@ -156,6 +161,7 @@ export default function GameScreen() {
   const [trayOpen, setTrayOpen] = useState(true);     // 아래 왼쪽 서랍
   const [weldyBig, setWeldyBig] = useState(false);    // 웰디 말풍선 크게
   const [focus, setFocus] = useState<{ x: number; y: number; n: number } | null>(null);
+  const firstFocus = useRef(false);
   const [, setTick] = useState(0);
   const fetchedAt = useRef(Date.now());
   const grabOff = useRef({ x: 0, y: 0 });   // 놓을 건물을 끌 때 잡은 곳과 건물 귀퉁이 거리
@@ -286,6 +292,15 @@ export default function GameScreen() {
   const labels = useMemo(() => Object.fromEntries(TYPES.map((k) => [k, t(`gm_short_${k}`)])), [t]);
   const name = (k: string) => t(`gm_b_${k}`);
 
+  // 처음 불러오면 화면 가운데에 본관 (훅이라 아래 "불러오는 중" return 보다 먼저)
+  useEffect(() => {
+    if (!data || firstFocus.current) return;
+    firstFocus.current = true;
+    const hq = data.buildings.find((b) => b.type === "hq");
+    if (hq) setFocus({ ...centerOf(hq, data.grid, Math.max(8, fitWOf(width, height, data.grid) * zoom)), n: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   // 바다 지도 오류 문구 (훅이라 아래 "불러오는 중" return 보다 먼저)
   const seaError = useCallback((e: unknown) => gameError(t, e), [t]);
   // G2c-3 방어 기록 (훅이라 아래 "불러오는 중" return 보다 먼저)
@@ -326,8 +341,7 @@ export default function GameScreen() {
   }
 
   const sea = data.sea ?? 2;
-  const fitW = Math.floor(Math.min(width / (data.grid + sea + 0.6), height / (data.grid / 2 + 3.6)));
-  const W = Math.max(8, fitW * zoom);
+  const W = Math.max(8, fitWOf(width, height, data.grid) * zoom);
   const mapDim = mapSize(data.grid, W, sea);
   const sel = data.buildings.find((b) => b.id === selected) ?? null;
   const wallCat = data.catalog.find((k) => k.type === "wall");
@@ -370,7 +384,12 @@ export default function GameScreen() {
     setPlaceType(type);
     setMoveId(null);
     const tutPick = tutStep === "yard" && tut.spot ? tut.spot : null;
-    setPick(type === "wall" ? null : tutPick ?? autoSpot(data.buildings, ruleOf(type, null), data.grid, sea));
+    const rule = ruleOf(type, null);
+    const spot = type === "wall" ? null : tutPick ?? autoSpot(data.buildings, rule, data.grid, sea);
+    setPick(spot);
+    // 놓은 자리가 화면 가운데 오게 (큰 땅이라 안 보일 수 있음), 장벽은 해안으로
+    const at = spot ?? (type === "wall" ? { x: data.grid, y: data.grid / 2 } : null);
+    if (at) setFocus({ ...centerOf({ x: at.x, y: at.y, w: rule.w, h: rule.h }, data.grid, W), n: Date.now() });
     setSelected(null);
     setMode("place");
   };
@@ -794,7 +813,7 @@ export default function GameScreen() {
     <View style={styles.full}>
       <StatusBar hidden />
       {/* 지도: 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소 (메뉴·창에 가려진 곳도 끌어서 봄) */}
-      <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.7} maxZoom={3} onZoom={setZoom}
+      <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.5} maxZoom={2.5} onZoom={setZoom}
         onMove={(on) => { moving.current = { on, at: Date.now() }; }}
         onTapEmpty={() => tapOk() && tapEmpty()}
         grab={placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}

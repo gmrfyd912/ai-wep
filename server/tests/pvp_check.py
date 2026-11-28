@@ -89,7 +89,7 @@ def main():
 
     # 작전 지도: 본관이 0번, 바다 길 3개
     tg = c.get(f"/game/raid/target/{ids['s2']}", headers=hd["s1"]).json()
-    assert tg["base"][0]["type"] == "hq" and tg["map"]["land"] == 14 and set(tg["map"]["lanes"]) == {"north", "middle", "south"}, tg["map"]
+    assert tg["base"][0]["type"] == "hq" and tg["map"]["land"] == 32 and set(tg["map"]["lanes"]) == {"north", "middle", "south"}, tg["map"]
     b2 = game.balance(game.ledger(ids["s2"]))
     assert tg["loot"] == {"steel": int(b2["steel"] * 0.2), "rods": int(b2["rods"] * 0.2)}, (tg["loot"], b2)
     # 오늘 매일 문제를 안 풀었으면 막힘 (기본 켜짐)
@@ -116,13 +116,13 @@ def main():
     assert r.status_code == 200, r.text
     bt = r.json()["battle"]
     assert bt["kind"] == "raid" and bt["raid"] and bt["morale"] == {"right": 3, "total": 3, "mult": 1.2}, bt["morale"]
-    assert bt["defender"]["id"] == ids["s2"] and bt["map"]["land"] == 14
+    assert bt["defender"]["id"] == ids["s2"] and bt["map"]["land"] == 32
     share = gp.STAR_LOOT[bt["stars"]]
     assert bt["lost"]["steel"] <= int(tg["loot"]["steel"] * share) and bt["got"]["steel"] == bt["lost"]["steel"], (bt["stars"], bt["got"], bt["lost"])
     s2_after = game.balance(game.ledger(ids["s2"]))
     assert s2_after["steel"] == s2_before["steel"] - bt["lost"]["steel"], (s2_before, s2_after)
     if bt["stars"] <= 1:
-        assert bt["defend"]["rods"] > 0 and s2_after["fame"] == gp.DEFEND_FAME
+        assert bt["defend"]["fame"] == gp.DEFEND_FAME and s2_after["fame"] == gp.DEFEND_FAME, (bt["stars"], bt["defend"], s2_after)
     assert {a["source"] for a in db.TABLES["game_answers"]} == {"morale"}
     # 건물은 그대로 (실제로 부서지지 않음)
     assert all(b["level"] >= 1 for b in db.TABLES["game_buildings"] if b["user_id"] == ids["s2"])

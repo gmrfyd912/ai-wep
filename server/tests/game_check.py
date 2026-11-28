@@ -101,7 +101,7 @@ def main():
 
     # 야적장 짓기: 처음 따라 하기 자리에
     sp = d["tutorial"]["spot"]
-    assert c.post("/game/build", headers=S1, json={"type": "yard", "x": 6, "y": 6}).status_code == 400  # 본관 자리
+    assert c.post("/game/build", headers=S1, json={"type": "yard", "x": 14, "y": 14}).status_code == 400  # 본관 자리
     assert c.post("/game/build", headers=S1, json={"type": "welding", "x": 0, "y": 10}).json()["detail"]["code"] == "hq_level"
     out = c.post("/game/build", headers=S1, json={"type": "yard", **sp}).json()
     yard = next(b for b in out["buildings"] if b["type"] == "yard")
@@ -182,7 +182,7 @@ def main():
     dock = next(b for b in d["buildings"] if b["type"] == "dock")
     assert c.post("/game/move", headers=S1, json={"id": dock["id"], "x": 0, "y": 0}).json()["detail"]["code"] == "fixed"
     cut = next(b for b in d["buildings"] if b["type"] == "cutting")
-    assert c.post("/game/move", headers=S1, json={"id": cut["id"], "x": 6, "y": 6}).status_code == 400
+    assert c.post("/game/move", headers=S1, json={"id": cut["id"], "x": 14, "y": 14}).status_code == 400
     out = c.post("/game/move", headers=S1, json={"id": cut["id"], "x": 0, "y": 0}).json()
     assert next(b for b in out["buildings"] if b["type"] == "cutting")["x"] == 0
 
@@ -396,16 +396,16 @@ def main():
     d = c.get("/game/state", headers=S8).json()
     db.insert_rows("game_ledger", {"user_id": s8, "key": "test_gift", "steel": 30000, "rods": 15000, "tech": 0, "passes": 1,
                                    "fame": 0, "note": ""})
-    assert d["grid"] == 14 and d["sea"] == 2 and d["fleet"]["cap"] == 0, (d["grid"], d["fleet"])
+    assert d["grid"] == 32 and d["sea"] == 4 and d["fleet"]["cap"] == 0, (d["grid"], d["fleet"])
     wl = {w["kind"]: w["lock"] for w in d["warships"]}
     assert wl == {"patrol": "pier", "frigate": "hq", "destroyer": "soon", "submarine": "soon", "landing": "hq"}, wl
-    assert d["reclaim"]["next"]["grid"] == 16 and d["reclaim"]["block"] == "hq_level", d["reclaim"]
+    assert d["reclaim"] is None   # 간척 없앰 (처음부터 큰 땅)
     assert any(t["id"] == "pier" for t in d["tips"]), d["tips"]
     e = c.post("/game/ship/start", headers=S8, json={"kind": "patrol"}).json()["detail"]
     assert e["code"] == "pier", e
     # 부두는 해안(오른쪽 끝)에만
     assert c.post("/game/build", headers=S8, json={"type": "pier", "x": 3, "y": 10}).json()["detail"]["code"] == "spot"
-    r = c.post("/game/build", headers=S8, json={"type": "pier", "x": 12, "y": 8})
+    r = c.post("/game/build", headers=S8, json={"type": "pier", "x": 30, "y": 4})
     assert r.status_code == 200, r.text
     tick(61)
     d = c.get("/game/state", headers=S8).json()
@@ -430,36 +430,21 @@ def main():
     assert c.post("/game/ship/start", headers=S8, json={"kind": "patrol"}).json()["detail"]["code"] == "fleet_full"
     # 상선은 함대가 가득 차도 그대로 만들 수 있음
     assert c.post("/game/ship/start", headers=S8, json={"kind": "barge"}).status_code == 200
-    # 본관 2 → 간척 1
+    # 본관 2 → 3 (간척은 없앰: 옛 앱이 불러도 막힘)
     db.insert_rows("game_ledger", {"user_id": s8, "key": "hq_exam:2", "steel": 0, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
     hq8 = next(b for b in d["buildings"] if b["type"] == "hq")
     assert c.post("/game/upgrade", headers=S8, json={"id": hq8["id"]}).status_code == 200
     tick(601)
     d = c.get("/game/state", headers=S8).json()
-    assert d["hq_level"] == 2 and d["reclaim"]["block"] is None, d["reclaim"]
-    assert any(t["id"] == "reclaim" for t in d["tips"])
-    steel0 = d["resources"]["steel"]
-    d = c.post("/game/reclaim", headers=S8).json()
-    assert d["builders"]["busy"] == 1 and d["reclaim"]["left"] == 3600 and d["resources"]["steel"] == steel0 - 1500, d["reclaim"]
-    assert c.post("/game/reclaim", headers=S8).json()["detail"]["code"] == "busy"
-    tick(3601)
-    d = c.get("/game/state", headers=S8).json()
-    pos = {b["type"]: b["x"] for b in d["buildings"]}
-    assert d["grid"] == 16 and d["sea"] == 3 and pos["dock"] == 14 and pos["pier"] == 14 and pos["hq"] == 6, (d["grid"], pos)
-    assert d["builders"]["busy"] == 0 and d["reclaim"]["stage"] == 1 and d["reclaim"]["block"] == "hq_level"
-    # 넓어진 땅에 지을 수 있음
-    assert c.post("/game/build", headers=S8, json={"type": "yard", "x": 12, "y": 14}).status_code == 200
-    # 본관 3 → 간척 2 를 즉시 완료권으로 끝냄 → 간척 3 은 다음 단계
+    assert d["hq_level"] == 2 and d["reclaim"] is None and not any(t["id"] == "reclaim" for t in d["tips"])
+    assert c.post("/game/reclaim", headers=S8).json()["detail"]["code"] == "reclaim_max"
+    # 큰 땅 가장자리에도 지을 수 있음
+    assert c.post("/game/build", headers=S8, json={"type": "yard", "x": 0, "y": 30}).status_code == 200
     tick(61)
     db.insert_rows("game_ledger", {"user_id": s8, "key": "hq_exam:3", "steel": 0, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
     assert c.post("/game/upgrade", headers=S8, json={"id": hq8["id"]}).status_code == 200
     tick(1801)
-    r = c.post("/game/reclaim", headers=S8)
-    assert r.status_code == 200, r.text
-    d = c.post("/game/speedup", headers=S8, json={"target": "reclaim", "using": "pass"}).json()
     d = c.get("/game/state", headers=S8).json()
-    assert d["grid"] == 18 and d["reclaim"]["stage"] == 2 and d["reclaim"]["block"] == "soon", d["reclaim"]
-    assert c.post("/game/reclaim", headers=S8).json()["detail"]["code"] == "reclaim_soon"
     assert {w["kind"]: w["lock"] for w in d["warships"]}["frigate"] == "dock"
     # 관리자 자원 지급: 창고 한도 무시, 기록 남음, 회수는 잔액까지만, 교사는 못 함
     pl = c.get("/admin/game/players?q=s8", headers=A).json()["players"]
@@ -506,7 +491,7 @@ def g2b(c, user, A, T1, qs):
     for b in db.TABLES["game_buildings"]:
         if b["user_id"] == s10 and b["type"] == "hq":
             b["level"] = 3
-    for t, x, y, lv in [("pier", 12, 8, 1), ("academy", 2, 6, 3)]:
+    for t, x, y, lv in [("pier", 30, 19, 1), ("academy", 2, 17, 3)]:
         db.insert_rows("game_buildings", {"id": str(_u.uuid4()), "user_id": s10, "type": t, "level": lv, "x": x, "y": y,
                                           "collected_at": NOW[0].isoformat()})
     ship = db.insert_rows("game_ships", {"id": str(_u.uuid4()), "user_id": s10, "kind": "patrol", "stage": 4,
@@ -522,29 +507,29 @@ def g2b(c, user, A, T1, qs):
     # 놓는 곳: 해안포대 = 땅 오른쪽 끝, 기뢰·장벽 = 바다 (도크 앞·부두 옆 물길 제외)
     code = lambda r: r.json().get("detail", {}).get("code") if r.status_code != 200 else "ok"
     B = lambda t, x, y: code(c.post("/game/build", headers=S, json={"type": t, "x": x, "y": y}))
-    assert B("battery", 5, 5) == "spot"
-    assert B("mine", 13, 0) == "spot" and B("wall", 16, 7) == "spot" and B("wall", 13, 7) == "spot" and B("wall", 14, 3) == "spot" and B("mine", 14, 9) == "spot"
-    assert B("battery", 13, 6) == "ok"
-    assert B("wall", 14, 6) == "ok" and B("wall", 14, 7) == "ok"   # 장벽은 작업 반장 없이 바로
+    assert B("battery", 5, 16) == "spot"
+    assert B("mine", 31, 11) == "spot" and B("wall", 36, 18) == "spot" and B("wall", 31, 18) == "spot" and B("wall", 32, 14) == "spot" and B("mine", 32, 20) == "spot"
+    assert B("battery", 31, 17) == "ok"
+    assert B("wall", 32, 17) == "ok" and B("wall", 32, 18) == "ok"   # 장벽은 작업 반장 없이 바로
     d = c.get("/game/state", headers=S).json()
     walls = [b for b in d["buildings"] if b["type"] == "wall"]
     assert len(walls) == 2 and all(w["level"] == 1 and not w["busy_until"] for w in walls) and d["builders"]["busy"] == 1
-    assert B("mine", 15, 2) == "ok"
-    assert B("wall", 14, 7) == "spot"
+    assert B("mine", 33, 13) == "ok"
+    assert B("wall", 32, 18) == "spot"
     # 여러 칸 한 번에: 이미 있는 칸·물길 칸은 건너뛰고, 쌓은 칸 수만큼만 강판
     before = c.get("/game/state", headers=S).json()["resources"]["steel"]
-    r = c.post("/game/walls/build", headers=S, json={"spots": [[14, 7], [15, 6], [15, 7], [16, 7]]})
+    r = c.post("/game/walls/build", headers=S, json={"spots": [[32, 18], [33, 17], [33, 18], [36, 18]]})
     assert r.status_code == 200 and r.json()["placed"] == 2 and r.json()["skipped"] == 2, r.text[:300]
     assert before - r.json()["resources"]["steel"] == 2 * game.cost("wall", 1)["steel"], (before, r.json()["resources"])
-    assert code(c.post("/game/walls/build", headers=S, json={"spots": [[16, 7]]})) == "spot"
-    new_ids = {b["id"] for b in r.json()["buildings"] if b["type"] == "wall" and b["x"] == 15}
+    assert code(c.post("/game/walls/build", headers=S, json={"spots": [[36, 18]]})) == "spot"
+    new_ids = {b["id"] for b in r.json()["buildings"] if b["type"] == "wall" and b["x"] == 33}
     db.TABLES["game_buildings"][:] = [b for b in db.TABLES["game_buildings"] if b["id"] not in new_ids]   # 아래 검사 그대로 두려고 지움
     tick(61)
-    assert B("battery", 13, 11) == "ok" and B("battery", 13, 12) == "ok"
-    assert B("battery", 13, 13) == "def_full"
+    assert B("battery", 31, 22) == "ok" and B("battery", 31, 23) == "ok"
+    assert B("battery", 31, 24) == "def_full"
     tick(61)
     d = c.get("/game/state", headers=S).json()
-    bat = next(b for b in d["buildings"] if b["type"] == "battery" and b["y"] == 6)
+    bat = next(b for b in d["buildings"] if b["type"] == "battery" and b["y"] == 17)
     df = bat["defense"]
     assert df["unit"]["no"] == 1 and df["rate"] == 25 and df["mult"] == 0.85 and df["dmg"] == round(30 * 0.85), df
     weak = [t for t in d["tips"] if t["id"] == "weak"]
@@ -554,7 +539,7 @@ def g2b(c, user, A, T1, qs):
     assert r["questions"] and all(q["unit_title"] == "제1장" for q in r["questions"]), r
     res = c.post("/game/supply/submit", headers=S, json={"id": r["id"], "answers": {q["id"]: 0 for q in r["questions"]}}).json()
     n = len(r["questions"])
-    bat = next(b for b in res["state"]["buildings"] if b["type"] == "battery" and b["y"] == 6)
+    bat = next(b for b in res["state"]["buildings"] if b["type"] == "battery" and b["y"] == 17)
     assert bat["defense"]["n"] == 4 + n and bat["defense"]["rate"] == round((1 + res["right"]) / (4 + n) * 100), bat["defense"]
     assert c.post("/game/supply/start", headers=S, json={"lang": "ko", "unit": "9-9"}).json()["detail"]["code"] == "unit_no_questions"
     # 관리자: 연결할 장 바꾸기 (장 번호), 장 이름 목록
@@ -586,13 +571,19 @@ def g2b(c, user, A, T1, qs):
     # 장벽 한꺼번에 올리기
     d = c.post("/game/walls/upgrade", headers=S).json()
     assert sorted(b["level"] for b in d["buildings"] if b["type"] == "wall") == [2, 2]
-    # 간척하면 해안·바다 시설도 새 해안선으로 같이 옮김
-    for row in db.TABLES["game_bases"]:
-        if row["user_id"] == s10:
-            row["reclaim_until"] = (NOW[0] - timedelta(seconds=1)).isoformat()
-    d = c.get("/game/state", headers=S).json()
-    pos = sorted((b["type"], b["x"]) for b in d["buildings"] if b["type"] in ("battery", "wall", "mine", "pier"))
-    assert d["grid"] == 16 and set(pos) == {("battery", 15), ("wall", 16), ("mine", 17), ("pier", 14)}, pos
+    # 옛 간척 땅(14칸) 조선소 → 불러올 때 큰 땅으로 한 번 옮김 (땅 건물은 가운데로, 해안·바다 시설은 새 해안선으로), 간척 공사 중이면 돌려줌
+    so, SO = user("s_old", "student")
+    db.insert_rows("game_bases", {"user_id": so, "tutorial_done": True, "reclaim": 0, "reclaim_until": NOW[0].isoformat()})
+    for t, x, y in [("hq", 6, 6), ("dock", 12, 1), ("pier", 12, 8), ("battery", 13, 3), ("mine", 14, 5), ("wall", 15, 9), ("cutting", 2, 2)]:
+        db.insert_rows("game_buildings", {"id": str(_u.uuid4()), "user_id": so, "type": t, "level": 1, "x": x, "y": y,
+                                          "collected_at": NOW[0].isoformat()})
+    d = c.get("/game/state", headers=SO).json()
+    pos = {b["type"]: (b["x"], b["y"]) for b in d["buildings"]}
+    assert d["grid"] == 32 and d["sea"] == 4 and d["reclaim"] is None, d["grid"]
+    assert pos == {"hq": (15, 15), "dock": (30, 10), "pier": (30, 17), "battery": (31, 12), "mine": (32, 14), "wall": (33, 18),
+                   "cutting": (11, 11)}, pos
+    assert d["resources"]["steel"] >= 1500 and d["builders"]["busy"] == 0, d["resources"]
+    assert c.get("/game/state", headers=SO).json()["buildings"][0]["x"] == d["buildings"][0]["x"]   # 두 번 옮기지 않음
     assert c.post("/game/weapon/research", headers=T1, json={"kind": "gun"}).status_code == 403
     # ---- G2b-2: 해적 연습 전투·수리·다시 보기·태풍 대비 훈련 ----
     import game_battle

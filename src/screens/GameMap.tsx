@@ -28,10 +28,11 @@ const NO_TAG = new Set(["wall", "mine"]);
 /** 전투함 회색 (상선은 빨간 배) */
 export const WAR_COLOR = "#6F7C8A";
 export const RES_COLOR = { steel: "#8FA3B8", rods: "#F2A516", tech: "#57C4E5", passes: "#E05A9B", fame: "#FFD166" };
+/** 건물 높이 (칸 너비 배수): 뒤 건물을 덜 가리게 낮게 (2026-11-28 화면 개편) */
 const BASE_H: Record<string, number> = {
-  hq: 1.5, yard: 0.5, rodstore: 0.7, cutting: 0.9, welding: 1.0, academy: 1.1, dock: 0, pier: 0.25,
-  battery: 0.35, missile: 0.3, mine: 0, asw: 0.6, radar: 0.3, wall: 0.4,
-  trainhall: 1.0, dorm: 1.2, garage: 0.8,
+  hq: 0.8, yard: 0.3, rodstore: 0.4, cutting: 0.5, welding: 0.55, academy: 0.6, dock: 0, pier: 0.2,
+  battery: 0.3, missile: 0.25, mine: 0, asw: 0.4, radar: 0.25, wall: 0.35,
+  trainhall: 0.55, dorm: 0.6, garage: 0.45,
 };
 
 type Pt = [number, number];
@@ -44,14 +45,22 @@ function shade(hex: string, k: number) {
 
 const pts = (a: Pt[]) => a.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
 
-/** 지도 크기: 칸 너비 W 에서 전체 너비·높이 */
+/** 땅 바깥 꾸밈 땅(컨테이너·나무) 칸 수: 지도를 끌면 땅 가장자리 너머도 보이게 */
+const MARGIN = 3;
+/** 지도 그림 원점: P(x, y) = [ox + (x − y)·W/2, oy + (x + y)·W/4] */
+function origin(grid: number, W: number) {
+  return { ox: (grid / 2 + MARGIN) * W, oy: (MARGIN / 2 + 2) * W };
+}
+
+/** 지도 크기: 칸 너비 W 에서 전체 너비·높이 (땅 + 해안 바다 + 둘레 꾸밈 땅) */
 export function mapSize(grid: number, W: number, sea = 2) {
-  return { width: (grid + sea + 0.6) * W, height: (grid / 2 + 3.6) * W };
+  const { oy } = origin(grid, W);
+  return { width: (grid + sea / 2 + 2 * MARGIN) * W, height: oy + ((2 * grid + sea + 2 * MARGIN) * W) / 4 + 0.5 * W };
 }
 
 /** 건물 가운데가 지도 그림에서 어디인지 (화면을 그 건물로 옮길 때) */
 export function centerOf(b: { x: number; y: number; w: number; h: number }, grid: number, W: number) {
-  const ox = (grid / 2 + 0.3) * W, oy = 2.6 * W;
+  const { ox, oy } = origin(grid, W);
   const x = b.x + b.w / 2, y = b.y + b.h / 2;
   return { x: ox + ((x - y) * W) / 2, y: oy + ((x + y) * W) / 4 };
 }
@@ -100,14 +109,16 @@ export function autoSpot(buildings: GameBuilding[], r: PlaceRule, grid: number, 
 
 /** 지도 그림 안의 점(px, py) → 칸 좌표 (소수). GameMap 의 비스듬한 그리기를 거꾸로 */
 export function cellAt(px: number, py: number, grid: number, W: number) {
-  const a = (px - (grid / 2 + 0.3) * W) / (W / 2);
-  const b = (py - 2.6 * W) / (W / 4);
+  const { ox, oy } = origin(grid, W);
+  const a = (px - ox) / (W / 2);
+  const b = (py - oy) / (W / 4);
   return { x: (a + b) / 2, y: (b - a) / 2 };
 }
 
 /** 칸 영역 (x, y, w, h)이 지도 그림에서 차지하는 네모 (건물 높이 z 만큼 위로) */
 export function cellBox(x: number, y: number, w: number, h: number, grid: number, W: number, z = 0.6 * W) {
-  const P = (cx: number, cy: number) => [(grid / 2 + 0.3) * W + ((cx - cy) * W) / 2, 2.6 * W + ((cx + cy) * W) / 4];
+  const { ox, oy } = origin(grid, W);
+  const P = (cx: number, cy: number) => [ox + ((cx - cy) * W) / 2, oy + ((cx + cy) * W) / 4];
   const c = [P(x, y), P(x + w, y), P(x + w, y + h), P(x, y + h)];
   return { x1: Math.min(...c.map((p) => p[0])), x2: Math.max(...c.map((p) => p[0])), y1: Math.min(...c.map((p) => p[1])) - z, y2: Math.max(...c.map((p) => p[1])) };
 }
@@ -165,8 +176,7 @@ export function GameMap({
   const H = W / 2;
   const WATER_COLS = sea;
   const { width, height } = mapSize(grid, W, sea);
-  const ox = (grid / 2 + 0.3) * W;
-  const oy = 2.6 * W;
+  const { ox, oy } = origin(grid, W);
   const P = (x: number, y: number): Pt => [ox + ((x - y) * W) / 2, oy + ((x + y) * H) / 2];
 
   const box = (x: number, y: number, w: number, h: number, z: number, color: string, key: string) => {
@@ -183,24 +193,54 @@ export function GameMap({
 
   const fits = (x: number, y: number) => !!place && canPlace(buildings, place, grid, WATER_COLS, x, y);
 
-  // 땅·바다
-  const ground: React.ReactNode[] = [];
-  for (let x = 0; x < grid + WATER_COLS; x++)
-    for (let y = 0; y < grid; y++) {
-      const water = x >= grid;
-      const ok = fits(x, y);
-      const corners = [P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)];
-      ground.push(
-        <Polygon
-          key={`t${x}-${y}`}
-          points={pts(corners)}
-          fill={ok ? ((x + y) % 2 ? "#7FD18F" : "#73C985") : water ? "#2B7FBF" : (x + y) % 2 ? "#C8C2B4" : "#BFB8A9"}
-          stroke={water && !ok ? "#2B7FBF" : "#00000014"}
-          strokeWidth={0.5}
-          onPress={place ? () => ok && onPlace(x, y) : () => onSelect(null)}
-        />,
-      );
-    }
+  // 바깥 땅·바다·조선소 땅: 큰 판 몇 장 + 칸 줄 (칸마다 그리지 않아 가벼움)
+  const M = grid * 2;   // 화면 끝까지 덮게 넉넉히
+  const ground: React.ReactNode[] = [
+    <Polygon key="outer" points={pts([P(-M, -M), P(grid, -M), P(grid, grid + M), P(-M, grid + M)])} fill="#7E9A5C" onPress={() => !place && onSelect(null)} />,
+    <Polygon key="land" points={pts([P(0, 0), P(grid, 0), P(grid, grid), P(0, grid)])} fill="#C8C2B4" onPress={() => !place && onSelect(null)} />,
+  ];
+  // 칸 줄 (2칸마다 진하게)
+  for (let i = 0; i <= grid; i++) {
+    const a1 = P(i, 0), a2 = P(i, grid), b1 = P(0, i), b2 = P(grid, i);
+    const sw = i % 2 ? 0.4 : 0.8;
+    ground.push(<Line key={`gx${i}`} x1={a1[0]} y1={a1[1]} x2={a2[0]} y2={a2[1]} stroke="#00000018" strokeWidth={sw} />);
+    ground.push(<Line key={`gy${i}`} x1={b1[0]} y1={b1[1]} x2={b2[0]} y2={b2[1]} stroke="#00000018" strokeWidth={sw} />);
+  }
+  // 바다 쪽 물결
+  for (let k = 0; k < grid; k += 3) {
+    const c = P(grid + 1.2 + (k % 2), k + 0.5);
+    ground.push(<Line key={`wv${k}`} x1={c[0] - W * 0.35} y1={c[1]} x2={c[0] + W * 0.35} y2={c[1]} stroke="#7FC0EE" strokeWidth={1.2} opacity={0.7} />);
+  }
+  // 놓기 모드: 놓을 수 있는 칸만 초록 (누르면 그 자리)
+  if (place)
+    for (let x = 0; x < grid + WATER_COLS; x++)
+      for (let y = 0; y < grid; y++) {
+        if (!fits(x, y)) continue;
+        const corners = [P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)];
+        ground.push(
+          <Polygon key={`t${x}-${y}`} points={pts(corners)} fill={(x + y) % 2 ? "#7FD18F" : "#73C985"} stroke="#00000014" strokeWidth={0.5} onPress={() => onPlace(x, y)} />,
+        );
+      }
+  // 조선소 울타리 (바다 쪽 빼고 세 면) + 해안 안벽
+  const fence = [P(grid, 0), P(0, 0), P(0, grid), P(grid, grid)];
+  ground.push(<Polygon key="fence" points={pts(fence)} fill="none" stroke="#E8B400" strokeWidth={2} strokeDasharray="8 5" />);
+  ground.push(<Polygon key="quay" points={pts([P(grid, 0), P(grid + 0.15, 0), P(grid + 0.15, grid), P(grid, grid)])} fill="#9AA3AB" />);
+
+  // 둘레 꾸밈: 컨테이너 더미·나무 (지을 수 없는 바깥 땅)
+  const deco: React.ReactNode[] = [];
+  const CONT = ["#B33B2E", "#2B7FBF", "#2E9D5B", "#E0A526"];
+  for (let k = 0; k < grid; k += 2) {
+    deco.push(box(-2.2, k + 0.2, 1.6, 0.8, (0.35 + ((k / 2) % 3) * 0.3) * W, CONT[(k / 2) % 4], `cl${k}`));
+    if (k % 6 === 0) deco.push(<Circle key={`tl${k}`} cx={P(-3.8, k + 1)[0]} cy={P(-3.8, k + 1)[1] - W * 0.5} r={W * 0.45} fill="#4E7A3A" />);
+  }
+  for (let k = 0; k < grid; k += 2) {
+    deco.push(box(k + 0.2, -2.2, 0.8, 1.6, (0.35 + ((k / 2 + 1) % 3) * 0.3) * W, CONT[(k / 2 + 1) % 4], `ct${k}`));
+    if (k % 6 === 2) deco.push(<Circle key={`tt${k}`} cx={P(k + 1, -3.8)[0]} cy={P(k + 1, -3.8)[1] - W * 0.5} r={W * 0.45} fill="#4E7A3A" />);
+  }
+  for (let k = 0; k < grid - 2; k += 3) {
+    if (k % 6 === 0) deco.push(<Circle key={`tb${k}`} cx={P(k + 1, grid + 1.6)[0]} cy={P(k + 1, grid + 1.6)[1] - W * 0.5} r={W * 0.45} fill="#4E7A3A" />);
+    else deco.push(box(k + 0.2, grid + 0.8, 1.6, 0.8, 0.5 * W, CONT[k % 4], `cb${k}`));
+  }
 
   // 간척 중: 새로 생길 땅(오른쪽 2줄·아래 2줄)을 모래로 메우는 중
   const fill: React.ReactNode[] = [];
@@ -222,10 +262,7 @@ export function GameMap({
     fill.push(<Foreman key="rf" from={P(grid + 0.3, grid + 1.4)} to={P(1, grid + 1.4)} size={W * 0.62} offset={777} />);
   }
 
-  // 방파제 (아래쪽 가장자리)
   const wall: React.ReactNode[] = [];
-  // 땅 바깥(아래쪽 바다 쪽)에 붙여 세움 → 가장자리 칸에 놓은 건물과 겹치지 않음
-  for (let x = 0; x < grid; x++) wall.push(box(x, grid, 1, 0.35, 0.28 * W, "#7D7D7D", `w${x}`));
 
   const tagInfo: { b: GameBuilding; sel: boolean; cx: number; y: number }[] = [];
   const sorted = [...buildings].sort((a, b) => a.x + a.w + a.y + a.h - (b.x + b.w + b.y + b.h));
@@ -233,7 +270,7 @@ export function GameMap({
     const color = BUILDING_COLOR[b.type] ?? "#999";
     const sel = selected === b.id;
     const lv = Math.max(b.level, 1);
-    const z = (BASE_H[b.type] + lv * 0.12) * W;
+    const z = (BASE_H[b.type] + lv * 0.06) * W;
     const parts: React.ReactNode[] = [];
     if (b.type === "dock") {
       // 도크: 물 + 크레인 기둥 + 배
@@ -424,8 +461,9 @@ export function GameMap({
 
   return (
     <Svg width={width} height={height}>
-      <Rect x={0} y={0} width={width} height={height} fill="#1F6FA8" onPress={() => !place && onSelect(null)} />
+      <Rect x={0} y={0} width={width} height={height} fill="#2B7FBF" onPress={() => !place && onSelect(null)} />
       {ground}
+      {deco}
       {fill}
       {hint}
       {wall}

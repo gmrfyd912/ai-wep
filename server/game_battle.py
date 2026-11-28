@@ -422,9 +422,9 @@ def _today(now=None):
 
 
 def wall_score(buildings, grid):
-    """방파 장벽 레벨 합 ÷ 땅 한 변 → 0~1."""
+    """방파 장벽 레벨 합 ÷ 16 → 0~1 (큰 땅이 되어도 태풍 점수 기준은 그대로)."""
     lv = sum(b["level"] for b in buildings if b["type"] == "wall" and b["level"] >= 1)
-    return min(1.0, lv / max(grid, 1))
+    return min(1.0, lv / 16)
 
 
 def typhoon_view(uid, rows, base=None, buildings=None):

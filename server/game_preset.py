@@ -2,7 +2,7 @@
 
 관리자가 회원 한 명과 본관 레벨(1~8)을 고르면, 그 레벨에 어울리는 조선소로 통째로 바꾼다.
 - 건물: 그 본관 레벨에서 지을 수 있는 건물을 모두 (레벨 = 본관 레벨, 건물 최대 레벨까지), 방어 시설은 지을 수 있는 개수만큼
-- 땅: 그 본관 레벨에서 할 수 있는 간척 단계까지 (지금 열린 단계까지만)
+- 땅: 처음부터 큰 땅 (간척 없앰, 2026-11-28)
 - 무기 연구: 연구소 레벨로 열리는 무기를 본관 레벨까지
 - 전투함: 군항 부두 자리만큼 (만들 수 있는 종류로), 선체 레벨 = 본관 레벨, 무기 칸 채움
 - 대원: 기숙사·장비 정비고 자리만큼 (기술교육원 레벨로 열린 종류로), 부상은 지움
@@ -34,14 +34,6 @@ GARAGE_MIX = ["forklift", "transporter", "crane"]                # 장비는 돌
 
 def _key(uid):
     return f"game_backup:{uid}"
-
-
-def _reclaim_for(lv):
-    stage = 0
-    for i, r in enumerate(game.RECLAIM):
-        if i <= game.RECLAIM_OPEN and r[2] <= lv:
-            stage = i
-    return stage
 
 
 def _fleet_plan(lv, dock_lv, cap):
@@ -78,10 +70,10 @@ def _crew_plan(lv_hall, dorm_cap, garage_cap, pts):
 def plan(lv, old_crews=None):
     """본관 레벨 lv 에 맞는 조선소 (아직 저장 안 함)."""
     lv = max(1, min(int(lv), game.MAX_LEVEL))
-    stage = _reclaim_for(lv)
-    grid, sea = game.RECLAIM[stage][0], game.RECLAIM[stage][1]
+    stage = game.LAND_STAGE
+    grid, sea = game.GRID, game.SEA
     blds = [{"id": "hq", "type": "hq", "level": lv, "x": grid // 2 - 2, "y": grid // 2 - 2},
-            {"id": "dock", "type": "dock", "level": min(lv, game.BUILDINGS["dock"]["max"]), "x": grid - 2, "y": 1}]
+            {"id": "dock", "type": "dock", "level": min(lv, game.BUILDINGS["dock"]["max"]), "x": grid - 2, "y": grid // 2 - 4}]
     want, short = {}, {}
     for t in ORDER:
         spec = game.BUILDINGS[t]
