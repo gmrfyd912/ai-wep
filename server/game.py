@@ -213,6 +213,9 @@ DEFAULTS = {
     "season_on": True,                # 시즌·순위 켜기
     "season_keep_pct": 50,            # 새 시즌(매달 1일 0시)에 남기는 명성 %
     "gift_fame": 1,                   # 자재 지원을 보낸 사람이 받는 명성
+    # G3 교사 보드 게임 칸: 이번 주 공격이 이만큼 이상인데 매일 문제는 이만큼 이하면 표시 (예시, 0 = 끔)
+    "staff_warn_attacks": 10,
+    "staff_warn_days": 2,
     # G3 공정한 공격 (박사 승인 2026-11-28, 숫자는 예시, 0 = 끔)
     "raid_newbie_days": 3,            # 처음 게임을 연 날부터 신입 보호 (내가 먼저 공격하면 끝남)
     "raid_level_gap": 3,              # 본관이 이만큼 이상 낮은 상대는 공격 못 함
@@ -2525,7 +2528,8 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
     for k, mx in (("raid_newbie_days", 30), ("raid_level_gap", 10), ("raid_rest_days", 365), ("gift_amount", 10000),
                   ("gift_tech", 100), ("gift_recv_max", 50), ("contest_study_pct", 100), ("contest_day_cap", 1000),
                   ("contest_win_steel", 10000), ("contest_win_rods", 10000), ("contest_win_fame", 1000),
-                  ("contest_join_steel", 10000), ("season_keep_pct", 100), ("gift_fame", 100)):
+                  ("contest_join_steel", 10000), ("season_keep_pct", 100), ("gift_fame", 100),
+                  ("staff_warn_attacks", 1000), ("staff_warn_days", 7)):
         if cur[k] > mx:
             _err(400, "bad_value", key=k)
     for t in DEFENSE_TYPES:

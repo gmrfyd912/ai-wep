@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { useTranslation } from "react-i18next";
 
 import { Avatar } from "@/components/Avatar";
+import { TeacherGameTab } from "@/components/TeacherGame";
 import { AppButton, Body, Card, Chips, Screen } from "@/components/ui";
 import {
   answerTutorQuiz,
@@ -34,7 +35,7 @@ const MEDAL = ["🥇", "🥈", "🥉"];
 const MARK = ["①", "②", "③", "④"];
 const OX = ["O", "X"];
 
-type Tab = "solve" | "topics" | "wrong" | "units" | "courses" | "staff";
+type Tab = "solve" | "topics" | "wrong" | "units" | "courses" | "staff" | "game";
 /** 고른 것은 기억 (실습 랭킹과 같은 방식). course "" = 아직 안 고름 → 우리 반(없으면 전체) */
 type Filters = { course: string; period: RankPeriod; sort: BoardSort; tab: Tab };
 const DEFAULT: Filters = { course: "", period: "week", sort: "solved", tab: "solve" };
@@ -116,7 +117,7 @@ export function StudyBoardScreen() {
   const sheet = groups.find((g) => g.key === open) ?? null;
   const isStaff = !!user && user.role !== "student";
   // 교육생은 교사용 칸이 없으니 첫 칸으로
-  const tab: Tab = f && (f.tab !== "staff" || isStaff) ? f.tab : "solve";
+  const tab: Tab = f && ((f.tab !== "staff" && f.tab !== "game") || isStaff) ? f.tab : "solve";
 
   return (
     <Screen>
@@ -158,7 +159,7 @@ export function StudyBoardScreen() {
               { value: "wrong", label: t("sb_tabWrong") },
               { value: "units", label: t("sb_tabUnits") },
               { value: "courses", label: t("sb_tabCourses") },
-              ...(isStaff ? [{ value: "staff" as Tab, label: t("sb_tabStaff") }] : []),
+              ...(isStaff ? [{ value: "staff" as Tab, label: t("sb_tabStaff") }, { value: "game" as Tab, label: t("sb_tabGame") }] : []),
             ]}
             value={tab}
             onChange={(v) => change({ tab: v })}
@@ -171,6 +172,7 @@ export function StudyBoardScreen() {
           {tab === "units" ? <UnitsTab units={data.units} /> : null}
           {tab === "courses" ? <CoursesTab courses={data.courses ?? []} /> : null}
           {tab === "staff" && data.staff ? <StaffTab staff={data.staff} /> : null}
+          {tab === "game" && isStaff ? <TeacherGameTab course={course} /> : null}
         </>
       ) : null}
     </Screen>

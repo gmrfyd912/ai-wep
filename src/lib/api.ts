@@ -1814,6 +1814,35 @@ export const getGameSeason = (scope: "class" | "all" = "class", course?: string 
   request<GameSeason>(`/game/season?scope=${scope}${course ? `&course=${course}` : ""}`, {}, GAME_TIMEOUT);
 export const adminSeasonFinish = () =>
   post<{ season: string; count: number; top: { badge: string; rank: number; fame: number }[] }>("/admin/game/season/finish", {}, GAME_TIMEOUT);
+/** 교사 학습 보드 '게임' 칸 */
+export type TeacherGame = {
+  week: string;
+  warn: { attacks: number; days: number };
+  game_on: boolean;
+  time_lock: boolean;
+  contest_on: boolean;
+  classes: {
+    id: string;
+    name: string;
+    score: number;
+    active: number;
+    contest: { rival: string | null; score: number; rival_score: number | null; done: boolean; won: boolean | null } | null;
+    people: { id: string; name: string; study: number; battle: number; days: number; attacks: number; hq: number; seen: boolean; warn: boolean }[];
+  }[];
+};
+export const getTeacherGame = (course = "all") => request<TeacherGame>(`/game/teacher?course=${encodeURIComponent(course)}`, {}, GAME_TIMEOUT);
+/** 관리자 게임 통계 */
+export type AdminGameStats = {
+  days: { day: string; raid: number; pirate: number }[];
+  stages: { stage: number; players: number }[];
+  hq: { avg: number; dist: { level: number; n: number }[] };
+  players: number;
+  full: { n: number; names: string[] };
+  low: { n: number; names: string[]; under: { steel: number; rods: number } };
+  repair: { ships: number; players: number };
+  full_pct: number;
+};
+export const adminGameStats = () => request<AdminGameStats>("/admin/game/stats", {}, GAME_TIMEOUT);
 export const adminGetContest = () => request<AdminContest>("/admin/game/contest", {}, GAME_TIMEOUT);
 export const adminContestPair = () => post<AdminContest>("/admin/game/contest/pair", {}, GAME_TIMEOUT);
 export const adminContestFinish = () => post<AdminContest>("/admin/game/contest/finish", {}, GAME_TIMEOUT);
