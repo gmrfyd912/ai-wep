@@ -171,6 +171,7 @@ export default function GameScreen() {
   const [layout, setLayout] = useState<Record<string, { x: number; y: number }>>({});
   const [layoutSel, setLayoutSel] = useState<string | null>(null);
   const [fxState, setFxState] = useState(true);   // 소리·진동
+  const [rallyShut, setRallyShut] = useState<string | null>(null);   // X로 닫은 집결장 인원 창
   useEffect(() => {
     void fxOn().then(setFxState);
     // 웹: 지도를 끄는 동안 페이지 자체가 밀려 올라가지 않게
@@ -985,6 +986,7 @@ export default function GameScreen() {
                 if (!id) return tapEmpty();
                 fx("tap");
                 setSelected(id);
+                setRallyShut(null);
                 setDetail(false);
                 setMode("home");
               }}
@@ -1195,9 +1197,14 @@ export default function GameScreen() {
         />
       ) : null}
       {/* 집결장을 누르면: 어떤 대원이 몇 명인지 */}
-      {barOn && sel?.type === "rally" && data.crews ? (
+      {barOn && sel?.type === "rally" && data.crews && rallyShut !== sel.id ? (
         <View style={[styles.rallyCard, { top: 60 + insets.top, left: 70 + insets.left }]}>
-          <Text style={styles.infoTitle}>{t("gm_rl_title", { u: data.crews.used, c: data.crews.cap })}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={[styles.infoTitle, { flex: 1 }]}>{t("gm_rl_title", { u: data.crews.used, c: data.crews.cap })}</Text>
+            <Pressable onPress={() => setRallyShut(sel.id)} hitSlop={10} accessibilityLabel={t("common_close")}>
+              <Ionicons name="close" size={20} color="#fff" />
+            </Pressable>
+          </View>
           {CREW_KINDS.filter((k) => (data.crews!.have[k] ?? 0) > 0).length ? (
             <View style={styles.rallyGrid}>
               {CREW_KINDS.filter((k) => (data.crews!.have[k] ?? 0) > 0).map((k) => (
@@ -1429,7 +1436,7 @@ export default function GameScreen() {
             <View style={styles.trainCard}>
               {pirate ? (
                 <CrewTrain crews={pirate.crews} lang={i18n.language} onCrews={(c) => setPirate((p) => (p ? { ...p, crews: c } : p))}
-                  onBack={() => setTrainOpen(false)} errorText={seaError}
+                  onBack={() => { setTrainOpen(false); load(); }} errorText={seaError}
                   renderQuiz={(q) => <QuizList questions={q.questions} answers={q.answers} setAnswer={q.setAnswer} result={q.result} />} />
               ) : examErr ? (
                 <>
