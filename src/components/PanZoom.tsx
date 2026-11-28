@@ -21,6 +21,7 @@ export function PanZoom({
   onZoom,
   onMove,
   onTapEmpty,
+  zoomNonce = 0,
   children,
 }: {
   width: number;
@@ -36,6 +37,8 @@ export function PanZoom({
   onMove?: (moving: boolean) => void;
   /** 지도 그림 바깥(빈 바다)을 눌렀을 때. 끌기와 구분은 부르는 쪽에서 onMove로 함 */
   onTapEmpty?: () => void;
+  /** 확대 단추로 zoom 을 바꿀 때 함께 1 올림 → 그 변화는 되돌리지 않고 바로 보이게 */
+  zoomNonce?: number;
   children: ReactNode;
 }) {
   const s = useSharedValue(1);
@@ -55,13 +58,24 @@ export function PanZoom({
 
   // 손을 떼서 지도를 새 크기로 다시 그리면, 그만큼 화면 변환 배율을 되돌려 크기가 튀지 않게
   const prev = useRef(zoom);
+  const prevNonce = useRef(zoomNonce);
   useLayoutEffect(() => {
     if (prev.current !== zoom) {
+      // 단추로 바꾼 확대: 되돌리지 않고 새 크기를 그대로 보여 줌 (끌어 옮긴 거리도 같은 비율로 늘려 보던 곳이 가운데에 남게)
+      const r = zoom / prev.current;
+      if (prevNonce.current !== zoomNonce) {
+        tx.value = tx.value * r;
+        ty.value = ty.value * r;
+        prevNonce.current = zoomNonce;
+        prev.current = zoom;
+        z.value = zoom;
+        return;
+      }
       s.value = (s.value * prev.current) / zoom;
       prev.current = zoom;
     }
     z.value = zoom;
-  }, [zoom, s, z]);
+  }, [zoom, zoomNonce, s, z, tx, ty]);
 
   const clampX = (v: number, sc: number) => {
     "worklet";
