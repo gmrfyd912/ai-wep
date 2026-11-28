@@ -2156,6 +2156,7 @@ const vi: Translation = {
   gm_gs_full: "{{n}} người có kho đầy trên {{pct}}%",
   gm_gs_low: "{{n}} người dưới {{steel}} thép tấm và {{rods}} que hàn",
   gm_gs_repair: "{{ships}} tàu cần sửa ({{n}} người)",
+  gm_bubbleNext: "Chạm bong bóng để nghe tiếp",
   gm_err_students_only: "Xưởng đóng tàu của Weldy chỉ dành cho học viên.",
   gm_err_game_off: "Trò chơi đang tắt.",
   gm_err_money: "Không đủ tài nguyên",

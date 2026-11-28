@@ -195,6 +195,8 @@ export default function GameScreen() {
   const [detail, setDetail] = useState(false);        // 고른 건물 자세한 창 (기본: 아래 단추 줄만)
   const [trayOpen, setTrayOpen] = useState(true);     // 아래 왼쪽 서랍
   const [weldyBig, setWeldyBig] = useState(false);    // 웰디 말풍선 크게
+  const [pageAt, setPageAt] = useState({ line: "", at: 0 });   // 웰디 말풍선 몇 번째 장 (말이 바뀌면 처음 장)
+  const [bubbleW, setBubbleW] = useState(0);          // 말풍선 글 자리 너비 (장 나누기용)
   const [focus, setFocus] = useState<{ x: number; y: number; n: number } | null>(null);
   const firstFocus = useRef(false);
   // 배치 바꾸기: 여러 건물을 화면에서만 옮겨 두었다가 [저장]으로 한꺼번에
@@ -891,6 +893,15 @@ export default function GameScreen() {
     return t(`gm_tip_${x.id === "ship_ready" ? "ship_done" : x.id}`, p);
   };
   const buddyLine = tutStep ? t(`gm_tut_${tutStep}`, { steel: data.earn.daily_done_steel }) : tip ? tipText(tip) : "";
+  // 말풍선은 BUBBLE_LINES 줄 크기로 고정, 넘치면 장으로 나눠 눌러서 넘김
+  const pages = splitPages(buddyLine, bubbleW, BUBBLE_LINES);
+  const page = Math.min(pageAt.line === buddyLine ? pageAt.at : 0, pages.length - 1);
+  const bubbleNext = () => {
+    if (page < pages.length - 1) setPageAt({ line: buddyLine, at: page + 1 });
+    else if (tutStep) setPageAt({ line: buddyLine, at: 0 });
+    else if (tips.length < 2) setWeldyBig(false);
+    else setTipAt((n) => n + 1);
+  };
 
   const tipAction = (x: GameTip | undefined): { label: string; onPress: () => void } | null => {
     if (!x) return null;
@@ -1175,7 +1186,7 @@ export default function GameScreen() {
               </>
             ) : null}
             <Pressable onPress={() => setTrayOpen((v) => !v)} style={styles.trayArrow} hitSlop={6} accessibilityLabel={t("gm_trayToggle")}>
-              <Ionicons name={trayOpen ? "chevron-back" : "chevron-forward"} size={20} color="#fff" />
+              <Ionicons name={trayOpen ? "chevron-back" : "chevron-forward"} size={15} color="#fff" />
             </Pressable>
           </View>
         </View>
@@ -1199,14 +1210,19 @@ export default function GameScreen() {
           ) : null}
           {weldyBig || tutStep ? (
             <View style={styles.buddyRow}>
-              <View style={{ flex: 1, alignSelf: "stretch" }}>
-                <StudyBuddy
-                  compact
-                  text={buddyLine}
-                  size={42}
-                  onPress={tutStep ? undefined : tips.length < 2 ? () => setWeldyBig(false) : () => setTipAt((n) => n + 1)}
-                />
-              </View>
+              <Pressable
+                onPress={bubbleNext}
+                style={{ flex: 1, alignSelf: "stretch" }}
+                onLayout={(e) => setBubbleW(Math.max(0, e.nativeEvent.layout.width - BUBBLE_PAD))}
+                accessibilityLabel={t("gm_bubbleNext")}
+              >
+                <StudyBuddy compact text={pages[page] ?? ""} size={42} lines={BUBBLE_LINES} boxLines={BUBBLE_LINES} onPress={bubbleNext} />
+                {pages.length > 1 ? (
+                  <Text style={styles.pageTag}>
+                    {page < pages.length - 1 ? `${page + 1}/${pages.length} ▶` : `${page + 1}/${pages.length}`}
+                  </Text>
+                ) : null}
+              </Pressable>
               {action ? (
                 <Pressable onPress={action.onPress} disabled={busy} style={({ pressed }) => [styles.actBtn, (pressed || busy) && { opacity: 0.6 }]}>
                   <Text style={styles.actText} numberOfLines={2}>
@@ -1226,7 +1242,8 @@ export default function GameScreen() {
               <StudyBuddy compact text={buddyLine} size={36} lines={1} onPress={() => setWeldyBig(true)} />
             </Pressable>
           )}
-          {weldyBig && !tutStep && tips.length > 1 ? <Text style={styles.hint}>{t("gm_tipNext")}</Text> : null}
+          {(weldyBig || tutStep) && pages.length > 1 ? <Text style={styles.hint}>{page < pages.length - 1 ? t("gm_bubbleNext") : " "}</Text> : null}
+          {weldyBig && !tutStep && tips.length > 1 && page >= pages.length - 1 ? <Text style={styles.hint}>{t("gm_tipNext")}</Text> : null}
         </View>
       ) : null}
 
@@ -1919,9 +1936,9 @@ function ActionBar({
 function ResBar({ color, label, value, cap, on, onPress }: { color: string; label: string; value: number; cap?: number; on?: boolean; onPress: () => void }) {
   const pct = cap ? Math.min(1, value / Math.max(1, cap)) : 0;
   return (
-    <Pressable onPress={onPress} style={[styles.resBar, on && styles.resOn, !cap && { width: 130 }]} accessibilityLabel={label}>
+    <Pressable onPress={onPress} style={[styles.resBar, on && styles.resOn, !cap && { width: 82 }]} accessibilityLabel={label}>
       {cap ? <View style={[styles.resFill, { width: `${pct * 100}%`, backgroundColor: color + (pct >= 1 ? "" : "AA") }]} /> : null}
-      <View style={[styles.dot, { backgroundColor: color, width: 10, height: 10 }]} />
+      <View style={[styles.dot, { backgroundColor: color, width: 5, height: 5, borderRadius: 1 }]} />
       <Text style={styles.resLabel} numberOfLines={1}>
         {label}
       </Text>
@@ -1936,7 +1953,7 @@ function ResBar({ color, label, value, cap, on, onPress }: { color: string; labe
 function SideBtn({ icon, label, onPress, badge, on }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void; badge?: string; on?: boolean }) {
   return (
     <Pressable onPress={onPress} style={[styles.side, on && { borderColor: "#FFD166" }]} accessibilityLabel={label}>
-      <Ionicons name={icon} size={20} color="#fff" />
+      <Ionicons name={icon} size={13} color="#fff" />
       <Text style={styles.fabText} numberOfLines={1}>
         {label}
       </Text>
@@ -1966,7 +1983,7 @@ function BigBtn({ icon, label, color, shadow, onPress, pulse }: { icon: React.Co
   return (
     <Animated.View style={{ transform: [{ scale: k }] }}>
       <Pressable onPress={onPress} style={({ pressed }) => [styles.big, { backgroundColor: color, borderBottomColor: shadow }, pressed && { opacity: 0.8 }]} accessibilityLabel={label}>
-        <Ionicons name={icon} size={34} color="#fff" />
+        <Ionicons name={icon} size={18} color="#fff" />
         <Text style={styles.bigText} numberOfLines={1}>
           {label}
         </Text>
@@ -2164,7 +2181,7 @@ function LegendDot({ color, label, round }: { color: string; label: string; roun
 function Fab({ icon, label, onPress, badge }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void; badge?: string }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.fab, pressed && { opacity: 0.7 }]} accessibilityLabel={label}>
-      <Ionicons name={icon} size={20} color="#fff" />
+      <Ionicons name={icon} size={13} color="#fff" />
       <Text style={styles.fabText} numberOfLines={1}>
         {label}
       </Text>
@@ -3058,14 +3075,69 @@ function SupplyPanel({
 }
 
 const HUD = "#0B2033D9";
-const BL_W = 96 + 8 + 3 * 62 + 34 + 16;   // 아래 왼쪽 [바다 지도] + 서랍 자리
-const BR_W = 96 + 16;                      // 아래 오른쪽 [짓기] 자리
+const BL_W = 48 + 8 + 3 * 43 + 24 + 16;   // 아래 왼쪽 [바다 지도] + 서랍 자리
+const BR_W = 120 + 16;                     // 아래 오른쪽 [짓기]·작업 반장 자리
+const BUBBLE_LINES = 3;                    // 웰디 말풍선 고정 줄 수
+const BUBBLE_PAD = 42 + 8 + 20 + 21 + 4;   // 얼굴·간격·말풍선 안쪽·소리 단추 (글 자리 = 너비 - 이만큼)
+
+/** 말을 말풍선 장으로 나눔: 한 장 = lines 줄 (글자 너비를 어림해 단어 단위로 줄바꿈, 문장 끝에서 끊기를 좋아함) */
+function splitPages(text: string, width: number, lines: number): string[] {
+  if (!text) return [""];
+  if (width < 60) return [text];
+  const cw = (ch: string) => (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3000-\u9FFF\uFF00-\uFFEF]/.test(ch) ? 13.2 : /[A-Z0-9MW]/.test(ch) ? 8.4 : 7.2);
+  const w = (str: string) => [...str].reduce((a, ch) => a + cw(ch), 0);
+  const words = text.split(/(\s+)/).filter((x) => x.length);
+  const out: string[] = [];
+  let cur = "";
+  let line = 0;
+  let row = 1;
+  for (const tok of words) {
+    if (/^\s+$/.test(tok)) {
+      if (tok.includes("\n")) {
+        row += 1;
+        line = 0;
+        cur += "\n";
+      } else if (line > 0) {
+        cur += " ";
+        line += cw(" ");
+      }
+      continue;
+    }
+    const tw = w(tok);
+    if (line > 0 && line + tw > width) {
+      row += Math.ceil(tw / width);
+      line = tw % width;
+    } else {
+      line += tw;
+      if (line > width) {
+        row += Math.floor(line / width);
+        line = line % width;
+      }
+    }
+    if (row > lines && cur.trim()) {
+      // 넘침: 이 장 안에 문장 끝이 있으면 거기서 끊음
+      const m = cur.match(/^([\s\S]*[.!?。！？](?:\s|$))/);
+      const head = m && m[1].trim().length > cur.trim().length * 0.4 ? m[1] : cur;
+      out.push(head.trim());
+      cur = cur.slice(head.length).trimStart();
+      const rest = cur.trim() ? cur.trimEnd() + " " + tok : tok;
+      cur = rest;
+      const rw = w(rest);
+      row = 1 + Math.floor(rw / width);
+      line = rw % width;
+      continue;
+    }
+    cur += tok;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.length ? out : [text];
+}
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#1F6FA8", overflow: "hidden", userSelect: "none" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   trainCard: { backgroundColor: "#0F2236", borderRadius: radius.md, borderWidth: 1, borderColor: "#FFFFFF22", padding: space.sm, gap: space.sm, width: 520, maxWidth: "100%" },
   hudTL: { position: "absolute", gap: 4 },
-  hudTR: { position: "absolute", gap: 4, alignItems: "flex-end" },
+  hudTR: { position: "absolute", gap: 2, alignItems: "flex-end" },
   hudTC: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   hudBL: { position: "absolute", flexDirection: "row", gap: 8, alignItems: "flex-end" },
   hudBR: { position: "absolute", gap: 6, alignItems: "flex-end" },
@@ -3075,16 +3147,16 @@ const styles = StyleSheet.create({
   lvSub: { fontSize: 11, fontWeight: "700", textShadowColor: "#000", textShadowRadius: 3 },
   sideCol: { gap: 6, marginTop: 4 },
   todoRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  side: { width: 52, height: 52, borderRadius: 12, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 1, borderWidth: 1, borderColor: "#FFFFFF22" },
-  resBar: { width: 190, height: 28, borderRadius: 14, backgroundColor: HUD, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, overflow: "hidden" },
+  side: { width: 35, height: 35, borderRadius: 8, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 1, borderWidth: 1, borderColor: "#FFFFFF22" },
+  resBar: { width: 95, height: 15, borderRadius: 8, backgroundColor: HUD, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, overflow: "hidden" },
   resFill: { position: "absolute", left: 0, top: 0, bottom: 0, opacity: 0.55 },
-  tray: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 16, padding: 4 },
-  trayArrow: { width: 26, height: 58, alignItems: "center", justifyContent: "center" },
+  tray: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, padding: 3 },
+  trayArrow: { width: 20, height: 39, alignItems: "center", justifyContent: "center" },
   weldy: { position: "absolute", gap: 4, alignItems: "stretch" },
   weldySmall: { maxWidth: "100%", alignSelf: "flex-start" },
-  builderChip: { color: "#fff", fontSize: 12, fontWeight: "700", backgroundColor: HUD, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, overflow: "hidden", borderWidth: 1, borderColor: "transparent" },
-  big: { width: 96, height: 96, borderRadius: 20, alignItems: "center", justifyContent: "center", gap: 2, borderBottomWidth: 5 },
-  bigText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  builderChip: { color: "#fff", fontSize: 9, fontWeight: "700", backgroundColor: HUD, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3, overflow: "hidden", borderWidth: 1, borderColor: "transparent" },
+  big: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center", gap: 0, borderBottomWidth: 3 },
+  bigText: { color: "#fff", fontSize: 9, fontWeight: "800" },
   abWrap: { position: "absolute", left: 0, right: 0, alignItems: "center", gap: 6 },
   abTitle: { color: "#fff", fontSize: 14, fontWeight: "800", backgroundColor: HUD, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4, overflow: "hidden" },
   abRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 8 },
@@ -3103,8 +3175,8 @@ const styles = StyleSheet.create({
   rallyItem: { width: "50%", flexDirection: "row", alignItems: "center", gap: 4 },
   resRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
   res: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 8 },
-  resValue: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  resLabel: { color: "#FFFFFFCC", fontSize: 11 },
+  resValue: { color: "#fff", fontSize: 8, fontWeight: "700" },
+  resLabel: { color: "#FFFFFFCC", fontSize: 7 },
   resOn: { borderWidth: 1, borderColor: "#FFD166" },
   infoCard: { backgroundColor: "#0B2033F2", borderRadius: radius.md, padding: 10, gap: 6, maxWidth: 360, borderWidth: 1, borderColor: "#FFFFFF33" },
   infoTitle: { color: "#fff", fontSize: 14, fontWeight: "700" },
@@ -3118,7 +3190,8 @@ const styles = StyleSheet.create({
   choiceRight: { borderColor: colors.success },
   choiceBig: { color: colors.text, fontSize: 18, fontWeight: "800" },
   input: { backgroundColor: colors.cardAlt, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, color: colors.text, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14 },
-  resSub: { color: "#FFFFFF88", fontSize: 10 },
+  resSub: { color: "#FFFFFF88", fontSize: 7 },
+  pageTag: { position: "absolute", right: 8, bottom: 2, color: "#FFD166", fontSize: 10, fontWeight: "700" },
   dot: { width: 8, height: 8, borderRadius: 2 },
   round: { width: 40, height: 40, borderRadius: 20, backgroundColor: HUD, alignItems: "center", justifyContent: "center" },
   roundSm: { width: 32, height: 32, borderRadius: 16, backgroundColor: HUD, alignItems: "center", justifyContent: "center" },
@@ -3155,9 +3228,9 @@ const styles = StyleSheet.create({
   buddyCol: { flexDirection: "column", alignItems: "flex-start" },
   actBtn: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, maxWidth: 170 },
   actText: { color: "#fff", fontWeight: "700", fontSize: 13, flexShrink: 1 },
-  fab: { width: 58, height: 58, borderRadius: 14, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 2, borderWidth: 1, borderColor: "#FFFFFF22" },
-  fabText: { color: "#fff", fontSize: 10 },
-  fabBadge: { position: "absolute", top: -6, right: -6, color: "#fff", backgroundColor: colors.danger, borderRadius: 9, paddingHorizontal: 5, minWidth: 18, textAlign: "center", fontSize: 11, overflow: "hidden" },
+  fab: { width: 39, height: 39, borderRadius: 10, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 2, borderWidth: 1, borderColor: "#FFFFFF22" },
+  fabText: { color: "#fff", fontSize: 7 },
+  fabBadge: { position: "absolute", top: -5, right: -5, color: "#fff", backgroundColor: colors.danger, borderRadius: 7, paddingHorizontal: 3, minWidth: 13, textAlign: "center", fontSize: 8, overflow: "hidden" },
   sheet: { position: "absolute", backgroundColor: "#0E1624EE", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   busy: { position: "absolute", alignSelf: "center" },
   legendDot: { width: 10, height: 10 },

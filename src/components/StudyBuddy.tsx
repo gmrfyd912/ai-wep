@@ -44,6 +44,7 @@ export function StudyBuddy({
   size = W,
   compact = false,
   lines,
+  boxLines,
 }: {
   text: string;
   nonce?: number;
@@ -55,6 +56,8 @@ export function StudyBuddy({
   compact?: boolean;
   /** compact 말풍선 글 줄 수 제한 (넘으면 … ) */
   lines?: number;
+  /** compact 말풍선 높이를 이 줄 수로 고정 (글이 짧아도 같은 크기) */
+  boxLines?: number;
 }) {
   const H = Math.round(size * ratio);
   const doneRef = useRef(onDone);
@@ -179,7 +182,7 @@ export function StudyBuddy({
       </Pressable>
       {compact ? (
         <View style={[styles.bubble, styles.bubbleSmall]}>
-          <Text style={styles.textSmall} numberOfLines={lines}>{shown || " "}</Text>
+          <Text style={[styles.textSmall, boxLines ? { height: boxLines * 18 } : null]} numberOfLines={lines}>{shown || " "}</Text>
           <Pressable onPress={toggleSound} hitSlop={10} style={styles.soundSmall} accessibilityLabel={sound ? t("buddy_soundOn") : t("buddy_soundOff")}>
             <Ionicons name={sound ? "volume-high-outline" : "volume-mute-outline"} size={15} color={colors.muted} />
           </Pressable>

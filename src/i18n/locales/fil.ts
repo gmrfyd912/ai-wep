@@ -2156,6 +2156,7 @@ const fil: Translation = {
   gm_gs_full: "{{n}} manlalaro na higit {{pct}}% puno ang bodega",
   gm_gs_low: "{{n}} manlalaro na kulang sa {{steel}} steel at {{rods}} rods",
   gm_gs_repair: "{{ships}} barko ang kailangang ayusin ({{n}} manlalaro)",
+  gm_bubbleNext: "I-tap ang bubble para sa susunod",
   gm_err_students_only: "Para sa mga trainee lang ang Shipyard ni Weldy.",
   gm_err_game_off: "Naka-off ang laro ngayon.",
   gm_err_money: "Kulang ang resources",
