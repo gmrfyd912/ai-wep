@@ -1,10 +1,9 @@
 import {
   Canvas, Circle, DashPathEffect, Fill, Group, Image, Line, LinearGradient, Oval, Path, Rect, RoundedRect,
-  useClock, useImage, vec, type SkImage,
+  useImage, vec, type SkImage,
 } from "@shopify/react-native-skia";
 import { memo, useMemo, type ReactNode } from "react";
-import { StyleSheet } from "react-native";
-import { useDerivedValue, type SharedValue } from "react-native-reanimated";
+import { useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from "react-native-reanimated";
 
 import { GameMap, origin, type MapKit } from "@/screens/GameMap";
 
@@ -12,12 +11,12 @@ import META from "./yardArt.json";
 
 /**
  * 내 조선소 지도의 새 그림 (Skia 로 그림 — 1초에 60장, Expo Go·웹 모두 됨).
- * - 화면 크기의 그림판 한 장에 지도 전체를 그리고, 끌기·확대는 PanZoom 의 값(cam)을 그대로 받아 그림판 안에서 옮긴다.
+ * - 정해진 크기의 그림판 한 장에 지도 전체를 그려 두고, 끌기·확대는 PanZoom 이 그림판을 통째로 옮긴다
+ *   (그림판 안에서 옮겨 그리면 안드로이드에서 한두 장씩 늦게 보여 끌 때 떨림).
  * - 건물 그림은 tools/art/sprites.py 로 미리 뽑아 둔 PNG (assets/yard), 없는 건물은 옛 도형 그대로.
  * - 누르기·이름표는 이 위에 덮은 GameMap(layer="touch") 이 맡는다.
  */
 type Pt = [number, number];
-type Cam = { tx: SharedValue<number>; ty: SharedValue<number>; s: SharedValue<number> };
 type SpriteMeta = { w: number; h: number; pw: number; ph: number; ax: number; ay: number };
 const SPRITES = META.sprites as Record<string, SpriteMeta>;
 const CELL = META.cellPx;
@@ -232,18 +231,26 @@ function useYardImages(): Record<string, SkImage | null> {
 }
 
 export type YardCanvasProps = {
-  cam: Cam;
+  /** 그림판 크기 (map.W 로 그린 지도 크기) */
   width: number;
   height: number;
-  contentW: number;
-  contentH: number;
-  /** GameMap 에 주는 것과 같은 값 */
+  /** GameMap 에 주는 것과 같은 값 (W 만 그림판용 칸 너비) */
   map: Omit<React.ComponentProps<typeof GameMap>, "kit" | "layer">;
 };
 
-function YardCanvasImpl({ cam, width, height, contentW, contentH, map }: YardCanvasProps) {
+/** 움직임용 시계 (ms). 1초에 약 30번만 바뀌어, 큰 그림판을 그만큼만 다시 그린다 */
+function useSlowClock() {
+  const clock = useSharedValue(0);
+  useFrameCallback((f) => {
+    "worklet";
+    if (f.timeSinceFirstFrame - clock.value >= 32) clock.value = f.timeSinceFirstFrame;
+  });
+  return clock;
+}
+
+function YardCanvasImpl({ width, height, map }: YardCanvasProps) {
   const images = useYardImages();
-  const clock = useClock();
+  const clock = useSlowClock();
   const ready = Object.values(images).every(Boolean);
   const kit = useMemo<MapKit>(() => ({
     G: KG, Polygon: KPolygon, Line: KLine, Circle: KCircle, Ellipse: KEllipse, Rect: KRect, SvgText: KText,
@@ -259,16 +266,10 @@ function YardCanvasImpl({ cam, width, height, contentW, contentH, map }: YardCan
     Foreman: (p: any) => <SkForeman {...p} clock={clock} />,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [ready]);
-  const transform = useDerivedValue(() => [
-    { translateX: width / 2 + cam.tx.value }, { translateY: height / 2 + cam.ty.value }, { scale: cam.s.value },
-    { translateX: -contentW / 2 }, { translateY: -contentH / 2 },
-  ]);
   return (
-    <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
+    <Canvas style={{ width, height }} pointerEvents="none">
       <Fill color="#2487CC" />
-      <Group transform={transform}>
-        <GameMap {...map} kit={kit} layer="art" />
-      </Group>
+      <GameMap {...map} kit={kit} layer="art" />
     </Canvas>
   );
 }
@@ -284,4 +285,4 @@ function sig(m: YardCanvasProps["map"]) {
  * 그때마다 그림판까지 다시 그리면 끌던 지도가 한 번씩 떨린다.
  */
 export default memo(YardCanvasImpl, (a, b) =>
-  a.cam.tx === b.cam.tx && a.width === b.width && a.height === b.height && a.contentW === b.contentW && a.contentH === b.contentH && sig(a.map) === sig(b.map));
+  a.width === b.width && a.height === b.height && sig(a.map) === sig(b.map));

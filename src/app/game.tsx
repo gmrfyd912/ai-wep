@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as NavigationBar from "expo-navigation-bar";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, AppState, Easing, PixelRatio, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -87,6 +87,7 @@ import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
 import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, scrapBlocks, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { GAME_BUILD } from "@/game/build";
 import { YardCanvas } from "@/game/YardCanvas";
 import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
@@ -133,7 +134,10 @@ function gameError(t: TFunction, e: unknown) {
 /** G1 웰디의 조선소: 내 조선소 (공부로 받은 자원으로 짓고 올리고 배를 만든다) */
 export default function GameScreen() {
   const { t, i18n } = useTranslation();
-  const { width, height } = useWindowDimensions();
+  // 화면 크기: 실제로 잰 크기를 씀 (휴대폰에 따라 창 크기 값이 카메라 구멍 자리만큼 작게 나와 오른쪽에 빈 띠가 생김)
+  const win = useWindowDimensions();
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+  const width = box?.w ?? win.width, height = box?.h ?? win.height;
   const insets = useSafeAreaInsets();
   const [party, setParty] = useState<GameState["delivered_now"] | null>(null);
   const [info, setInfo] = useState<ResKey | null>(null);
@@ -292,8 +296,14 @@ export default function GameScreen() {
     useCallback(() => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => null);
       // 안드로이드: 뒤로·홈 단추 줄을 숨겨 지도를 화면 끝까지 (화면 끝을 쓸면 잠깐 나옴)
-      if (Platform.OS === "android") NavigationBar.setVisibilityAsync("hidden").catch(() => null);
+      // (가로로 돌아간 뒤에 다시 나오는 휴대폰이 있어 몇 번 더 숨김)
+      const hide = () => { if (Platform.OS === "android") NavigationBar.setVisibilityAsync("hidden").catch(() => null); };
+      hide();
+      const timers = [400, 1200, 3000].map((ms) => setTimeout(hide, ms));
+      const sub = AppState.addEventListener("change", (st) => { if (st === "active") hide(); });
       return () => {
+        timers.forEach(clearTimeout);
+        sub.remove();
         if (Platform.OS === "android") NavigationBar.setVisibilityAsync("visible").catch(() => null);
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => null);
       };
@@ -402,6 +412,9 @@ export default function GameScreen() {
   const sea = data.sea ?? 2;
   const W = Math.max(8, fitWOf(width, height, data.grid) * zoom);
   const mapDim = mapSize(data.grid, W, sea);
+  // 새 그림판 크기: 확대와 상관없이 한 가지 (긴 쪽 약 3000점 — 휴대폰 그림 한도 안쪽)
+  const artW = Math.min(fitWOf(width, height, data.grid) * 2.5, Math.floor(3072 / PixelRatio.get() / mapSize(data.grid, 1, sea).width));
+  const artDim = mapSize(data.grid, artW, sea);
   // 가장 작게 줄여도 지도 그림이 화면을 다 덮게 (그림 밖 빈 곳이 안 보이게)
   const dim1 = mapSize(data.grid, fitWOf(width, height, data.grid), sea);
   const minZoom = Math.min(1, Math.max(width / dim1.width, height / dim1.height) * 1.01);
@@ -1083,7 +1096,10 @@ export default function GameScreen() {
   };
 
   return (
-    <View style={styles.full}>
+    <View style={styles.full} onLayout={(e) => {
+      const { width: w, height: h } = e.nativeEvent.layout;
+      if (w > 0 && h > 0 && (!box || Math.abs(box.w - w) > 0.5 || Math.abs(box.h - h) > 0.5)) setBox({ w, h });
+    }}>
       <StatusBar hidden />
       {/* 지도: 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소 (메뉴·창에 가려진 곳도 끌어서 봄) */}
       <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={Math.max(zoom, minZoom)} minZoom={minZoom} maxZoom={2.5} edge={0} onZoom={(z) => setZoom(Math.max(z, minZoom))}
@@ -1094,8 +1110,14 @@ export default function GameScreen() {
           : placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
         onGrab={onGrab}
         onTapAt={mode === "place" && placeType && pick ? onTapPlace : undefined}
-        backdrop={newArt ? (cam) => <YardCanvas cam={cam} width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} map={mapProps} /> : undefined}
         focus={focus}>
+            {/* 새 그림: 정해진 크기로 한 번 그려 두고, 끌기·확대는 지도와 같이 화면 변환으로만 옮김 (끌 때마다 다시 그리면 휴대폰에서 한두 장씩 늦어 떨림) */}
+            {newArt ? (
+              <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: artDim.width, height: artDim.height,
+                transform: [{ translateX: (mapDim.width - artDim.width) / 2 }, { translateY: (mapDim.height - artDim.height) / 2 }, { scale: mapDim.width / artDim.width }] }}>
+                <YardCanvas width={artDim.width} height={artDim.height} map={{ ...mapProps, W: artW }} />
+              </View>
+            ) : null}
             <GameMap {...mapProps} layer={newArt ? "touch" : "all"} />
       </PanZoom>
 
@@ -1521,7 +1543,7 @@ export default function GameScreen() {
             ) : mode === "earn" ? (
               <>
                 <Card style={{ gap: space.sm }}>
-                  <Text style={styles.cardTitle}>{t("gm_settings")}</Text>
+                  <Text style={styles.cardTitle}>{t("gm_settings")}  <Text style={{ fontSize: 12, fontWeight: "400", opacity: 0.6 }}>ver {GAME_BUILD}</Text></Text>
                   <AppButton label={names ? t("gm_namesOn") : t("gm_namesOff")} icon={names ? "pricetags" : "pricetags-outline"} variant="secondary" onPress={() => setNames((v) => !v)} />
                   <AppButton label={t("gm_layoutStart")} icon="move" variant="secondary" onPress={startLayout} />
                   <AppButton label={fxState ? t("gm_fxOn") : t("gm_fxOff")} icon={fxState ? "volume-high" : "volume-mute"} variant="secondary" onPress={toggleFx} />
