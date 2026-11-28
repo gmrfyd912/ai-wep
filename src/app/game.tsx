@@ -448,7 +448,17 @@ export default function GameScreen() {
       {/* 지도: 화면 꽉 차게 (크게 보기면 위아래·옆으로 밀어서 봄) */}
       <ScrollView style={StyleSheet.absoluteFill} contentContainerStyle={styles.mapOuter} showsVerticalScrollIndicator={false} bounces={false}>
         <ScrollView horizontal contentContainerStyle={styles.mapOuter} showsHorizontalScrollIndicator={false} bounces={false}>
-          <View style={{ minWidth: width, minHeight: height, alignItems: "center", justifyContent: "center" }}>
+          {/* 오른쪽 창이 열려 있으면 그 너비만큼 오른쪽에 여백을 줘서, 지도를 손가락으로 끌어 창에 가려진 칸까지 볼 수 있게 함 */}
+          <View
+            style={{
+              minWidth: width,
+              minHeight: height,
+              paddingRight: panelOpen ? sheetW + 16 + insets.right : 0,
+              paddingVertical: panelOpen ? 48 : 0,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <GameMap
               grid={data.grid}
               sea={sea}
