@@ -1749,12 +1749,34 @@ export const gameWarshipFit = (id: string, weapons: GameWeaponKind[]) => post<Ga
 export const gameRepair = (id: string) => post<GameState>("/game/warship/repair", { id }, GAME_TIMEOUT);
 export type GameLane = "north" | "middle" | "south";
 export type GamePirate = {
-  stages: { no: number; stars: number; open: boolean; reward: { steel: number; rods: number; tech: number; fame: number }; counts: Record<string, number>; power: number }[];
+  stages: {
+    no: number; stars: number; open: boolean; reward: { steel: number; rods: number; tech: number; fame: number }; counts: Record<string, number>; power: number;
+    /** 작전 짜기 지도용 배치 (id = 목표 순서 번호) */
+    base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number }[];
+  }[];
   ready: number;
   lanes: GameLane[];
   max_ships: number;
   history: { id: string; stage: number; stars: number; at: string | null; pct: number | null }[];
   typhoon: { done_today: boolean; wall_pct: number; wall_part: number; quiz: number; steel: number; rods: number; tech: number };
+  crews: GameCrews;
+  map: { w: number; h: number; land: number };
+};
+/** G2c-2 상륙 대원 */
+export type CrewKind = "welder" | "fitter" | "forklift" | "transporter";
+export const CREW_KINDS: CrewKind[] = ["welder", "fitter", "forklift", "transporter"];
+export type GameCrews = {
+  have: Record<CrewKind, number>;
+  pts: number;
+  cap: number;
+  total: number;
+  specs: Record<CrewKind, { hp: number; dmg: number; speed: number; cost: number }>;
+  capacity: Record<string, number>;
+  quiz: number;
+};
+export type RaidPlan = {
+  stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq";
+  landing?: number; order?: number[]; crews?: Partial<Record<CrewKind, number>>;
 };
 /** 자동 전투 결과 + 다시 보기 기록 */
 export type GameBattle = {
@@ -1771,15 +1793,23 @@ export type GameBattle = {
   base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number; max: number }[];
   ships: { id: string; kind: GameWarKind; max_hp: number; hp: number; out: boolean; weapons: GameWeaponKind[] }[];
   /** s = 전투함 [x, y, 체력, 물러남], b = 해적 시설 체력, f = 쏜 것 ["s"|"d", 쏜 쪽, 맞은 쪽] */
-  frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][] }[];
+  frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][]; c?: [number, number, number, number][] }[];
   events: { t: number; down?: number; boom?: number; ship?: number; spot?: number; retreat?: number }[];
   map: { w: number; h: number; land: number };
   note: { id: string };
   got?: { steel: number; rods: number; tech: number; fame: number };
   first_stars?: number;
+  /** G2c-2 상륙 전투 */
+  raid?: boolean;
+  landing?: number;
+  order?: number[];
+  landed_at?: number | null;
+  crews?: { kind: CrewKind; max: number }[];
+  crew_sent?: Record<CrewKind, number>;
+  crew_lost?: Record<CrewKind, number>;
 };
 export const getPirate = () => request<GamePirate>("/game/pirate", {}, GAME_TIMEOUT);
-export const gamePirateAttack = (body: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) =>
+export const gamePirateAttack = (body: RaidPlan) =>
   post<{ battle: GameBattle; state: GameState }>("/game/pirate/attack", body, GAME_TIMEOUT);
 /** G2c-1 바다 지도: 과정별 만·교육생 섬·해적 섬 (tier = 내 힘과 비교한 색깔) */
 export type SeaTier = "easy" | "even" | "hard";
@@ -1819,6 +1849,10 @@ export type GameScout = {
 };
 export const getSea = () => request<GameSea>("/game/sea", {}, GAME_TIMEOUT);
 export const gameScout = (kind: "pirate" | "user", id: string) => post<GameScout>("/game/sea/scout", { kind, id }, GAME_TIMEOUT);
+export const gameCrewTrainStart = (lang: string) => post<{ id: string; total: number; questions: GameExamQuestion[] }>("/game/crew/train/start", { lang }, GAME_TIMEOUT);
+export const gameCrewTrainSubmit = (id: string, answers: Record<string, string | number>) =>
+  post<{ right: number; total: number; unsure: number; results: GameExamResult["results"]; crews: GameCrews }>("/game/crew/train/submit", { id, answers }, GAME_TIMEOUT);
+export const gameCrewHire = (kind: CrewKind, n: number) => post<{ crews: GameCrews }>("/game/crew/hire", { kind, n }, GAME_TIMEOUT);
 export const getBattle = (id: string) => request<{ battle: GameBattle }>(`/game/battle/${id}`, {}, GAME_TIMEOUT);
 export type GameTyphoon = { id: string; total: number; questions: GameExamQuestion[] };
 export type GameTyphoonResult = {
