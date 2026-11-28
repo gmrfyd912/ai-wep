@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import Svg, { Circle as SvgCircle, Ellipse as SvgEllipse, G as SvgG, Line as SvgLine, Polygon as SvgPolygon, Rect as SvgRect, Text as SvgText0 } from "react-native-svg";
 
+import ART_META from "@/game/yardArt.json";
 import type { GameBuilding, GameScrap, GameShipKind, GameWarKind } from "@/lib/api";
 
 /** 건물 색 (화면 범례와 같음) */
@@ -61,8 +62,16 @@ export type MapKit = {
   Foreman?: Prim;
 };
 export const svgKit: MapKit = { G: SvgG, Polygon: SvgPolygon, Line: SvgLine, Circle: SvgCircle, Ellipse: SvgEllipse, Rect: SvgRect, SvgText: SvgText0 };
-/** 새 그림이 있는 건물 (높이: 칸 너비 배수, 누르는 범위에 씀) */
-const ART_H: Record<string, number> = { hq: 1.0, welding: 0.75, cutting: 0.75, yard: 0.5 };
+/** 건물의 새 그림 이름: 레벨에 따라 겉모습 3단계 (1~3 / 4~6 / 7~8), 짓는 중이면 비계 */
+export function artName(b: { type: string; level: number; w: number; h: number }) {
+  if (b.type === "dock") return null;
+  if (b.level <= 0) return `site_${b.w}x${b.h}`;
+  const t = b.type === "pier" ? (b.level >= 3 ? 2 : 1) : b.type === "mine" || b.type === "rally" ? 1 : b.level <= 3 ? 1 : b.level <= 6 ? 2 : 3;
+  return `${b.type}_${t}`;
+}
+const ART = (ART_META as { sprites: Record<string, { z?: number }> }).sprites;
+/** 새 그림의 높이 (칸 너비 배수, 누르는 범위·이름표 자리에 씀). 그림이 없으면 0 */
+const artH = (name: string | null) => (name && ART[name]?.z ? ART[name].z! * 0.5 : 0);
 
 function shade(hex: string, k: number) {
   const m = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(hex);   // 이미 한 번 밝기를 바꾼 색도 받음
@@ -401,7 +410,9 @@ export function GameMap({
     const color = BUILDING_COLOR[b.type] ?? "#999";
     const sel = selected === b.id;
     const lv = Math.max(b.level, 1);
-    const z = (kit.sprite || layer === "touch") && ART_H[b.type] && b.level > 0 ? ART_H[b.type] * W : (BASE_H[b.type] + lv * 0.06) * W;
+    const an = kit.sprite || layer === "touch" ? artName(b) : null;
+    const z = artH(an) ? artH(an) * W : (BASE_H[b.type] + lv * 0.06) * W;
+    const art = an ? spr(an, b.x, b.y, "art") : null;
     const parts: React.ReactNode[] = [];
     if (b.type === "dock") {
       // 도크: 물 + 크레인 기둥 + 배
@@ -430,10 +441,20 @@ export function GameMap({
           <Polygon points={pts([[c1[0], c1[1] - ch], [c2[0], c2[1] - ch], [c2[0], c2[1] - ch - 6], [c1[0], c1[1] - ch - 6]])} fill="#F2C230" stroke="#0004" />
         </G>,
       );
+    } else if (art && b.type !== "pier" && b.type !== "rally") {
+      // 새 그림 (미리 그려 둔 건물)
+      parts.push(art);
+      if (kit.Smoke && b.level > 0 && (b.type === "welding" || b.type === "cutting")) {
+        const c = P(b.x + 0.45, b.y + 0.45), tier = b.level <= 3 ? 1 : b.level <= 6 ? 2 : 3;
+        smokes.push(<kit.Smoke key={`sm${b.id}`} x={c[0]} y={c[1] - (1.7 + 0.12 * tier) * 0.612 * W} W={W} seed={b.x * 7 + b.y * 13} />);
+      }
     } else if (b.type === "pier" && b.level > 0) {
       // 군항 부두: 낮은 잔교 + 계류 기둥, 옆 바다에 전투함이 나란히 정박
-      parts.push(box(b.x + 0.1, b.y + 0.05, b.w - 0.1, b.h - 0.1, 0.22 * W, color, "deck"));
-      for (let k = 0; k < b.h; k++) parts.push(box(b.x + b.w - 0.3, b.y + k + 0.4, 0.15, 0.15, 0.45 * W, "#333", `bol${k}`));
+      if (art) parts.push(art);
+      else {
+        parts.push(box(b.x + 0.1, b.y + 0.05, b.w - 0.1, b.h - 0.1, 0.22 * W, color, "deck"));
+        for (let k = 0; k < b.h; k++) parts.push(box(b.x + b.w - 0.3, b.y + k + 0.4, 0.15, 0.15, 0.45 * W, "#333", `bol${k}`));
+      }
       fleet.slice(0, 6).forEach((kind, i) => {
         const col = Math.floor(i / b.h), row = i % b.h;
         const sx = b.x + b.w + 0.1 + col * 1.05, sy = b.y + row + 0.2;
@@ -485,10 +506,13 @@ export function GameMap({
     } else if (b.type === "rally" && b.level > 0) {
       // 집결장: 넓은 광장 + 깃발 + 모여 선 대원·장비 (박사 요청 2026-11-28)
       const A = P(b.x + 0.1, b.y + 0.1), B = P(b.x + b.w - 0.1, b.y + 0.1), C = P(b.x + b.w - 0.1, b.y + b.h - 0.1), D = P(b.x + 0.1, b.y + b.h - 0.1);
-      parts.push(<Polygon key="plaza" points={pts([A, B, C, D])} fill="#E6DCC4" stroke="#B8955A" strokeWidth={1.5} />);
       const f = P(b.x + 0.35, b.y + 0.35);
-      parts.push(<Line key="fpole" x1={f[0]} y1={f[1]} x2={f[0]} y2={f[1] - 1.1 * W} stroke="#555" strokeWidth={1.5} />);
-      parts.push(<Polygon key="flag" points={pts([[f[0], f[1] - 1.1 * W], [f[0] + 0.45 * W, f[1] - 0.95 * W], [f[0], f[1] - 0.8 * W]])} fill="#FF8A1F" />);
+      if (art) parts.push(art);
+      else {
+        parts.push(<Polygon key="plaza" points={pts([A, B, C, D])} fill="#E6DCC4" stroke="#B8955A" strokeWidth={1.5} />);
+        parts.push(<Line key="fpole" x1={f[0]} y1={f[1]} x2={f[0]} y2={f[1] - 1.1 * W} stroke="#555" strokeWidth={1.5} />);
+        parts.push(<Polygon key="flag" points={pts([[f[0], f[1] - 1.1 * W], [f[0] + 0.45 * W, f[1] - 0.95 * W], [f[0], f[1] - 0.8 * W]])} fill="#FF8A1F" />);
+      }
       const list = rallyCrew[b.id] ?? [];
       // 앞줄(화면 아래쪽)부터 채움: 뒤쪽은 옆 건물·이름표에 가려질 수 있어서
       const cols = 4, gap = (b.w - 0.6) / cols;
@@ -521,13 +545,6 @@ export function GameMap({
           walkers.push(<WalkerC kit={kit} key={`wk${b.id}`} from={P(b.x + b.w / 2, b.y + b.h + 0.2)} to={P(near.x + near.w / 2, near.y + near.h + 0.2)} size={W * 0.55}
             color={CREW_COLOR[list[0]] ?? "#2B3A67"} offset={b.x * 131 + b.y * 17} />);
         }
-      }
-    } else if (b.level > 0 && ART_H[b.type] && kit.sprite && spr(b.type, b.x, b.y, "art")) {
-      // 새 그림 (미리 그려 둔 건물)
-      parts.push(spr(b.type, b.x, b.y, "art"));
-      if (kit.Smoke && (b.type === "welding" || b.type === "cutting")) {
-        const c = P(b.x + 0.45, b.y + 0.45);
-        smokes.push(<kit.Smoke key={`sm${b.id}`} x={c[0]} y={c[1] - 1.12 * W} W={W} seed={b.x * 7 + b.y * 13} />);
       }
     } else if (b.level === 0) {
       // 새로 짓는 중: 비계(뼈대)
