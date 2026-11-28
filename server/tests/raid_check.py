@@ -130,6 +130,17 @@ def main():
     walls = [o["id"] for o in base if o["type"] == "wall"]
     a = gr.simulate_raid(gb.pirate_base(2), [dict(x) for x in ships], "middle", 5, walls + [1, 2, 3, 4], {}, 14, 10, 6, gb.LANES)
     assert a["order"] == [1, 2, 3] and a["landed_at"] is None
+    # 공격 순서가 있어도 방어 대원이 가까이 오면 먼저 맞서 싸움
+    a = gr.simulate_raid(gb.pirate_base(2), [dict(x) for x in ships], "middle", 5, [0], {"welder": 6}, 14, 10, 6, gb.LANES,
+                         defenders={"welder": 2})
+    fights = [f for fr in a["frames"] for f in fr["f"] if f[0] == "cg"]
+    assert fights and sum(a["guard_lost"].values()) == 2, (len(fights), a["guard_lost"])
+    for fr in a["frames"]:   # 가까이(ENGAGE) 방어 대원이 살아 있는데 건물을 부수는 대원은 없어야 함
+        for f in fr["f"]:
+            if f[0] == "c":
+                cx, cy = fr["c"][f[1]][:2]
+                near = [d for d in fr.get("d") or [] if d[2] > 0 and ((d[0] - cx) ** 2 + (d[1] - cy) ** 2) ** 0.5 <= gr.ENGAGE - 0.3]
+                assert not near, ("crew hit building with guard near", fr["c"][f[1]], near)
     print("raid_check OK", {"stars": bt["stars"], "lost": lost})
 
 
