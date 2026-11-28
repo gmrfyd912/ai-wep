@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as NavigationBar from "expo-navigation-bar";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
@@ -290,7 +291,10 @@ export default function GameScreen() {
   useFocusEffect(
     useCallback(() => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => null);
+      // 안드로이드: 뒤로·홈 단추 줄을 숨겨 지도를 화면 끝까지 (화면 끝을 쓸면 잠깐 나옴)
+      if (Platform.OS === "android") NavigationBar.setVisibilityAsync("hidden").catch(() => null);
       return () => {
+        if (Platform.OS === "android") NavigationBar.setVisibilityAsync("visible").catch(() => null);
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => null);
       };
     }, []),
