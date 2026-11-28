@@ -8,6 +8,7 @@ import { useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } f
 import { GameMap, origin, type MapKit } from "@/screens/GameMap";
 
 import META from "./yardArt.json";
+import { YARD_IMAGES } from "./yardImages";
 
 /**
  * 내 조선소 지도의 새 그림 (Skia 로 그림 — 1초에 60장, Expo Go·웹 모두 됨).
@@ -212,22 +213,13 @@ function SkForeman({ from, to, size, offset, clock }: { from: Pt; to: Pt; size: 
   return <Group transform={tr}><Figure s={s} color="#2B3A67" step={step} arm={{ from: armFrom, hand, head, spark }} /></Group>;
 }
 
-/** 지도에 쓰는 그림 파일 (assets/yard) */
+/** 지도에 쓰는 그림 파일 (assets/yard) — 목록이 바뀌지 않으므로 차례대로 불러도 됨 */
+const IMAGE_NAMES = Object.keys(YARD_IMAGES);
 function useYardImages(): Record<string, SkImage | null> {
-  return {
-    hq: useImage(require("../../assets/yard/hq.png")),
-    welding: useImage(require("../../assets/yard/welding.png")),
-    cutting: useImage(require("../../assets/yard/cutting.png")),
-    yard: useImage(require("../../assets/yard/yard.png")),
-    dock_base: useImage(require("../../assets/yard/dock_base.png")),
-    dock_crane: useImage(require("../../assets/yard/dock_crane.png")),
-    tree1: useImage(require("../../assets/yard/tree1.png")),
-    tree2: useImage(require("../../assets/yard/tree2.png")),
-    cont_x1: useImage(require("../../assets/yard/cont_x1.png")),
-    cont_x2: useImage(require("../../assets/yard/cont_x2.png")),
-    cont_y1: useImage(require("../../assets/yard/cont_y1.png")),
-    cont_y2: useImage(require("../../assets/yard/cont_y2.png")),
-  };
+  const out: Record<string, SkImage | null> = {};
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  for (const n of IMAGE_NAMES) out[n] = useImage(YARD_IMAGES[n]);
+  return out;
 }
 
 export type YardCanvasProps = {
