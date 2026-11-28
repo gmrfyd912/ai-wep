@@ -448,6 +448,23 @@ def main():
     assert d["grid"] == 18 and d["reclaim"]["stage"] == 2 and d["reclaim"]["block"] == "soon", d["reclaim"]
     assert c.post("/game/reclaim", headers=S8).json()["detail"]["code"] == "reclaim_soon"
     assert {w["kind"]: w["lock"] for w in d["warships"]}["frigate"] == "dock"
+    # 관리자 자원 지급: 창고 한도 무시, 기록 남음, 회수는 잔액까지만, 교사는 못 함
+    pl = c.get("/admin/game/players?q=s8", headers=A).json()["players"]
+    assert [p["login_id"] for p in pl] == ["s8"], pl
+    assert c.get("/admin/game/players", headers=T1).status_code == 403
+    before = c.get(f"/admin/game/player/{s8}", headers=A).json()["resources"]
+    r = c.post("/admin/game/grant", headers=A, json={"user_id": s8, "steel": 99999, "passes": 3, "memo": "시험 | 보상"})
+    assert r.status_code == 200, r.text
+    g = r.json()
+    assert g["resources"]["steel"] == before["steel"] + 99999 and g["resources"]["passes"] == before["passes"] + 3
+    assert g["grants"][0]["steel"] == 99999 and g["grants"][0]["by"] == "admin" and g["grants"][0]["memo"] == "시험 / 보상", g["grants"][0]
+    assert c.post("/admin/game/grant", headers=A, json={"user_id": s8}).json()["detail"]["code"] == "grant_empty"
+    e = c.post("/admin/game/grant", headers=A, json={"user_id": s8, "tech": -(g["resources"]["tech"] + 1)}).json()["detail"]
+    assert e["code"] == "grant_below_zero" and e["res"] == "tech", e
+    assert c.post("/admin/game/grant", headers=A, json={"user_id": s8, "passes": -1}).json()["resources"]["passes"] == before["passes"] + 2
+    assert c.post("/admin/game/grant", headers=T1, json={"user_id": s8, "steel": 1}).status_code == 403
+    d = c.get("/game/state", headers=S8).json()
+    assert d["resources"]["steel"] == g["resources"]["steel"]
     print("game_check OK")
 
 

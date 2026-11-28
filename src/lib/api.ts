@@ -1745,6 +1745,21 @@ export const gameSupplySubmit = (id: string, answers: Record<string, string | nu
   post<GameSupplyResult>("/game/supply/submit", { id, answers }, GAME_TIMEOUT);
 
 export type GameSettings = Record<string, number | boolean>;
+/** 관리자: 게임 자원 지급 */
+export type GamePlayer = { id: string; name: string; login_id: string; role: string };
+export type GameGrantRes = "steel" | "rods" | "tech" | "passes" | "fame";
+export type GamePlayerView = {
+  player: GamePlayer;
+  started: boolean;
+  hq_level: number;
+  resources: GameRes;
+  caps: { steel: number; rods: number };
+  grants: ({ at: string | null; by: string; memo: string } & Record<GameGrantRes, number>)[];
+};
+export const getGamePlayers = (q: string) => request<{ players: GamePlayer[]; total: number }>(`/admin/game/players?q=${encodeURIComponent(q)}`);
+export const getGamePlayer = (id: string) => request<GamePlayerView>(`/admin/game/player/${id}`);
+export const gameGrant = (body: { user_id: string; memo: string } & Partial<Record<GameGrantRes, number>>) =>
+  post<GamePlayerView>("/admin/game/grant", body);
 export const getGameSettings = () => request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings");
 export const putGameSettings = (s: GameSettings) =>
   request<{ settings: GameSettings; defaults: GameSettings }>("/admin/game-settings", {

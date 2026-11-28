@@ -28,6 +28,7 @@ export default function ManageLayout() {
       <Stack.Screen name="tutor-checks" options={{ title: t("tc_title") }} />
       <Stack.Screen name="questions/[bookId]" options={{ title: t("qb_title") }} />
       <Stack.Screen name="game" options={{ title: t("gm_setTitle") }} />
+      <Stack.Screen name="game-grant" options={{ title: t("gg_title") }} />
     </Stack>
   );
 }
