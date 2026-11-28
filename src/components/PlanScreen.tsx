@@ -21,6 +21,7 @@ import {
   type GamePirate,
   type GameRaidMap,
   type GameState,
+  type LiveLoads,
   type RaidBlock,
 } from "@/lib/api";
 import { BUILDING_COLOR, WAR_COLOR } from "@/screens/GameMap";
@@ -56,7 +57,30 @@ export type PlanTarget = {
 export type PlanLaunch = {
   ships: string[]; lane: GameLane; landing: number; order: number[]; crews: Partial<Record<CrewKind, number>>;
   morale_id?: string; answers?: Record<string, string | number>;
+  /** 시간차 출동 전투: 배마다 태운 대원 */
+  loads?: LiveLoads;
 };
+
+/** 대원을 배에 자동으로 나눠 태움: 자리 많은 배(상륙함)부터, 장비(2자리)를 먼저 */
+export function autoLoad(
+  ships: { id: string; room: number }[],
+  crews: Partial<Record<CrewKind, number>>,
+  seat: (k: CrewKind) => number,
+): LiveLoads {
+  const order = [...ships].sort((a, b) => b.room - a.room);
+  const left = Object.fromEntries(order.map((s) => [s.id, s.room])) as Record<string, number>;
+  const out: LiveLoads = {};
+  const kinds = [...CREW_KINDS].sort((a, b) => seat(b) - seat(a));
+  for (const k of kinds) {
+    for (let n = 0; n < (crews[k] ?? 0); n++) {
+      const s = order.find((x) => left[x.id] >= seat(k));
+      if (!s) break;
+      left[s.id] -= seat(k);
+      out[s.id] = { ...out[s.id], [k]: (out[s.id]?.[k] ?? 0) + 1 };
+    }
+  }
+  return out;
+}
 
 /**
  * 작전 짜기 (전체 화면). 해적 기지·친구 조선소 지도를 눌러서 정한다:
@@ -96,6 +120,8 @@ export function PlanScreen({
   const map = target.map;
   const laneY = map.lanes ?? LANE_Y;
   const user = target.kind === "user";
+  // 해적 기지: 바닷길·부두·목표를 고르지 않고 배·대원만 준비 → 전투 중에 바다를 눌러 배를 하나씩 보냄
+  const live = !user;
   const short = user ? SHORT_USER : SHORT;
   const crews = pirate.crews;
   const ships = data.fleet?.ships ?? [];
@@ -124,9 +150,20 @@ export function PlanScreen({
   const toggle = (id: number) =>
     setOrder((o) => (o.includes(id) ? o.filter((x) => x !== id) : o.length >= MAX_ORDER ? o : [...o, id]));
   const step = landing === null ? 2 : order.length === 0 ? 3 : 4;
+  const loads = useMemo(() => {
+    if (!live) return {};
+    const c: Partial<Record<CrewKind, number>> = {};
+    for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], free(k));
+    return autoLoad(chosen.map((id) => ({ id, room: crews.capacity[ships.find((f) => f.id === id)?.kind ?? ""] ?? 0 })), c, seat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, send, chosen.join(","), crews]);
   const tName = (type: string) => (type === "hq" ? t(user ? "gm_b_hq" : "gm_bt_hq") : type === "hut" ? t("gm_pl_hut") : t(`gm_b_${type}`));
 
   const launch = (morale?: { id: string; answers: Record<string, string | number> }) => {
+    if (live) {
+      onLaunch({ ships: chosen, lane: "middle", landing: 0, order: [], crews: {}, loads });
+      return;
+    }
     if (landing === null) return;
     const c: Partial<Record<CrewKind, number>> = {};
     for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], free(k));
@@ -142,7 +179,7 @@ export function PlanScreen({
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>{target.title}</Text>
         <Text style={styles.hint} numberOfLines={2}>
-          {t(`gm_pl_step${step}`)}
+          {live ? t("gm_lv_prepHint") : t(`gm_pl_step${step}`)}
         </Text>
       </View>
       <View style={[styles.body, { paddingLeft: 8 + insets.left }]}>
@@ -156,11 +193,14 @@ export function PlanScreen({
             <Line key={`gy${k}`} x1={0} y1={k * cell} x2={W} y2={k * cell} stroke="#00000014" strokeWidth={1} />
           ))}
           {/* 들어갈 길 → 상륙 부두 */}
-          {dock ? (
+          {live ? (
+            <Line x1={map.land * cell + 2} y1={0} x2={map.land * cell + 2} y2={H} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
+          ) : null}
+          {!live && dock ? (
             <Line x1={W - cell * 0.5} y1={laneY[lane] * cell} x2={dock.x} y2={dock.y} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
           ) : null}
           {/* 상륙 부두 고르는 칸 (해안 바로 앞 바다) */}
-          {Array.from({ length: map.h }, (_, y) => {
+          {(live ? [] : Array.from({ length: map.h }, (_, y) => y)).map((y) => {
             const on = landing === y;
             const blocked = st.base.some((o) => o.type === "wall" && o.x === map.land && o.y === y);
             return (
@@ -178,7 +218,7 @@ export function PlanScreen({
             if (o.type === "wall" && o.x === map.land) return null;   // 부두 칸 위 장벽은 ▦ 로
             const color = (user ? undefined : PIRATE_COLOR[o.type]) ?? BUILDING_COLOR[o.type] ?? "#999";
             const n = order.indexOf(o.id);
-            const tap = o.type !== "wall";
+            const tap = !live && o.type !== "wall";
             return (
               <G key={o.id} onPress={tap ? () => toggle(o.id) : undefined}>
                 <Rect x={o.x * cell + 2} y={o.y * cell + 2} width={o.w * cell - 4} height={o.h * cell - 4} rx={3} fill={color}
@@ -200,7 +240,7 @@ export function PlanScreen({
             );
           })}
           {/* 들어갈 바닷길 화살표 */}
-          {(Object.keys(LANE_Y) as GameLane[]).map((l) => {
+          {(live ? [] : (Object.keys(LANE_Y) as GameLane[])).map((l) => {
             const y = laneY[l] * cell, x = W - cell * 0.15, on = lane === l;
             return (
               <G key={l} onPress={() => setLane(l)}>
@@ -212,14 +252,20 @@ export function PlanScreen({
           {/* 고른 전투함 (출발 자리) */}
           {chosen.slice(0, 6).map((id, i) => {
             const off = (i - (Math.min(chosen.length, 6) - 1) / 2) * 0.8;
-            const px = (map.w - 1.4) * cell, py = (laneY[lane] + off) * cell, r = cell * 0.3;
+            const px = (map.w - 1.4) * cell, py = ((live ? map.h / 2 : laneY[lane]) + off) * cell, r = cell * 0.3;
             return <Polygon key={id} points={`${px - r},${py} ${px + r * 0.8},${py - r * 0.55} ${px + r * 0.8},${py + r * 0.55}`} fill={WAR_COLOR} stroke="#fff" strokeWidth={1} opacity={0.8} />;
           })}
         </Svg>
         <View style={styles.legend}>
-          <Text style={styles.legText}>▶ {t("gm_pl_legLane")}</Text>
-          <Text style={styles.legText}>⚓ {t("gm_pl_legPier")}</Text>
-          <Text style={styles.legText}>①②③ {t("gm_pl_legOrder")}</Text>
+          {live ? (
+            <Text style={styles.legText}>┆ {t("gm_lv_legCoast")}</Text>
+          ) : (
+            <>
+              <Text style={styles.legText}>▶ {t("gm_pl_legLane")}</Text>
+              <Text style={styles.legText}>⚓ {t("gm_pl_legPier")}</Text>
+              <Text style={styles.legText}>①②③ {t("gm_pl_legOrder")}</Text>
+            </>
+          )}
           <Text style={styles.legText}>{user ? `⚑ ${t("gm_b_hq")}` : `☠ ${t("gm_bt_hq")}`}  B {t("gm_b_battery")}  M {t("gm_b_missile")}</Text>
         </View>
       </View>
@@ -233,6 +279,9 @@ export function PlanScreen({
               onGo={(id, answers) => launch({ id, answers })} />
           ) : (
             <>
+              {live ? <Text style={styles.small}>{t("gm_lv_rule")}</Text> : null}
+              {!live ? (
+                <>
               <Row ok label={t("gm_pl_lane")} value={t(`gm_bt_lane_${lane}`)} />
               <Row ok={landing !== null} label={t("gm_pl_pier")} value={landing === null ? t("gm_pl_tapPier") : t("gm_pl_pierAt", { n: landing + 1 })} />
               <View style={styles.rowBetween}>
@@ -245,6 +294,8 @@ export function PlanScreen({
                 ) : null}
               </View>
               <Text style={styles.small}>{t("gm_pl_orderNote")}</Text>
+                </>
+              ) : null}
               <Text style={styles.label}>{t("gm_bt_ships", { n: chosen.length })}</Text>
               {ships.length === 0 ? <Text style={styles.warn}>{t("gm_bt_noFleet")}</Text> : null}
               <View style={styles.chips}>
@@ -263,7 +314,7 @@ export function PlanScreen({
               </View>
               <View style={styles.rowBetween}>
                 <Text style={styles.label}>{t("gm_pl_crews", { n: sent, room })}</Text>
-                <Text style={styles.small}>{t("gm_pl_have", { n: crews.total, cap: crews.cap })}</Text>
+                <Text style={styles.small}>{t("gm_ct_rally", { u: crews.rally?.used ?? 0, c: crews.rally?.cap ?? 0 }).split(" (")[0]}</Text>
               </View>
               {shown.map((k) => {
                 const full = send[k] >= free(k) || sent + seat(k) > room;
@@ -289,6 +340,15 @@ export function PlanScreen({
                   </View>
                 );
               })}
+              {live && Object.keys(loads).length ? (
+                <Text style={styles.small}>
+                  {chosen.filter((id) => loads[id]).map((id) => {
+                    const f = ships.find((x) => x.id === id)!;
+                    const list = CREW_KINDS.filter((k) => loads[id]?.[k]).map((k) => `${t(`gm_crew_${k}`)} ${loads[id]![k]}`).join(", ");
+                    return `${t("gm_fleetShip", { ship: t(`gm_ship_${f.kind}`), no: f.no })}: ${list}`;
+                  }).join("\n")}
+                </Text>
+              ) : null}
               {guardText ? <Text style={styles.small}>{t("gm_ct_enemyGuards", { list: guardText })}</Text> : null}
               {room === 0 && chosen.length ? <Text style={styles.warnSm}>{t("gm_pl_noRoom")}</Text> : null}
               <AppButton label={t("gm_pl_train", { pts: crews.pts })} icon="school-outline" variant="secondary" onPress={() => setView("train")} />
@@ -303,10 +363,12 @@ export function PlanScreen({
               {user ? (
                 <AppButton label={t("gm_rd_toMorale", { n: target.morale ?? 3 })} icon="school-outline"
                   disabled={busy || landing === null || chosen.length === 0 || !!target.block} onPress={() => setView("morale")} />
+              ) : live ? (
+                <AppButton label={t("gm_lv_start")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={() => launch()} />
               ) : (
                 <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || landing === null || chosen.length === 0} onPress={() => launch()} />
               )}
-              {landing === null ? <Text style={styles.small}>{t("gm_pl_needPier")}</Text> : null}
+              {!live && landing === null ? <Text style={styles.small}>{t("gm_pl_needPier")}</Text> : null}
             </>
           )}
         </ScrollView>

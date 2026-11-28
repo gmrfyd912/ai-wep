@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 import { useTranslation } from "react-i18next";
@@ -19,9 +19,29 @@ const SHORT_USER: Record<string, string> = { battery: "B", missile: "M", asw: "A
  * 해적 연습 전투 다시 보기 (위에서 내려다본 그림).
  * 서버가 계산한 기록(frames)을 0.5초씩 넘기며 보여 준다. 끝나면 별·부순 비율·받은 것·웰디 한 줄 평.
  */
-export function BattleReplay({ battle, onClose, defense = false }: { battle: GameBattle; onClose: () => void; /** 내 조선소가 공격받은 전투 */ defense?: boolean }) {
+export type LiveCtl = {
+  /** t칸째에 ship번 배를 해안 y 자리로 보냄 → 서버가 다시 계산한 전투 */
+  deploy: (t: number, ship: number, y: number) => Promise<GameBattle | null>;
+  /** 끝내기 (t 없으면 끝까지) → 별·보상까지 담긴 결과 */
+  end: (t?: number) => Promise<GameBattle | null>;
+};
+
+export function BattleReplay({ battle: first, onClose, defense = false, live }: {
+  battle: GameBattle; onClose: () => void; /** 내 조선소가 공격받은 전투 */ defense?: boolean;
+  /** 시간차 출동 전투: 시계대로 흐르고, 바다를 눌러 배를 하나씩 보냄 */
+  live?: LiveCtl;
+}) {
   const { t } = useTranslation();
   const { width, height } = useWindowDimensions();
+  const [battle, setBattle] = useState(first);
+  useEffect(() => setBattle(first), [first]);
+  const [liveOn, setLiveOn] = useState(!!live);
+  const startAt = useRef(Date.now());
+  const ending = useRef(false);
+  const autoEnd = useRef(false);
+  const [sel, setSel] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+  const [lerr, setLerr] = useState("");
   const [i, setI] = useState(0);
   const [play, setPlay] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -33,8 +53,61 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
   const willCheer = !!battle.raid && battle.stars > 0 && landedAny && !defense;
   const short = pvp ? SHORT_USER : SHORT;
 
+  // 시간차 출동 전투: 고른 배 = 아직 안 보낸 배 중 대원 없는 군함 먼저
+  const waiting = battle.ships.map((s, k) => ({ s, k })).filter(({ s }) => s.sent === false);
   useEffect(() => {
-    if (!play || done) return;
+    if (!liveOn) return;
+    if (sel !== null && battle.ships[sel]?.sent === false) return;
+    const next = waiting.find(({ s }) => !s.load) ?? waiting[0];
+    setSel(next ? next.k : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveOn, battle]);
+  const finish = async (at?: number) => {
+    if (!live || ending.current) return;
+    ending.current = true;
+    setSending(true);
+    const r = await live.end(at);
+    setSending(false);
+    if (!r) {
+      ending.current = false;
+      setLerr(t("gm_lv_err"));
+      return;
+    }
+    setBattle(r);
+    setLiveOn(false);
+    setI(r.frames.length - 1);
+    setDone(true);
+  };
+  const nRef = useRef(n);
+  nRef.current = n;
+  useEffect(() => {
+    if (!liveOn) return;
+    const id = setInterval(() => {
+      const k = Math.floor((Date.now() - startAt.current) / (battle.tick_sec * 1000));
+      if (k >= nRef.current - 1) {
+        setI(nRef.current - 1);
+        if (!autoEnd.current) {
+          autoEnd.current = true;   // 시간이 다 됐거나 다 부숨 → 한 번만 저절로 끝냄
+          void finish();
+        }
+      } else setI(k);
+    }, 100);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveOn, battle.tick_sec]);
+  const send = async (y: number) => {
+    if (!live || sel === null || sending || ending.current) return;
+    setSending(true);
+    setLerr("");
+    const r = await live.deploy(i, sel, Math.max(0.3, Math.min(battle.map.h - 0.3, y)));
+    setSending(false);
+    if (r) setBattle(r);
+    else setLerr(t("gm_lv_err"));
+  };
+  const left = Math.max(0, Math.ceil(((battle.max_ticks ?? n) - i - 1) * battle.tick_sec));
+
+  useEffect(() => {
+    if (liveOn || !play || done) return;
     const id = setInterval(() => {
       setI((k) => {
         if (k + 1 >= n) {
@@ -45,7 +118,7 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
       });
     }, (battle.tick_sec * 1000) / speed);
     return () => clearInterval(id);
-  }, [play, speed, done, n, battle.tick_sec]);
+  }, [liveOn, play, speed, done, n, battle.tick_sec]);
 
   // 끝나면 대원 환호 2.4초 (깡충깡충) → 결과 카드
   useEffect(() => {
@@ -58,7 +131,7 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
 
   const fr = battle.frames[Math.min(i, n - 1)];
   const { w: MW, h: MH, land } = battle.map;
-  const cell = Math.floor(Math.min((width * 0.92) / MW, (height - 120) / MH));
+  const cell = Math.floor(Math.min((width * 0.92) / MW, (height - (liveOn ? 150 : 120)) / MH));
   const W = cell * MW, H = cell * MH;
   const C = (o: { x: number; y: number; w: number; h: number }): [number, number] => [(o.x + o.w / 2) * cell, (o.y + o.h / 2) * cell];
   const booms = useMemo(() => battle.events.filter((e) => e.boom !== undefined), [battle.events]);
@@ -81,10 +154,22 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
             : t("gm_bt_title", { n: battle.stage })}
         </Text>
         <Text style={styles.small}>
-          {t(`gm_bt_lane_${battle.lane}`)} ·{" "}
-          {battle.raid ? t("gm_pl_pierAt", { n: (battle.landing ?? 0) + 1 }) : t(battle.target === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}
+          {battle.live
+            ? t("gm_lv_sentN", { n: battle.ships.filter((s) => s.sent).length, total: battle.ships.length })
+            : `${t(`gm_bt_lane_${battle.lane}`)} · ${battle.raid ? t("gm_pl_pierAt", { n: (battle.landing ?? 0) + 1 }) : t(battle.target === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}`}
         </Text>
         <View style={{ flex: 1 }} />
+        {liveOn ? (
+          <>
+            <Text style={[styles.timer, left <= 20 && { color: "#FF8A80" }]}>
+              ⏱ {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+            </Text>
+            <Pressable onPress={() => void finish(i)} style={[styles.ctl, { backgroundColor: "#C0392B" }]} disabled={sending && ending.current}>
+              <Text style={styles.ctlText}>{t("gm_lv_end")}</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
         <Pressable onPress={() => setPlay((p) => !p)} style={styles.ctl} disabled={done}>
           <Ionicons name={play ? "pause" : "play"} size={18} color="#fff" />
         </Pressable>
@@ -97,10 +182,13 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
         <Pressable onPress={onClose} style={styles.ctl} hitSlop={8}>
           <Ionicons name="close" size={18} color="#fff" />
         </Pressable>
+          </>
+        )}
       </View>
       <View style={styles.bar}>
-        <View style={[styles.barFill, { width: `${((i + 1) / n) * 100}%` }]} />
+        <View style={[styles.barFill, { width: `${((i + 1) / (liveOn ? battle.max_ticks ?? n : n)) * 100}%` }]} />
       </View>
+      <View style={{ width: W, height: H }}>
       <Svg width={W} height={H}>
         <Rect x={0} y={0} width={land * cell} height={H} fill="#C9B98F" />
         <Rect x={land * cell} y={0} width={(MW - land) * cell} height={H} fill="#1F6FA8" />
@@ -173,7 +261,9 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
           const s = fr.s[b];
           return <Line key={`f${k}`} x1={sx} y1={sy} x2={s[0] * cell} y2={s[1] * cell} stroke="#FF5252" strokeWidth={2} strokeDasharray="4 3" />;
         })}
-        {fr.s.map(([x, y, hp, out], k) => {
+        {fr.s.map((sv, k) => {
+          const [x, y, hp, out] = sv;
+          if (sv[4] === 1) return null;   // 아직 안 보낸 배 (바다 밖에서 기다림)
           const sh = battle.ships[k];
           const px = x * cell, py = y * cell, r = cell * (sh.kind === "landing" ? 0.48 : sh.kind === "frigate" ? 0.42 : 0.34);
           // 상륙함은 앞이 뭉툭한 넓은 배 모양, 나머지는 뾰족한 배 모양
@@ -204,6 +294,38 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
           return <CrewGlyph key={`d${k}`} kind={CREW_KINDS[ki]} x={x * cell + dx} y={y * cell + cell * 0.35 + dy} s={cell * 0.8} dim={down} ring="#FF5252" />;
         })}
       </Svg>
+        {liveOn ? (
+          <Pressable
+            style={{ position: "absolute", left: land * cell, top: 0, width: (MW - land) * cell, height: H }}
+            onPress={(e) => {
+              // 휴대폰은 locationY, 웹은 offsetY (누른 칸 안에서의 높이)
+              const ne = e.nativeEvent as { locationY?: number; offsetY?: number };
+              const py = ne.locationY ?? ne.offsetY;
+              if (typeof py === "number" && !Number.isNaN(py)) void send(py / cell);
+            }}
+            disabled={sel === null || sending}
+            accessibilityLabel={t("gm_lv_tapSea")}
+          />
+        ) : null}
+      </View>
+      {liveOn ? (
+        <View style={styles.shipBar}>
+          {battle.ships.map((s, k) => {
+            const on = sel === k;
+            return (
+              <Pressable key={s.id} disabled={s.sent !== false} onPress={() => setSel(k)}
+                style={[styles.shipBtn, on && styles.shipOn, s.sent !== false && { opacity: 0.4 }]}>
+                <Text style={styles.ctlText}>
+                  {s.sent !== false ? "✓ " : ""}{t(`gm_ship_${s.kind}`)} {k + 1}{s.load ? ` · 👷${s.load}` : ""}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Text style={[styles.small, { color: lerr ? "#FF8A80" : "#FFD166" }]}>
+            {lerr || (sel === null ? t("gm_lv_allSent") : t("gm_lv_tapSea"))}
+          </Text>
+        </View>
+      ) : null}
       {cheer > 0 && !showCard ? <Text style={styles.cheer}>{t("gm_pl_cheer")}</Text> : null}
       <View style={styles.legend}>
         <Leg color={WAR_COLOR} label={t(defense ? "gm_rd_legEnemyShip" : "gm_bt_legShip")} />
@@ -275,7 +397,7 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
               )}
               {(defense ? [] : battle.ships).map((s, k) => (
                 <Text key={s.id} style={styles.smallC}>
-                  {t(`gm_ship_${s.kind}`)} {k + 1}: {s.out ? t("gm_bt_shipOut") : t("gm_bt_shipHp", { hp: s.hp, max: s.max_hp })}
+                  {t(`gm_ship_${s.kind}`)} {k + 1}: {s.sent === false ? t("gm_lv_notSent") : s.out ? t("gm_bt_shipOut") : t("gm_bt_shipHp", { hp: s.hp, max: s.max_hp })}
                 </Text>
               ))}
               {!defense && battle.ships.some((s) => s.hp < s.max_hp) ? <Text style={styles.smallC}>{t("gm_bt_repairNote")}</Text> : null}
@@ -344,5 +466,9 @@ const styles = StyleSheet.create({
   item: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.cardAlt, borderRadius: 10, paddingVertical: 4, paddingHorizontal: 10 },
   itemText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   smallC: { color: colors.muted, fontSize: 12, textAlign: "center" },
+  timer: { color: "#fff", fontSize: 15, fontWeight: "800", minWidth: 56 },
+  shipBar: { flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center", justifyContent: "center", width: "94%", marginTop: 6 },
+  shipBtn: { borderWidth: 1, borderColor: "#FFFFFF55", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#FFFFFF14" },
+  shipOn: { borderColor: "#FFD166", borderWidth: 2, backgroundColor: "#FFD16633" },
   cheer: { position: "absolute", top: "40%", color: "#FFD166", fontSize: 30, fontWeight: "900", textShadowColor: "#000", textShadowRadius: 6 },
 });
