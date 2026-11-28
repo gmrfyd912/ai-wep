@@ -440,9 +440,10 @@ export function CrewTrain({
     }
   };
   const hall = crews.trainhall ?? 0;
+  // 집결장 자리: 사람 1·장비 2자리
   const homeFull = (k: CrewKind) => {
-    const h = crews.homes?.[crews.specs[k].home];
-    return !h || h.used >= h.cap;
+    const r = crews.rally;
+    return !r || r.used + crews.specs[k].seats > r.cap;
   };
   return (
     <>
@@ -458,7 +459,7 @@ export function CrewTrain({
         <Text style={styles.ptsBig}>{t("gm_ct_ptsBig", { n: crews.pts })}</Text>
         <Text style={styles.ptsSub}>{t("gm_ct_ptsCan", { n: Math.floor(crews.pts / (crews.specs.welder?.cost || 1)) })}</Text>
         <Text style={styles.small}>
-          {t("gm_ct_homes", { d: crews.homes?.dorm.used ?? 0, dc: crews.homes?.dorm.cap ?? 0, g: crews.homes?.garage.used ?? 0, gc: crews.homes?.garage.cap ?? 0 })}
+          {t("gm_ct_rally", { u: crews.rally?.used ?? 0, c: crews.rally?.cap ?? 0 })}
         </Text>
       </View>
       {result ? <Text style={[styles.textB, { color: "#FFD166" }]}>{t("gm_ct_got", { n: result.right, total: result.total })}</Text> : null}
@@ -480,7 +481,7 @@ export function CrewTrain({
       {CREW_KINDS.map((k) => {
         const sp = crews.specs[k];
         const locked = hall < sp.unlock;
-        const noHome = (crews.homes?.[sp.home].cap ?? 0) < 1;
+        const noHome = (crews.rally?.cap ?? 0) < 1;
         const off = busy || locked || homeFull(k) || crews.pts < sp.cost;
         return (
           <View key={k} style={[styles.crewRow, locked && { opacity: 0.55 }]}>
@@ -493,8 +494,8 @@ export function CrewTrain({
                 {locked
                   ? t("gm_ct_locked", { n: sp.unlock })
                   : noHome
-                    ? t(`gm_ct_need_${sp.home}`)
-                    : `${t(`gm_ct_home_${sp.home}`)} · ${t(`gm_crew_${k}_role`)}`}
+                    ? t("gm_ct_need_rally")
+                    : `${t(sp.seats > 1 ? "gm_ct_seat2" : "gm_ct_seat1")} · ${t(`gm_crew_${k}_role`)}`}
               </Text>
             </View>
             <Pressable disabled={off} onPress={() => hire(k)} style={[styles.hire, off && styles.dim]}>

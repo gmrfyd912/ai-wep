@@ -45,10 +45,17 @@ def main():
     for t_, lv, x in (("trainhall", 3, 0), ("dorm", 1, 2), ("garage", 1, 4)):
         db.insert_rows("game_buildings", {"id": str(uuid.uuid4()), "user_id": uid, "type": t_, "level": lv, "x": x, "y": 10,
                                           "collected_at": "2026-11-30T00:00:00+00:00"})
+    # 옛 기숙사·장비 정비고 → 불러올 때 집결장 하나로 (레벨은 높은 쪽)
+    st = c.get("/game/state", headers=S).json()
+    types = [b["type"] for b in st["buildings"]]
+    assert "rally" in types and "dorm" not in types and "garage" not in types, types
+    assert next(b for b in st["buildings"] if b["type"] == "rally")["room"] == 8 and st["crews"]["cap"] == 8, st["crews"]
+    assert not any(k["type"] in ("dorm", "garage") for k in st["catalog"])
+    assert code(c.post("/game/build", headers=S, json={"type": "dorm", "x": 0, "y": 0})) == "bad_type"
     p = c.get("/game/pirate", headers=S).json()
     cr = p["crews"]
-    assert all(v == 0 for v in cr["have"].values()) and cr["pts"] == 0 and cr["cap"] == 10, cr
-    assert cr["homes"] == {"dorm": {"used": 0, "cap": 8, "level": 1}, "garage": {"used": 0, "cap": 2, "level": 1}}, cr["homes"]
+    assert all(v == 0 for v in cr["have"].values()) and cr["pts"] == 0 and cr["cap"] == 8, cr
+    assert cr["rally"] == {"used": 0, "cap": 8, "n": 1}, cr["rally"]
     assert p["map"] == {"w": 14, "h": 10, "land": 6, "lanes": gb.LANES}
 
     # 대원 훈련: 문제 3개(OX 2 + 객관식 1) → 맞힌 수만큼 훈련 점수
@@ -75,8 +82,9 @@ def main():
     # 기숙사·장비 정비고가 차면 못 뽑음, 기술교육원 레벨이 낮으면 못 뽑음
     for b in db.TABLES["game_bases"]:
         b["crews"] = {**b["crews"], "pts": 100}
-    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "welder", "n": 12})) == "crew_full_dorm"
-    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "forklift", "n": 2})) == "crew_full_garage"
+    # 집결장 8자리: 용접사 2 + 지게차 1(2자리) = 4자리 사용 중
+    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "welder", "n": 12})) == "crew_full"
+    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "forklift", "n": 3})) == "crew_full"
     assert code(c.post("/game/crew/hire", headers=S, json={"kind": "crane", "n": 1})) == "crew_locked"
     assert c.post("/game/crew/hire", headers=S, json={"kind": "piper", "n": 1}).status_code == 200
     for b in db.TABLES["game_bases"]:

@@ -33,7 +33,7 @@ def main():
     r = c.get(f"/admin/game/preset/{s1}?level=6", headers=hd["ad"])
     assert r.status_code == 200, r.text
     pv = r.json()["plan"]
-    assert pv["buildings"]["hq"] == 1 and pv["buildings"]["battery"] == 6 and pv["buildings"]["garage"] == 1, pv
+    assert pv["buildings"]["hq"] == 1 and pv["buildings"]["battery"] == 6 and pv["buildings"]["rally"] == 3 and "dorm" not in pv["buildings"], pv
     assert "landing" in pv["ships"] and len(pv["ships"]) == 6, pv["ships"]
     assert r.json()["backup"] is None
     # 미리 보기는 아무것도 안 바꿈
@@ -58,8 +58,9 @@ def main():
     assert any(s["id"] == merchant for s in db.TABLES["game_ships"]), "상선은 그대로"
     base = next(b for b in db.TABLES["game_bases"] if b["user_id"] == s1)
     cr = game_raid.get_crews(base)
-    assert sum(cr[k] for k in ("welder", "fitter", "piper", "safety")) == 8 + 6 * 5
-    assert cr["crane"] + cr["forklift"] + cr["transporter"] == 2 + 2 * 5 and cr["crane"] > 0
+    seats = sum(cr[k] * game_raid.CREWS[k]["seats"] for k in game_raid.CREW_KINDS)
+    assert seats == 3 * (8 + 4 * 5) and cr["crane"] > 0, cr   # 집결장 3개 × 6레벨
+
     assert base["weapons"]["asm"] == 6 and base["tutorial_done"] is True
     keys = {r["key"] for r in game.ledger(s1)}
     assert {"hq_exam:2", "hq_exam:6"} <= keys

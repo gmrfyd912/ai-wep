@@ -1592,7 +1592,7 @@ export const getLiveHistory = (courseId: string) =>
 
 export type GameBuildingType =
   | "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock" | "pier"
-  | "battery" | "missile" | "mine" | "asw" | "radar" | "wall" | "trainhall" | "dorm" | "garage";
+  | "battery" | "missile" | "mine" | "asw" | "radar" | "wall" | "trainhall" | "dorm" | "garage" | "rally";
 /** G2b 방어 시설 힘: 연결된 교재 장의 내 정답률에 따라 0.7~1.3배 */
 export type GameDefense = {
   hp: number;
@@ -1674,6 +1674,8 @@ export type GameState = {
   builders: { total: number; busy: number };
   run_today: boolean;
   hq_level: number;
+  /** 집결장에 보일 대원: 싸울 수 있는 수·부상 수·자리 */
+  crews?: { have: Record<CrewKind, number>; hurt: number; used: number; cap: number; hurt_until: string | null };
   grid: number;
   /** 바다 줄 수 (간척하면 늘어남) */
   sea?: number;
@@ -1707,7 +1709,7 @@ export type GameState = {
     list: { kind: GameWeaponKind; level: number; power: number; academy: number; tech: number; lock: "academy" | null;
       next: { level: number; cost: GameCost & { tech: number }; power: number; block: "max" | "hq_level" | null } | null }[];
   };
-  reclaim?: GameReclaim;
+  reclaim?: GameReclaim | null;
   units: {
     done: number;
     total: number;
@@ -1821,7 +1823,8 @@ export type GameCrews = {
   /** 방어하다 다쳐서 쉬는 대원 (곧 돌아옴) */
   hurt: Record<CrewKind, number>;
   hurt_until: string | null;
-  homes: Record<CrewHome, { used: number; cap: number; level: number }>;
+  /** 집결장 자리 (사람 1·장비 2자리), 집결장 수 */
+  rally?: { used: number; cap: number; n: number };
   trainhall: number;
 };
 export type RaidPlan = {
@@ -2010,7 +2013,7 @@ export type GamePresetPlan = {
   weapons: Record<string, number>;
   ships: string[];
   crews: Partial<Record<CrewKind, number>>;
-  homes: { dorm: number; garage: number };
+  homes: { rally: number; n: number };
 };
 export type GamePresetInfo = {
   plan: GamePresetPlan | null;

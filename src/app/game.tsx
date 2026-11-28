@@ -11,6 +11,7 @@ import type { TFunction } from "i18next";
 import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton, Body, Card } from "@/components/ui";
 import {
+  CREW_KINDS,
   gameBuild,
   gameWallsBuild,
   gameCollect,
@@ -70,6 +71,7 @@ import { BattleReplay } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
+import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
 import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
@@ -79,7 +81,7 @@ type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "
 // 지도 빈 곳을 눌러도 닫지 않는 창: 문제 푸는 창(적던 답 보호)과 놓기 모드
 const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place"];
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
-const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall", "trainhall", "dorm", "garage"];
+const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall", "trainhall", "dorm", "garage", "rally"];
 const STAGES = 5;
 const WAR_KINDS = ["patrol", "frigate", "destroyer", "submarine", "landing"];
 /** 공정 이름 (전투함은 마지막 공정이 '인도' 대신 '취역') */
@@ -829,6 +831,7 @@ export default function GameScreen() {
               selected={selected}
               labels={labels}
               names={names || mode === "place"}
+              crews={data.crews?.have}
               onCollect={doCollect}
               place={placeSpec}
               ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
@@ -1038,8 +1041,30 @@ export default function GameScreen() {
           onFleet={openWar}
           onArms={() => { setSelected(null); setMode("arms"); }}
           onTrain={openTrain}
+          onCrew={openCrew}
           onStudy={(unit) => openSupply(unit)}
         />
+      ) : null}
+      {/* 집결장을 누르면: 어떤 대원이 몇 명인지 */}
+      {barOn && sel?.type === "rally" && data.crews ? (
+        <View style={[styles.rallyCard, { top: 60 + insets.top, left: 70 + insets.left }]}>
+          <Text style={styles.infoTitle}>{t("gm_rl_title", { u: data.crews.used, c: data.crews.cap })}</Text>
+          {CREW_KINDS.filter((k) => (data.crews!.have[k] ?? 0) > 0).length ? (
+            <View style={styles.rallyGrid}>
+              {CREW_KINDS.filter((k) => (data.crews!.have[k] ?? 0) > 0).map((k) => (
+                <View key={k} style={styles.rallyItem}>
+                  <CrewFigure kind={k} size={22} />
+                  <Text style={styles.infoText}>
+                    {t(`gm_crew_${k}`)} ×{data.crews!.have[k]}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.infoSmall}>{t("gm_rl_none")}</Text>
+          )}
+          {data.crews.hurt > 0 ? <Text style={[styles.infoSmall, { color: "#FFAB91" }]}>{t("gm_rl_hurt", { n: data.crews.hurt })}</Text> : null}
+        </View>
       ) : null}
 
       {/* 오른쪽 패널: 건물·짓기·배·자원 얻는 법·자리 고르기 */}
@@ -1378,10 +1403,17 @@ function BuildList({
       rows.push({ key: `n-${c.type}`, type: c.type, title: name(c.type), note: t("gm_bl_lockedAt", { n: c.unlock }), warn: true, off: true, onPress: () => null, score: 0, def: !!c.defense, locked: true });
       continue;
     }
-    if (c.full) continue;
+    if (c.full) {
+      // 다 지었지만 본관이 오르면 더 지을 수 있음 → 조건을 보여 줌
+      if (c.more_at && !c.defense)
+        rows.push({ key: `n-${c.type}`, type: c.type, title: `${name(c.type)} (${c.have}/${c.max})`, note: t("gm_bl_moreAt", { n: c.more_at }), warn: true, off: true, onPress: () => null, score: 0, def: false, locked: true });
+      continue;
+    }
     const noWorker = !c.instant && !free;
     const pay = canPay(c.cost);
-    const note = !pay ? t("gm_bl_noMoney") : noWorker ? t("gm_err_builders") : c.defense ? t("gm_bl_newDef", { n: c.have ?? 0, max: c.max ?? 0 }) : t("gm_bl_new");
+    const note = !pay ? t("gm_bl_noMoney") : noWorker ? t("gm_err_builders")
+      : c.defense ? t("gm_bl_newDef", { n: c.have ?? 0, max: c.max ?? 0 })
+      : (c.max ?? 1) > 1 ? t("gm_bl_newMulti", { n: c.have ?? 0, max: c.max ?? 0 }) : t("gm_bl_new");
     rows.push({
       key: `n-${c.type}`, type: c.type, title: name(c.type), note, warn: !pay || noWorker, cost: c.cost, seconds: c.seconds, instant: c.instant,
       off: !pay || noWorker, onPress: () => onNew(c.type), score: c.defense ? 60 : 80, def: !!c.defense, locked: false,
@@ -1505,6 +1537,7 @@ function ActionBar({
   onFleet,
   onArms,
   onTrain,
+  onCrew,
   onStudy,
 }: {
   b: GameBuilding;
@@ -1513,6 +1546,7 @@ function ActionBar({
   busy: boolean;
   canPay: (c: GameCost) => boolean;
   bottom: number;
+  onCrew: () => void;
   onInfo: () => void;
   onUpgrade: () => void;
   onExam: () => void;
@@ -1542,6 +1576,7 @@ function ActionBar({
   if (b.type === "pier" && b.level > 0) btns.push({ key: "fleet", icon: "boat", label: t("gm_ab_fleet"), onPress: onFleet });
   if (b.type === "academy" && b.level > 0) btns.push({ key: "arms", icon: "flask", label: t("gm_ab_arms"), onPress: onArms });
   if (b.type === "trainhall" && b.level > 0) btns.push({ key: "train", icon: "people", label: t("gm_ab_train"), onPress: onTrain });
+  if (b.type === "rally" && b.level > 0) btns.push({ key: "crew", icon: "people", label: t("gm_ab_train"), onPress: onCrew });
   if (b.type === "wall") btns.push({ key: "walls", icon: "layers", label: t("gm_ab_walls"), onPress: onInfo });
   if (b.defense?.unit) btns.push({ key: "study", icon: "create", label: t("gm_ab_study"), onPress: () => onStudy(b.defense!.unit!.key) });
   if (!b.fixed && left === null) btns.push({ key: "move", icon: "move", label: t("gm_move"), onPress: onMove });
@@ -2777,6 +2812,9 @@ const styles = StyleSheet.create({
   blLv: { position: "absolute", left: -4, bottom: -4, color: "#fff", backgroundColor: "#111", borderRadius: 6, paddingHorizontal: 4, fontSize: 11, overflow: "hidden" },
   blWorkers: { flexDirection: "row", gap: 6, marginTop: 4 },
   blWorker: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 6 },
+  rallyCard: { position: "absolute", backgroundColor: "#0B2033F0", borderRadius: radius.md, padding: 10, gap: 6, width: 300, borderWidth: 1, borderColor: "#FFFFFF33" },
+  rallyGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 4 },
+  rallyItem: { width: "50%", flexDirection: "row", alignItems: "center", gap: 4 },
   resRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
   res: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 8 },
   resValue: { color: "#fff", fontSize: 13, fontWeight: "700" },

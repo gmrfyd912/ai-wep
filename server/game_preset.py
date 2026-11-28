@@ -5,7 +5,7 @@
 - 땅: 처음부터 큰 땅 (간척 없앰, 2026-11-28)
 - 무기 연구: 연구소 레벨로 열리는 무기를 본관 레벨까지
 - 전투함: 군항 부두 자리만큼 (만들 수 있는 종류로), 선체 레벨 = 본관 레벨, 무기 칸 채움
-- 대원: 기숙사·장비 정비고 자리만큼 (기술교육원 레벨로 열린 종류로), 부상은 지움
+- 대원: 집결장 자리만큼 (기술교육원 레벨로 열린 종류로, 장비는 자리의 1/4쯤), 부상은 지움
 - 승급 시험: 그 레벨까지 통과한 것으로 장부에 적음
 자원(강판·용접봉 등)·상선·전투 기록은 그대로 둔다.
 
@@ -25,10 +25,10 @@ from admin_settings import _save_setting, need_admin
 router = APIRouter()
 
 # 놓는 순서: 큰 것·자리가 정해진 것부터 (작은 건물이 자리를 쪼개지 않게)
-ORDER = ["pier", "garage", "yard", "rodstore", "cutting", "welding", "academy", "trainhall", "dorm",
+ORDER = ["pier", "rally", "yard", "rodstore", "cutting", "welding", "academy", "trainhall",
          "missile", "asw", "battery", "radar", "mine", "wall"]
 SHIP_ARMS = ["gun", "torpedo", "asm", "sonar", "ciws"]          # 전투함 무기 칸 채우는 순서
-DORM_MIX = {"welder": 4, "fitter": 3, "piper": 2, "safety": 1}  # 기숙사 채우는 비율 (예시)
+DORM_MIX = {"welder": 4, "fitter": 3, "piper": 2, "safety": 1}  # 사람 대원 채우는 비율 (예시)
 GARAGE_MIX = ["forklift", "transporter", "crane"]                # 장비는 돌아가며 한 대씩
 
 
@@ -49,19 +49,22 @@ def _fleet_plan(lv, dock_lv, cap):
     return out
 
 
-def _crew_plan(lv_hall, dorm_cap, garage_cap, pts):
+def _crew_plan(lv_hall, cap, pts):
+    """집결장 자리 cap(사람 1·장비 2자리)을 채움: 장비는 자리의 1/4쯤, 나머지는 사람."""
     c = {k: 0 for k in game_raid.CREW_KINDS}
+    machines = [k for k in GARAGE_MIX if game_raid.CREWS[k]["unlock"] <= lv_hall]
+    units = (cap // 4) // 2 if machines else 0
+    for i in range(units):
+        c[machines[i % len(machines)]] += 1
+    people_cap = cap - units * 2
     people = [k for k in DORM_MIX if game_raid.CREWS[k]["unlock"] <= lv_hall]
-    if people and dorm_cap:
+    if people and people_cap:
         w = sum(DORM_MIX[k] for k in people)
         for k in people:
-            c[k] = dorm_cap * DORM_MIX[k] // w
-        left = dorm_cap - sum(c[k] for k in people)
+            c[k] = people_cap * DORM_MIX[k] // w
+        left = people_cap - sum(c[k] for k in people)
         for i in range(left):
             c[people[i % len(people)]] += 1
-    machines = [k for k in GARAGE_MIX if game_raid.CREWS[k]["unlock"] <= lv_hall]
-    for i in range(garage_cap if machines else 0):
-        c[machines[i % len(machines)]] += 1
     c["pts"] = pts
     c["hurt"] = []
     return c
@@ -79,7 +82,7 @@ def plan(lv, old_crews=None):
         spec = game.BUILDINGS[t]
         if spec["unlock"] > lv:
             continue
-        n = game.defense_max(t, lv) if spec.get("defense") else 1
+        n = game.defense_max(t, lv) if spec.get("defense") or t in game.MULTI_COUNT else 1
         want[t] = n
         for i in range(n):
             spot = game.free_spot(blds, t, grid=grid, sea=sea)
@@ -95,8 +98,9 @@ def plan(lv, old_crews=None):
     fleet = _fleet_plan(lv, lv_of["dock"], cap)
     arms = [k for k in SHIP_ARMS if weapons.get(k)]
     ships = [{"kind": k, "hull": lv, "weapons": arms[:game.WARSHIPS[k]["slots"]]} for k in fleet]
-    homes = {h: (a + b * (lv_of[h] - 1) if lv_of.get(h) else 0) for h, (a, b) in game_raid.HOMES.items()}
-    crews = _crew_plan(lv_of.get("trainhall", 0), homes["dorm"], homes["garage"], int((old_crews or {}).get("pts") or 0))
+    cap = game_raid.crew_cap(blds)
+    homes = {"rally": cap, "n": sum(1 for b in blds if b["type"] == "rally")}
+    crews = _crew_plan(lv_of.get("trainhall", 0), cap, int((old_crews or {}).get("pts") or 0))
     return {"level": lv, "reclaim": stage, "grid": grid, "sea": sea, "buildings": blds, "short": short,
             "weapons": weapons, "ships": ships, "crews": crews, "homes": homes}
 
