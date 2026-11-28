@@ -14,6 +14,7 @@
 """
 import math
 import threading
+import time
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -135,8 +136,25 @@ def _course_of(cids, order):
     return best
 
 
+_world_cache = {"at": 0.0, "w": None}
+WORLD_SEC = 60     # 바다 지도 재료를 이만큼(초) 기억 (공격 결과가 나면 바로 지움)
+
+
+def forget_world():
+    _world_cache["w"] = None
+
+
 def _world():
-    """지도에 필요한 것 모두 (동시에 받기): 교육생·과정·조선소·건물."""
+    """지도에 필요한 것 모두: 교육생·과정·조선소·건물 (1분 기억, 열 때마다 모두 다시 받지 않게)."""
+    w = _world_cache["w"]
+    if w is not None and time.time() - _world_cache["at"] < WORLD_SEC:
+        return w
+    w = _world_fetch()
+    _world_cache.update(at=time.time(), w=w)
+    return w
+
+
+def _world_fetch():
     got = game._par(
         users=lambda: store.select("users", {"role": "eq.student", "status": "eq.active", "select": "id,name"}),
         courses=lambda: store.select("courses", {"active": "eq.true", "select": "id,name,sort", "order": "sort.asc,name.asc"}),

@@ -16,7 +16,6 @@ import {
   gameWallsBuild,
   gameCollect,
   gameExamStart,
-  gamePirateAttack,
   gameLiveDeploy,
   gameLiveEnd,
   gameLivePirateStart,
@@ -61,7 +60,6 @@ import {
   type GameWeaponKind,
   type GameBattle,
   type GameLane,
-  type RaidPlan,
   type GamePirate,
   type GameDefenseLog,
   type GameDefenseRow,
@@ -69,7 +67,6 @@ import {
   getDefense,
   getRaidTarget,
   gameDefenseSeen,
-  gameRaidAttack,
   type GameTyphoon,
   type GameTyphoonResult,
 } from "@/lib/api";
@@ -155,6 +152,13 @@ export default function GameScreen() {
   const [typhoon, setTyphoon] = useState<GameTyphoon | null>(null);
   const [typhoonRes, setTyphoonRes] = useState<GameTyphoonResult | null>(null);
   const [data, setData] = useState<GameState | null>(null);
+  // 무료 서버는 평일 낮에만 깨어 있어, 저녁·주말 첫 접속은 오래 걸릴 수 있음 → 5초 넘으면 안내
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (data) return;
+    const id = setTimeout(() => setSlow(true), 5000);
+    return () => clearTimeout(id);
+  }, [data]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -358,6 +362,7 @@ export default function GameScreen() {
           <View style={{ gap: space.md, alignItems: "center" }}>
             <ActivityIndicator color={colors.primary} />
             <Body muted>{t("gm_loading")}</Body>
+            {slow ? <View style={{ maxWidth: 420, paddingHorizontal: space.lg }}><Body muted>{t("gm_wakeSlow")}</Body></View> : null}
           </View>
         )}
       </View>
@@ -698,7 +703,7 @@ export default function GameScreen() {
       setExamErr(gameError(t, e));
     }
   };
-  // G2c-2 작전 짜기: 해적 기지 지도를 눌러 바닷길·상륙 부두·목표 순서를 정하고 대원을 태워 출격
+  // 출동 준비: 해적 기지 지도를 보며 전투함·대원을 고르고 시작
   const openPlan = async (stage: number) => {
     setSeaOpen(false);
     setSelected(null);
@@ -710,21 +715,6 @@ export default function GameScreen() {
       setPirate(await getPirate());
     } catch (e) {
       setExamErr(gameError(t, e));
-    }
-  };
-  const attack = async (plan: RaidPlan) => {
-    if (busy) return;
-    setBusy(true);
-    setExamErr("");
-    try {
-      const r = await gamePirateAttack(plan);
-      apply(r.state);
-      setBattle(r.battle);
-      setPirate(await getPirate());
-    } catch (e) {
-      setExamErr(gameError(t, e));
-    } finally {
-      setBusy(false);
     }
   };
   const replay = async (id: string, def = false) => {
@@ -739,24 +729,19 @@ export default function GameScreen() {
   };
   // 출동 준비(해적) → 전투 시작: 배는 바다 밖에서 기다리고, 전투 화면에서 바다를 눌러 하나씩 보냄
   const planAttack = async (p: PlanLaunch) => {
-    if (!planStage) return;
-    if (p.loads) {
-      if (busy) return;
-      setBusy(true);
-      setExamErr("");
-      try {
-        const r = await gameLivePirateStart(planStage, p.ships, p.loads);
-        setBattleDef(false);
-        setLiveId(r.id);
-        setBattle(r.battle);
-      } catch (e) {
-        setExamErr(gameError(t, e));
-      } finally {
-        setBusy(false);
-      }
-      return;
+    if (!planStage || busy) return;
+    setBusy(true);
+    setExamErr("");
+    try {
+      const r = await gameLivePirateStart(planStage, p.ships, p.loads);
+      setBattleDef(false);
+      setLiveId(r.id);
+      setBattle(r.battle);
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    } finally {
+      setBusy(false);
     }
-    attack({ stage: planStage, ships: p.ships, lane: p.lane, target: "defense", landing: p.landing, order: p.order, crews: p.crews });
   };
   const liveCtl: LiveCtl | undefined = liveId
     ? {
@@ -807,30 +792,14 @@ export default function GameScreen() {
     if (busy || !raid || !p.morale_id) return;
     setBusy(true);
     setExamErr("");
-    if (p.loads) {
-      // 시간차 출동 전투: 3문제 채점 → 배는 바다 밖에서 기다림 → 전투 화면에서 하나씩 보냄
-      try {
-        const r = await gameLiveRaidStart({ target: raid.target.id, ships: p.ships, loads: p.loads, morale_id: p.morale_id,
-          answers: p.answers ?? {}, revenge: raid.revenge ?? null });
-        setBattleDef(false);
-        setLiveId(r.id);
-        setBattle(r.battle);
-        closeRaid();
-      } catch (e) {
-        setExamErr(gameError(t, e));
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
+    // 시간차 출동 전투: 3문제 채점 → 배는 바다 밖에서 기다림 → 전투 화면에서 하나씩 보냄
     try {
-      const r = await gameRaidAttack({ target: raid.target.id, ships: p.ships, lane: p.lane, landing: p.landing, order: p.order,
-        crews: p.crews, morale_id: p.morale_id, answers: p.answers ?? {}, revenge: raid.revenge ?? null });
-      apply(r.state);
+      const r = await gameLiveRaidStart({ target: raid.target.id, ships: p.ships, loads: p.loads, morale_id: p.morale_id,
+        answers: p.answers ?? {}, revenge: raid.revenge ?? null });
       setBattleDef(false);
+      setLiveId(r.id);
       setBattle(r.battle);
       closeRaid();
-      getPirate().then(setPirate).catch(() => undefined);
     } catch (e) {
       setExamErr(gameError(t, e));
     } finally {

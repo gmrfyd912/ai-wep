@@ -1799,10 +1799,6 @@ export type GameRaidTarget = {
   morale: number;
   guards?: Partial<Record<CrewKind, number>>;
 };
-export type GameRaidAttack = {
-  target: string; ships: string[]; lane: GameLane; landing: number; order: number[];
-  crews: Partial<Record<CrewKind, number>>; morale_id: string; answers: Record<string, string | number>; revenge?: string | null;
-};
 /** 방어 기록 한 줄 */
 export type GameDefenseRow = {
   id: string; at: string | null; stars: number; pct: number | null; lane: GameLane | null; by: string; by_id: string;
@@ -1815,8 +1811,6 @@ export type GameDefenseLog = {
 export const getRaidTarget = (id: string) => request<GameRaidTarget>(`/game/raid/target/${id}`, {}, GAME_TIMEOUT);
 export const gameMoraleStart = (lang: string) =>
   post<{ id: string; total: number; questions: GameExamQuestion[] }>("/game/raid/morale/start", { lang }, GAME_TIMEOUT);
-export const gameRaidAttack = (body: GameRaidAttack) =>
-  post<{ battle: GameBattle; results: GameExamResult["results"]; state: GameState }>("/game/raid/attack", body, GAME_TIMEOUT);
 export const getDefense = () => request<GameDefenseLog>("/game/defense", {}, GAME_TIMEOUT);
 export const gameDefenseSeen = () => post<{ ok: boolean }>("/game/defense/seen", {}, GAME_TIMEOUT);
 /** G2c-2 상륙 대원 */
@@ -1838,10 +1832,6 @@ export type GameCrews = {
   /** 집결장 자리 (사람 1·장비 2자리), 집결장 수 */
   rally?: { used: number; cap: number; n: number };
   trainhall: number;
-};
-export type RaidPlan = {
-  stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq";
-  landing?: number; order?: number[]; crews?: Partial<Record<CrewKind, number>>;
 };
 /** 자동 전투 결과 + 다시 보기 기록 */
 export type GameBattle = {
@@ -1891,8 +1881,6 @@ export type GameBattle = {
   max_ticks?: number;
 };
 export const getPirate = () => request<GamePirate>("/game/pirate", {}, GAME_TIMEOUT);
-export const gamePirateAttack = (body: RaidPlan) =>
-  post<{ battle: GameBattle; state: GameState }>("/game/pirate/attack", body, GAME_TIMEOUT);
 /** 시간차 출동 전투: 출동 준비(배마다 태운 대원) → 시작 → 배 보내기 → 끝 */
 export type LiveLoads = Record<string, Partial<Record<CrewKind, number>>>;
 export const gameLivePirateStart = (stage: number, ships: string[], loads: LiveLoads) =>

@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -17,7 +18,6 @@ import {
   type GameExamQuestion,
   type GameExamResult,
   gameMoraleStart,
-  type GameLane,
   type GamePirate,
   type GameRaidMap,
   type GameState,
@@ -27,11 +27,35 @@ import {
 import { BUILDING_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
+const BUDDY = require("../../assets/buddy/m0.png");
+const GUIDE_KEY = "aiwep_live_guide_v1";
+const GUIDE_STEPS = ["gm_lg_1", "gm_lg_2", "gm_lg_3"] as const;
+
+/** 처음 출동할 때 웰디가 3장으로 알려 주는 출동 방법 (다 보면 기억, 출동 준비 화면에서 다시 볼 수 있음) */
+function LiveGuide({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
+  const [i, setI] = useState(0);
+  const last = i === GUIDE_STEPS.length - 1;
+  return (
+    <View style={[StyleSheet.absoluteFill, styles.guideBg]}>
+      <View style={styles.guideBox}>
+        <Image source={BUDDY} style={styles.guideBuddy} resizeMode="contain" />
+        <View style={{ flex: 1, gap: space.sm }}>
+          <Text style={styles.guideStep}>{t("gm_lg_title")} {i + 1}/{GUIDE_STEPS.length}</Text>
+          <Text style={styles.guideText}>{t(GUIDE_STEPS[i])}</Text>
+          <View style={{ flexDirection: "row", gap: space.sm, justifyContent: "flex-end" }}>
+            {i > 0 ? <AppButton label={t("gm_lg_prev")} variant="secondary" onPress={() => setI(i - 1)} /> : null}
+            <AppButton label={last ? t("gm_lg_ok") : t("gm_lg_next")} onPress={() => (last ? onDone() : setI(i + 1))} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const PIRATE_COLOR: Record<string, string> = { hq: "#3B2A2A", hut: "#7A5A3A" };
 const SHORT: Record<string, string> = { battery: "B", missile: "M", asw: "A", radar: "R", hq: "☠", hut: "" };
 const SHORT_USER: Record<string, string> = { battery: "B", missile: "M", asw: "A", radar: "R", hq: "⚑" };
-const LANE_Y: Record<GameLane, number> = { north: 2, middle: 5, south: 8 };
-const MAX_ORDER = 3;
 
 export type QuizRender = (p: {
   questions: GameExamQuestion[];
@@ -55,10 +79,10 @@ export type PlanTarget = {
   guards?: Partial<Record<CrewKind, number>>;
 };
 export type PlanLaunch = {
-  ships: string[]; lane: GameLane; landing: number; order: number[]; crews: Partial<Record<CrewKind, number>>;
+  ships: string[];
   morale_id?: string; answers?: Record<string, string | number>;
   /** 시간차 출동 전투: 배마다 태운 대원 */
-  loads?: LiveLoads;
+  loads: LiveLoads;
 };
 
 /** 대원을 배에 자동으로 나눠 태움: 자리 많은 배(상륙함)부터, 장비(2자리)를 먼저 */
@@ -83,10 +107,9 @@ export function autoLoad(
 }
 
 /**
- * 작전 짜기 (전체 화면). 해적 기지·친구 조선소 지도를 눌러서 정한다:
- * ① 들어갈 바닷길(오른쪽 화살표) ② 상륙 부두(해안 앞 점선 칸) ③ 대원이 부술 목표 순서(건물, 최대 3)
- * 오른쪽 창: 출격할 전투함·태울 대원(배마다 자리 수)·대원 훈련(문제 → 훈련 점수 → 대원 뽑기)·출격.
- * 친구 조선소는 출격 전에 3문제(사기)를 풀고 [출동!].
+ * 출동 준비 (전체 화면). 왼쪽: 상대 지도 미리 보기(해안선 표시). 오른쪽 창: 출격할 전투함·태울 대원(배마다 자리 수)·
+ * 대원 훈련(문제 → 훈련 점수 → 대원 뽑기)·시작. 전투가 시작되면 바다를 눌러 배를 한 척씩 보낸다 (BattleReplay).
+ * 친구 조선소는 시작 전에 3문제(사기)를 푼다.
  */
 export function PlanScreen({
   target,
@@ -118,17 +141,11 @@ export function PlanScreen({
   const insets = useSafeAreaInsets();
   const st = target;
   const map = target.map;
-  const laneY = map.lanes ?? LANE_Y;
   const user = target.kind === "user";
-  // 바닷길·부두·목표를 고르지 않고 배·대원만 준비 → 전투 중에 바다를 눌러 배를 하나씩 보냄 (해적 기지·친구 조선소 모두)
-  const live = true;
   const short = user ? SHORT_USER : SHORT;
   const crews = pirate.crews;
   const ships = data.fleet?.ships ?? [];
   const ready = ships.filter((f) => !f.damage && f.repair_left === undefined);
-  const [lane, setLane] = useState<GameLane>("middle");
-  const [landing, setLanding] = useState<number | null>(null);
-  const [order, setOrder] = useState<number[]>([]);
   const [pick, setPick] = useState<string[] | null>(null);
   const [send, setSend] = useState<Record<CrewKind, number>>(() => Object.fromEntries(CREW_KINDS.map((k) => [k, 0])) as Record<CrewKind, number>);
   const [view, setView] = useState<"plan" | "train" | "morale">("plan");
@@ -160,30 +177,29 @@ export function PlanScreen({
   const cell = Math.floor(Math.min(areaW / map.w, (height - 70 - insets.top - insets.bottom) / map.h));
   const W = cell * map.w, H = cell * map.h;
   const C = (o: { x: number; y: number; w: number; h: number }): [number, number] => [(o.x + o.w / 2) * cell, (o.y + o.h / 2) * cell];
-  const targets = useMemo(() => st.base.filter((o) => o.type !== "wall" && o.type !== "mine"), [st.base]);
-  const toggle = (id: number) =>
-    setOrder((o) => (o.includes(id) ? o.filter((x) => x !== id) : o.length >= MAX_ORDER ? o : [...o, id]));
-  const step = landing === null ? 2 : order.length === 0 ? 3 : 4;
   const loads = useMemo(() => {
-    if (!live) return {};
     const c: Partial<Record<CrewKind, number>> = {};
     for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], free(k));
     return autoLoad(chosen.map((id) => ({ id, room: crews.capacity[ships.find((f) => f.id === id)?.kind ?? ""] ?? 0 })), c, seat);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, send, chosen.join(","), crews]);
-  const tName = (type: string) => (type === "hq" ? t(user ? "gm_b_hq" : "gm_bt_hq") : type === "hut" ? t("gm_pl_hut") : t(`gm_b_${type}`));
+  }, [send, chosen.join(","), crews]);
 
-  const launch = (morale?: { id: string; answers: Record<string, string | number> }) => {
-    if (live) {
-      onLaunch({ ships: chosen, lane: "middle", landing: 0, order: [], crews: {}, loads, morale_id: morale?.id, answers: morale?.answers });
-      return;
-    }
-    if (landing === null) return;
-    const c: Partial<Record<CrewKind, number>> = {};
-    for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], free(k));
-    onLaunch({ ships: chosen, lane, landing, order, crews: c, morale_id: morale?.id, answers: morale?.answers });
+  const launch = (morale?: { id: string; answers: Record<string, string | number> }) =>
+    onLaunch({ ships: chosen, loads, morale_id: morale?.id, answers: morale?.answers });
+  // 처음 출동이면 웰디 안내 3장을 먼저 (본 뒤에 하려던 것을 이어서)
+  const [guide, setGuide] = useState<null | (() => void)>(null);
+  const [seen, setSeen] = useState(true);
+  useEffect(() => {
+    AsyncStorage.getItem(GUIDE_KEY).then((v) => setSeen(v === "1")).catch(() => undefined);
+  }, []);
+  const withGuide = (go: () => void) => () => (seen ? go() : setGuide(() => go));
+  const guideDone = () => {
+    const go = guide;
+    setGuide(null);
+    setSeen(true);
+    AsyncStorage.setItem(GUIDE_KEY, "1").catch(() => undefined);
+    go?.();
   };
-  const dock = landing === null ? null : { x: (map.land + 0.45) * cell, y: (landing + 0.5) * cell };
 
   return (
     <View style={[StyleSheet.absoluteFill, styles.bg]}>
@@ -193,7 +209,7 @@ export function PlanScreen({
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>{target.title}</Text>
         <Text style={styles.hint} numberOfLines={2}>
-          {live ? t(user ? "gm_lv_prepHintUser" : "gm_lv_prepHint") : t(`gm_pl_step${step}`)}
+          {t(user ? "gm_lv_prepHintUser" : "gm_lv_prepHint")}
         </Text>
       </View>
       <View style={[styles.body, { paddingLeft: 8 + insets.left }]}>
@@ -206,80 +222,33 @@ export function PlanScreen({
           {Array.from({ length: map.h + 1 }, (_, k) => (
             <Line key={`gy${k}`} x1={0} y1={k * cell} x2={W} y2={k * cell} stroke="#00000014" strokeWidth={1} />
           ))}
-          {/* 들어갈 길 → 상륙 부두 */}
-          {live ? (
-            <Line x1={map.land * cell + 2} y1={0} x2={map.land * cell + 2} y2={H} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
-          ) : null}
-          {!live && dock ? (
-            <Line x1={W - cell * 0.5} y1={laneY[lane] * cell} x2={dock.x} y2={dock.y} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
-          ) : null}
-          {/* 상륙 부두 고르는 칸 (해안 바로 앞 바다) */}
-          {(live ? [] : Array.from({ length: map.h }, (_, y) => y)).map((y) => {
-            const on = landing === y;
-            const blocked = st.base.some((o) => o.type === "wall" && o.x === map.land && o.y === y);
-            return (
-              <G key={`pier${y}`} onPress={() => setLanding(y)}>
-                <Rect x={map.land * cell + 2} y={y * cell + 2} width={cell - 4} height={cell - 4} rx={4}
-                  fill={on ? "#FFD16699" : "#FFFFFF14"} stroke={on ? "#FFD166" : "#FFFFFF77"} strokeWidth={on ? 2.5 : 1} strokeDasharray={on ? undefined : "4 3"} />
-                {on ? <SvgText x={(map.land + 0.5) * cell} y={(y + 0.68) * cell} fontSize={cell * 0.5} fill="#fff" textAnchor="middle">⚓</SvgText> : null}
-                {blocked && !on ? <SvgText x={(map.land + 0.5) * cell} y={(y + 0.7) * cell} fontSize={cell * 0.45} fill="#fff" textAnchor="middle">▦</SvgText> : null}
-              </G>
-            );
-          })}
+          {/* 해안선: 전투 중 이 앞바다를 눌러 배를 보냄 */}
+          <Line x1={map.land * cell + 2} y1={0} x2={map.land * cell + 2} y2={H} stroke="#FFD166" strokeWidth={3} strokeDasharray="8 6" />
           {st.base.map((o) => {
             const [cx, cy] = C(o);
             if (o.type === "mine") return <Circle key={o.id} cx={cx} cy={cy} r={cell * 0.2} fill={BUILDING_COLOR.mine} stroke="#3A0D0A" />;
-            if (o.type === "wall" && o.x === map.land) return null;   // 부두 칸 위 장벽은 ▦ 로
             const color = (user ? undefined : PIRATE_COLOR[o.type]) ?? BUILDING_COLOR[o.type] ?? "#999";
-            const n = order.indexOf(o.id);
-            const tap = !live && o.type !== "wall";
             return (
-              <G key={o.id} onPress={tap ? () => toggle(o.id) : undefined}>
+              <G key={o.id}>
                 <Rect x={o.x * cell + 2} y={o.y * cell + 2} width={o.w * cell - 4} height={o.h * cell - 4} rx={3} fill={color}
-                  stroke={n >= 0 ? "#FFD166" : "#0006"} strokeWidth={n >= 0 ? 3 : 1} />
+                  stroke="#0006" strokeWidth={1} />
                 {short[o.type] ? (
                   <SvgText x={cx} y={cy + cell * 0.15} fontSize={cell * (o.type === "hq" ? 0.7 : 0.42)} fill="#fff" textAnchor="middle" fontWeight="bold">
                     {short[o.type]}
                   </SvgText>
                 ) : null}
-                {n >= 0 ? (
-                  <G>
-                    <Circle cx={o.x * cell + 6} cy={o.y * cell + 6} r={cell * 0.26} fill="#FFD166" stroke="#0B2033" strokeWidth={1.5} />
-                    <SvgText x={o.x * cell + 6} y={o.y * cell + 6 + cell * 0.11} fontSize={cell * 0.32} fill="#0B2033" textAnchor="middle" fontWeight="bold">
-                      {n + 1}
-                    </SvgText>
-                  </G>
-                ) : null}
-              </G>
-            );
-          })}
-          {/* 들어갈 바닷길 화살표 */}
-          {(live ? [] : (Object.keys(LANE_Y) as GameLane[])).map((l) => {
-            const y = laneY[l] * cell, x = W - cell * 0.15, on = lane === l;
-            return (
-              <G key={l} onPress={() => setLane(l)}>
-                <Rect x={W - cell * 1.1} y={y - cell * 0.55} width={cell * 1.1} height={cell * 1.1} fill="transparent" />
-                <Polygon points={`${x - cell * 0.85},${y} ${x},${y - cell * 0.4} ${x},${y + cell * 0.4}`} fill={on ? "#FFD166" : "#FFFFFF55"} stroke="#0B2033" strokeWidth={1} />
               </G>
             );
           })}
           {/* 고른 전투함 (출발 자리) */}
           {chosen.slice(0, 6).map((id, i) => {
             const off = (i - (Math.min(chosen.length, 6) - 1) / 2) * 0.8;
-            const px = (map.w - 1.4) * cell, py = ((live ? map.h / 2 : laneY[lane]) + off) * cell, r = cell * 0.3;
+            const px = (map.w - 1.4) * cell, py = (map.h / 2 + off) * cell, r = cell * 0.3;
             return <Polygon key={id} points={`${px - r},${py} ${px + r * 0.8},${py - r * 0.55} ${px + r * 0.8},${py + r * 0.55}`} fill={WAR_COLOR} stroke="#fff" strokeWidth={1} opacity={0.8} />;
           })}
         </Svg>
         <View style={styles.legend}>
-          {live ? (
-            <Text style={styles.legText}>┆ {t("gm_lv_legCoast")}</Text>
-          ) : (
-            <>
-              <Text style={styles.legText}>▶ {t("gm_pl_legLane")}</Text>
-              <Text style={styles.legText}>⚓ {t("gm_pl_legPier")}</Text>
-              <Text style={styles.legText}>①②③ {t("gm_pl_legOrder")}</Text>
-            </>
-          )}
+          <Text style={styles.legText}>┆ {t("gm_lv_legCoast")}</Text>
           <Text style={styles.legText}>{user ? `⚑ ${t("gm_b_hq")}` : `☠ ${t("gm_bt_hq")}`}  B {t("gm_b_battery")}  M {t("gm_b_missile")}</Text>
         </View>
       </View>
@@ -293,23 +262,10 @@ export function PlanScreen({
               onGo={(id, answers) => launch({ id, answers })} />
           ) : (
             <>
-              {live ? <Text style={styles.small}>{t("gm_lv_rule")}</Text> : null}
-              {!live ? (
-                <>
-              <Row ok label={t("gm_pl_lane")} value={t(`gm_bt_lane_${lane}`)} />
-              <Row ok={landing !== null} label={t("gm_pl_pier")} value={landing === null ? t("gm_pl_tapPier") : t("gm_pl_pierAt", { n: landing + 1 })} />
-              <View style={styles.rowBetween}>
-                <Row ok={order.length > 0} label={t("gm_pl_order", { n: order.length, max: MAX_ORDER })}
-                  value={order.length ? order.map((id) => tName(st.base[id].type)).join(" → ") : t("gm_pl_tapOrder")} />
-                {order.length ? (
-                  <Pressable onPress={() => setOrder([])} hitSlop={8}>
-                    <Text style={styles.link}>{t("gm_pl_clear")}</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-              <Text style={styles.small}>{t("gm_pl_orderNote")}</Text>
-                </>
-              ) : null}
+              <Text style={styles.small}>{t("gm_lv_rule")}</Text>
+              <Pressable onPress={() => setGuide(() => () => undefined)} hitSlop={6}>
+                <Text style={styles.link}>{t("gm_lg_again")}</Text>
+              </Pressable>
               <Text style={styles.label}>{t("gm_bt_ships", { n: chosen.length })}</Text>
               {ships.length === 0 ? <Text style={styles.warn}>{t("gm_bt_noFleet")}</Text> : null}
               <View style={styles.chips}>
@@ -354,7 +310,7 @@ export function PlanScreen({
                   </View>
                 );
               })}
-              {live && Object.keys(loads).length ? (
+              {Object.keys(loads).length ? (
                 <Text style={styles.small}>
                   {chosen.filter((id) => loads[id]).map((id) => {
                     const f = ships.find((x) => x.id === id)!;
@@ -376,29 +332,15 @@ export function PlanScreen({
               {error ? <Text style={styles.warn}>{error}</Text> : null}
               {user ? (
                 <AppButton label={t("gm_rd_toMorale", { n: target.morale ?? 3 })} icon="school-outline"
-                  disabled={busy || (!live && landing === null) || chosen.length === 0 || !!target.block} onPress={() => setView("morale")} />
-              ) : live ? (
-                <AppButton label={t("gm_lv_start")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={() => launch()} />
+                  disabled={busy || chosen.length === 0 || !!target.block} onPress={withGuide(() => setView("morale"))} />
               ) : (
-                <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || landing === null || chosen.length === 0} onPress={() => launch()} />
+                <AppButton label={t("gm_lv_start")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={withGuide(() => launch())} />
               )}
-              {!live && landing === null ? <Text style={styles.small}>{t("gm_pl_needPier")}</Text> : null}
             </>
           )}
         </ScrollView>
       </View>
-    </View>
-  );
-}
-
-function Row({ ok, label, value }: { ok: boolean; label: string; value: string }) {
-  return (
-    <View style={{ flexDirection: "row", gap: 6, alignItems: "flex-start", flex: 1 }}>
-      <Ionicons name={ok ? "checkmark-circle" : "ellipse-outline"} size={16} color={ok ? "#7FD18F" : "#FFFFFF88"} style={{ marginTop: 2 }} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.label}>{label}</Text>
-        <Text style={styles.small}>{value}</Text>
-      </View>
+      {guide ? <LiveGuide onDone={guideDone} /> : null}
     </View>
   );
 }
@@ -611,6 +553,12 @@ const styles = StyleSheet.create({
   chip: { borderWidth: 1, borderColor: "#FFFFFF44", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
   chipOn: { borderColor: "#FFD166", borderWidth: 2 },
   chipText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  guideBg: { backgroundColor: "#000000AA", alignItems: "center", justifyContent: "center", padding: space.lg },
+  guideBox: { flexDirection: "row", gap: space.md, backgroundColor: "#0B2033", borderRadius: radius.lg, borderWidth: 1,
+    borderColor: "#FFD166", padding: space.md, maxWidth: 520, width: "100%", alignItems: "center" },
+  guideBuddy: { width: 70, height: 106 },
+  guideStep: { color: "#FFD166", fontWeight: "bold", fontSize: 13 },
+  guideText: { color: "#fff", fontSize: 15, lineHeight: 22 },
   crewRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   pm: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#FFFFFF22", alignItems: "center", justifyContent: "center" },
   dim: { opacity: 0.35 },

@@ -9,7 +9,11 @@
   처음부터 다시 계산해 돌려준다. 보낸 순간 앞 장면은 그대로라 화면이 끊기지 않는다.
 - 한 번 보낸 배는 되돌릴 수 없고, 같은 전투를 처음부터 다시 할 수도 없다.
 - 제한 시간 2분 (예시). 안 보낸 배와 대원은 다치지 않고 돌아온다.
+- 진행 중 전투는 서버 메모리와 game_live 표(step20 SQL) 둘 다에 둔다. 서버가 다시 켜져도 표에서 불러와
+  이어 하거나, 시간이 지났으면 보낸 배까지만으로 저절로 끝내 결과를 반영한다 (입력만 저장해도 같은 결과가 나옴).
+  step20 SQL 을 안 돌렸으면 지금처럼 메모리에만 둔다.
 """
+from datetime import datetime, timezone
 import math
 import threading
 import time
@@ -31,6 +35,8 @@ LATE_OK = 6               # 화면 시계와 서버 시계 차이 허용 (칸, 3
 SESSION_MAX = 15 * 60     # 이만큼(초) 지나도 안 끝낸 전투는 다음에 저절로 끝냄
 _live: dict[str, dict] = {}
 _live_lock = threading.Lock()
+_db = {"off_until": 0.0, "swept": 0.0}   # 표가 없으면 off_until 까지 메모리만 (10분 뒤 다시 확인)
+SWEEP_EVERY = 60          # 오래된 전투(주인이 안 돌아온 것) 끝내기를 이 간격(초)마다 한 번
 
 
 def _alive(o):
@@ -452,9 +458,72 @@ def _loads(base, ships, loads):
     return out, have
 
 
+# ---- 진행 중 전투 저장 (서버가 다시 켜져도 이어 하기) ----
+
+def _iso(t):
+    return datetime.fromtimestamp(t, timezone.utc).isoformat()
+
+
+def _db_try(what, fn):
+    """game_live 표에 쓰기·읽기. 표가 없으면(step20 SQL 전) 메모리만 쓰고 조용히 넘어감."""
+    if time.time() < _db["off_until"]:
+        return None
+    try:
+        return fn()
+    except Exception as e:  # noqa: BLE001
+        m = str(e)
+        if "game_live" in m or "PGRST205" in m or "42P01" in m or "schema cache" in m:
+            _db["off_until"] = time.time() + 600
+            print("[live] game_live 표가 없어 10분 동안 메모리에만 둡니다 (step20 SQL 필요)", flush=True)
+        else:
+            print(f"[live] {what} 실패", m[:160], flush=True)
+        return None
+
+
+def _save_new(s, kind, extra):
+    data = {k: s[k] for k in ("base", "ships", "loads", "map", "info", "defenders") if k in s}
+    data.update({"mult": s.get("mult", 1.0), "at": s["at"], **extra})
+    s["kind"], s["extra"] = kind, extra
+    _db_try("저장", lambda: store.insert_rows("game_live", [{
+        "id": s["id"], "user_id": s["uid"], "target_id": s.get("target"), "kind": kind, "started_at": _iso(s["at"]),
+        "data": data, "deploys": [], "done": False}], returning=False))
+
+
+def _make_finish(kind, extra):
+    if kind == "raid":
+        import game_pvp as pv
+        return lambda res: pv.apply_raid(extra["user"], extra["target"], res, extra["morale"], extra.get("revenge"))
+    return lambda res: apply_pirate(extra["user"], extra["stage"], res)
+
+
+def _from_row(r):
+    d = r.get("data") or {}
+    extra = {k: d[k] for k in ("user", "target", "morale", "revenge", "stage") if k in d}
+    s = {"id": r["id"], "uid": r["user_id"], "at": float(d.get("at") or time.time()), "base": d["base"], "ships": d["ships"],
+         "loads": d["loads"], "deploys": list(r.get("deploys") or []), "map": tuple(d["map"]), "info": d.get("info"),
+         "defenders": d.get("defenders"), "mult": d.get("mult", 1.0), "kind": r.get("kind") or "pirate", "extra": extra,
+         "finish": _make_finish(r.get("kind") or "pirate", extra)}
+    if r.get("target_id"):
+        s["target"] = r["target_id"]
+    with _live_lock:
+        return _live.setdefault(s["id"], s)   # 이미 메모리에 있으면 그것
+
+
+def _rows(filters):
+    got = _db_try("불러오기", lambda: store.select("game_live", {**filters, "done": "eq.false", "select": "*"}))
+    return got or []
+
+
 def _session(user, sid, done_ok=False):
     with _live_lock:
         s = _live.get(sid)
+    if not s:
+        try:
+            uuid.UUID(sid)
+            rows = _rows({"id": f"eq.{sid}", "user_id": f"eq.{user['id']}"})
+        except ValueError:
+            rows = []
+        s = _from_row(rows[0]) if rows else None
     if not s or s["uid"] != user["id"] or (s.get("done") and not (done_ok and s.get("result"))):
         _err(400, "live_gone")
     return s
@@ -469,19 +538,36 @@ def _run(s, end_tick=None):
                          s["info"], s.get("mult", 1.0), s.get("defenders"), end_tick)
 
 
+def _finish_quiet(s, why):
+    try:
+        _finish(s, None)
+    except Exception as e:  # noqa: BLE001
+        print(f"[live] {why} 실패", str(e)[:120], flush=True)
+
+
+def _sweep():
+    """주인이 안 돌아온 오래된 전투(서버가 다시 켜진 경우 포함)를 보낸 배까지만으로 끝내 결과 반영."""
+    now = time.time()
+    if now - _db["swept"] < SWEEP_EVERY:
+        return
+    _db["swept"] = now
+    for r in _rows({"started_at": f"lt.{_iso(now - LIVE_TICKS * gb.TICK - 30)}"}):
+        _finish_quiet(_from_row(r), "오래된 전투 끝내기")
+    gb.prune_old()
+    with _live_lock:
+        for k in [k for k, x in _live.items() if x.get("done") and now - x["at"] > SESSION_MAX]:
+            _live.pop(k, None)
+
+
 def _finish_old(uid):
-    """끝내지 않은 전투가 있으면 (앱을 닫았을 때) 지금까지 보낸 대로 끝냄."""
+    """끝내지 않은 전투가 있으면 (앱을 닫았을 때·서버가 다시 켜졌을 때) 지금까지 보낸 대로 끝냄."""
+    for r in _rows({"user_id": f"eq.{uid}"}):
+        _from_row(r)
     with _live_lock:
         olds = [s for s in _live.values() if s["uid"] == uid and not s.get("done")]
     for s in olds:
-        try:
-            _finish(s, None)
-        except Exception as e:  # noqa: BLE001
-            print("[live] 지난 전투 끝내기 실패", str(e)[:120], flush=True)
-    now = time.time()
-    with _live_lock:
-        for k in [k for k, s in _live.items() if s.get("done") and now - s["at"] > SESSION_MAX]:
-            _live.pop(k, None)
+        _finish_quiet(s, "지난 전투 끝내기")
+    _sweep()
 
 
 def _finish(s, end_tick):
@@ -489,6 +575,12 @@ def _finish(s, end_tick):
         if s.get("done"):
             return s.get("result")
         s["done"] = True
+    # 표에서 먼저 '끝남'으로 바꿔 두 번 반영되지 않게 (표가 있는데 이미 끝난 것이면 그만)
+    claimed = _db_try("끝 표시", lambda: store.patch("game_live", {"id": f"eq.{s['id']}", "done": "eq.false"}, {"done": True}))
+    if claimed is not None and not claimed:
+        rows = _db_try("확인", lambda: store.select("game_live", {"id": f"eq.{s['id']}", "select": "id"}))
+        if rows:
+            return None
     res = _run(s, end_tick)
     res["note"] = note_of(res)
     out = s["finish"](res)
@@ -523,18 +615,21 @@ def pirate_start(body: LoadBody, user=Depends(need_player)):
         loads, _ = _loads(base, ships, body.loads)
         game.mark_todo(uid, "battle")
     stage = body.stage
-
-    def finish(res):
-        return apply_pirate(user, stage, res)
-
+    extra = {"user": _who(user), "stage": stage}
     sid = str(uuid.uuid4())
     s = {"id": sid, "uid": uid, "at": time.time(), "base": gb.pirate_base(stage), "ships": ships, "loads": loads, "deploys": [],
          "map": (gb.MAP_W, gb.MAP_H, gb.LAND_W), "info": {"stage": stage}, "defenders": gr.PIRATE_CREWS.get(stage),
-         "finish": finish}
+         "finish": _make_finish("pirate", extra)}
     with _live_lock:
         _live[sid] = s
+    _save_new(s, "pirate", extra)
     res = _run(s)
     return {"id": sid, "battle": res}
+
+
+def _who(user):
+    """전투가 끝날 때 쓸 사용자 정보 (저장해 두는 것만)."""
+    return {k: user.get(k) for k in ("id", "name", "role")}
 
 
 def gb_max_ships():
@@ -601,6 +696,8 @@ def deploy(body: DeployBody, user=Depends(need_player)):
     if t >= LIVE_TICKS:
         _err(400, "live_over")
     s["deploys"].append({"t": t, "ship": body.ship, "y": body.y})
+    dl = list(s["deploys"])
+    _db_try("배 보낸 기록", lambda: store.patch("game_live", {"id": f"eq.{s['id']}"}, {"deploys": dl}))
     return {"id": s["id"], "battle": _run(s)}
 
 
@@ -632,14 +729,13 @@ class RaidLoadBody(BaseModel):
 
 def _busy(target, uid):
     """다른 교육생이 지금 이 조선소를 공격하는 중인지 (오래된 전투는 끝내고 봄)."""
+    for r in _rows({"target_id": f"eq.{target}"}):
+        _from_row(r)
     with _live_lock:
         others = [s for s in _live.values() if s.get("target") == target and s["uid"] != uid and not s.get("done")]
     for s in others:
         if time.time() - s["at"] > LIVE_TICKS * gb.TICK + 30:
-            try:
-                _finish(s, None)
-            except Exception as e:  # noqa: BLE001
-                print("[live] 오래된 공격 끝내기 실패", str(e)[:120], flush=True)
+            _finish_quiet(s, "오래된 공격 끝내기")
         else:
             return True
     return False
@@ -690,16 +786,14 @@ def raid_start(body: RaidLoadBody, user=Depends(need_player)):
         guards = gr.available(gr.get_crews(tg["base"], now))
     morale = {"right": right, "total": len(results), "mult": mult}
     target = body.target
-
-    def finish(res):
-        return pv.apply_raid(user, target, res, morale, revenge)
-
+    extra = {"user": _who(user), "target": target, "morale": morale, "revenge": revenge}
     sid = str(uuid.uuid4())
     s = {"id": sid, "uid": uid, "at": time.time(), "base": tbase, "ships": ships, "loads": loads, "deploys": [],
          "map": (mp["w"], mp["h"], mp["land"]), "mult": mult, "defenders": guards, "target": target,
          "info": {"stage": 0, "kind": "raid", "morale": morale, "attacker": {"id": uid, "name": user.get("name") or ""},
                   "defender": {"id": target, "name": tg["user"].get("name") or ""}},
-         "finish": finish}
+         "finish": _make_finish("raid", extra)}
     with _live_lock:
         _live[sid] = s
+    _save_new(s, "raid", extra)
     return {"id": sid, "battle": _run(s), "results": results}

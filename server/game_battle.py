@@ -295,7 +295,7 @@ def pirate_state(user=Depends(need_player)):
 
     def _history():
         try:
-            return store.select("game_battles", {"user_id": f"eq.{uid}", "kind": "eq.pirate", "select": "id,stage,stars,created_at,result",
+            return store.select("game_battles", {"user_id": f"eq.{uid}", "kind": "eq.pirate", "select": "id,stage,stars,created_at,pct:result->pct",
                                                  "order": "created_at.desc", "limit": "5"})
         except Exception as e:  # noqa: BLE001  (step17 전)
             print("[battle] 기록 못 읽음", str(e)[:120], flush=True)
@@ -307,100 +307,11 @@ def pirate_state(user=Depends(need_player)):
     rows = got["rows"]
     out = pirate_view(rows, got["fleet"], game.weapon_levels(base))
     out["history"] = [{"id": b["id"], "stage": b["stage"], "stars": b["stars"], "at": b.get("created_at"),
-                       "pct": (b.get("result") or {}).get("pct")} for b in got["history"]]
+                       "pct": b.get("pct")} for b in got["history"]]
     out["typhoon"] = typhoon_view(uid, rows, base, got["buildings"])
     out["crews"] = game_raid.crew_view(base, got["buildings"])   # G2c-2 상륙 대원
     out["map"] = {"w": MAP_W, "h": MAP_H, "land": LAND_W, "lanes": LANES}
     return out
-
-
-class AttackBody(BaseModel):
-    stage: int
-    ships: list[str]
-    lane: str = "middle"
-    target: str = "defense"     # defense | hq
-    # G2c-2 작전 (landing 을 주면 상륙 전투): 상륙 부두 y, 대원이 부술 건물 id 순서(최대 3), 태울 대원 수
-    landing: int | None = None
-    order: list[int] = []
-    crews: dict[str, int] = {}
-
-
-@router.post("/game/pirate/attack")
-def pirate_attack(body: AttackBody, user=Depends(need_player)):
-    uid = user["id"]
-    if not 1 <= body.stage <= len(PIRATE_STAGES):
-        _err(400, "bad_stage")
-    if body.lane not in LANES or body.target not in ("defense", "hq"):
-        _err(400, "bad_plan")
-    with _lock(uid):
-        now = game._now()
-        base, buildings = game._prep(uid, now)
-        rows = game.ledger(uid)
-        best = _stage_best(rows)
-        if body.stage > 1 and best.get(body.stage - 1, 0) < 1:
-            _err(400, "stage_locked")
-        fleet = {f["id"]: f for f in game._fleet(uid)}
-        picked = [fleet[i] for i in dict.fromkeys(body.ships) if i in fleet]
-        if not picked:
-            _err(400, "no_ships")
-        if any(int(f.get("damage") or 0) or f.get("repair_until") for f in picked):
-            _err(400, "ship_damaged")
-        game.mark_todo(uid, "battle")
-        wl = game.weapon_levels(base)
-        ships = []
-        for f in picked:
-            ws = game.warship_stats(f, wl)
-            ships.append({"id": f["id"], "kind": f["kind"], "max_hp": ws["max_hp"], "attack": ws["attack"], "weapons": ws["weapons"]})
-        raid = body.landing is not None
-        if raid:
-            if not 0 <= body.landing < MAP_H:
-                _err(400, "bad_plan")
-            have = game_raid.get_crews(base)
-            free = game_raid.available(have)
-            send = {k: max(0, int(body.crews.get(k, 0) or 0)) for k in game_raid.CREW_KINDS}
-            if any(send[k] > free[k] for k in send):
-                _err(400, "crew_short")
-            if game_raid.seats_of(send) > game_raid.ship_capacity(ships):
-                _err(400, "crew_room", n=game_raid.ship_capacity(ships))
-            res = game_raid.simulate_raid(pirate_base(body.stage), ships, body.lane, body.landing, body.order, send,
-                                          MAP_W, MAP_H, LAND_W, LANES, {"stage": body.stage},
-                                          defenders=game_raid.PIRATE_CREWS.get(body.stage))
-            res["note"] = game_raid.raid_note(res)
-            if any(res["crew_lost"].values()):   # 쓰러진 대원만 잃음 (살아 돌아온 대원은 다시 씀)
-                for k, v in res["crew_lost"].items():
-                    have[k] = max(0, have[k] - v)
-                game_raid._save_crews(uid, have)
-        else:
-            res = simulate(body.stage, ships, body.lane, body.target)
-            res["note"] = buddy_note(res)
-        # 파손 저장 (침몰 없음)
-        for s in res["ships"]:
-            dmg = s["max_hp"] - s["hp"]
-            if dmg > 0:
-                game._sql17(lambda s=s, dmg=dmg: store.patch("game_ships", {"id": f"eq.{s['id']}"}, {"damage": dmg}))
-        # 별을 처음 땄을 때만 보상 (창고 자리만큼)
-        prev = best.get(body.stage, 0)
-        rw = PIRATE_STAGES[body.stage - 1]["reward"]
-        got = {"steel": 0, "rods": 0, "tech": 0, "fame": 0}
-        for star in range(prev + 1, res["stars"] + 1):
-            share = STAR_SHARE[star - 1]
-            for k in got:
-                got[k] += int(rw[k] * share)
-        if res["stars"] > prev:
-            bal = game.balance(rows)
-            room = game.clip_storage({"steel": got["steel"], "rods": got["rods"]}, bal, game.caps(buildings))
-            got.update(room)
-            game._add(uid, [{"key": f"pirate:{body.stage}:{res['stars']}", **got, "note": f"pirate {body.stage}"}])
-        res["got"] = got
-        res["first_stars"] = max(0, res["stars"] - prev)
-        bid = str(uuid.uuid4())
-        res["id"] = bid
-        try:
-            store.insert_rows("game_battles", [{"id": bid, "user_id": uid, "kind": "pirate", "stage": body.stage,
-                                                 "stars": res["stars"], "result": res}], returning=False)
-        except Exception as e:  # noqa: BLE001
-            print("[battle] 기록 못 씀 (step17 전?)", str(e)[:120], flush=True)
-    return {"battle": res, "state": game._fresh(user)}
 
 
 @router.get("/game/battle/{bid}")
@@ -413,7 +324,35 @@ def battle_replay(bid: str, user=Depends(need_player)):
     # 내가 공격한 전투, 또는 (G2c-3) 내 조선소가 공격받은 전투
     if not rows or user["id"] not in (rows[0].get("user_id"), rows[0].get("defender_id")):
         _err(404, "not_found")
+    if (rows[0].get("result") or {}).get("pruned"):
+        _err(400, "replay_old", days=REPLAY_DAYS)
     return {"battle": rows[0]["result"]}
+
+
+REPLAY_DAYS = 90     # 이만큼 지난 전투는 다시 보기 장면만 지움 (별·약탈 같은 결과는 남김, 예시)
+_prune = {"day": ""}
+
+
+def prune_old():
+    """하루 한 번: 오래된 전투 다시 보기 장면을 지워 기록이 끝없이 커지지 않게 (한 번에 30건씩)."""
+    day = _today()
+    if _prune["day"] == day:
+        return 0
+    _prune["day"] = day
+    cut = (game._now() - timedelta(days=REPLAY_DAYS)).isoformat()
+    try:
+        rows = store.select("game_battles", {"created_at": f"lt.{cut}", "result->>pruned": "is.null",
+                                             "select": "id,result", "limit": "30"})
+        for r in rows:
+            res = {k: v for k, v in (r.get("result") or {}).items() if k not in ("frames", "events", "base", "hits")}
+            res["pruned"] = True
+            store.patch("game_battles", {"id": f"eq.{r['id']}"}, {"result": res})
+        if len(rows) == 30:
+            _prune["day"] = ""     # 더 남았으면 다음에 이어서
+        return len(rows)
+    except Exception as e:  # noqa: BLE001
+        print("[battle] 오래된 다시 보기 정리 실패", str(e)[:120], flush=True)
+        return 0
 
 
 # ---- 태풍 대비 훈련 (하루 한 번) ----
