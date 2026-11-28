@@ -54,6 +54,7 @@ import {
   type GameWeaponKind,
   type GameBattle,
   type GameLane,
+  type RaidPlan,
   type GamePirate,
   type GameTyphoon,
   type GameTyphoonResult,
@@ -61,6 +62,7 @@ import {
 import { BattleReplay } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
+import { PlanScreen } from "@/components/PlanScreen";
 import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
@@ -116,6 +118,7 @@ export default function GameScreen() {
   const [pirate, setPirate] = useState<GamePirate | null>(null);
   const [seaOpen, setSeaOpen] = useState(false);       // G2c-1 바다 지도 (전체 화면)
   const [battleStage, setBattleStage] = useState<number | null>(null);   // 바다 지도에서 고른 해적 단계
+  const [planStage, setPlanStage] = useState<number | null>(null);       // G2c-2 작전 짜기 (전체 화면)
   const [battle, setBattle] = useState<GameBattle | null>(null);
   const [typhoon, setTyphoon] = useState<GameTyphoon | null>(null);
   const [typhoonRes, setTyphoonRes] = useState<GameTyphoonResult | null>(null);
@@ -460,7 +463,21 @@ export default function GameScreen() {
       setExamErr(gameError(t, e));
     }
   };
-  const attack = async (plan: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) => {
+  // G2c-2 작전 짜기: 해적 기지 지도를 눌러 바닷길·상륙 부두·목표 순서를 정하고 대원을 태워 출격
+  const openPlan = async (stage: number) => {
+    setSeaOpen(false);
+    setSelected(null);
+    setInfo(null);
+    setMode("home");
+    setExamErr("");
+    setPlanStage(stage);
+    try {
+      setPirate(await getPirate());
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    }
+  };
+  const attack = async (plan: RaidPlan) => {
     if (busy) return;
     setBusy(true);
     setExamErr("");
@@ -946,7 +963,7 @@ export default function GameScreen() {
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
             ) : mode === "battle" ? (
               <BattlePanel key={battleStage ?? 0} initialStage={battleStage} data={data} pirate={pirate} busy={busy} error={examErr} onClose={() => setMode("home")}
-                onAttack={attack} onReplay={replay} onTyphoon={openTyphoon} onFleet={openWar} />
+                onAttack={attack} onReplay={replay} onTyphoon={openTyphoon} onFleet={openWar} onPlan={openPlan} />
             ) : mode === "typhoon" ? (
               <Card style={{ gap: space.sm }}>
                 <PanelHead title={t("gm_ty_title")} onClose={() => { setMode("battle"); openBattle(); }} />
@@ -1003,10 +1020,31 @@ export default function GameScreen() {
       {seaOpen ? (
         <SeaMap
           onClose={() => setSeaOpen(false)}
-          onPlan={(stage) => { setSeaOpen(false); setBattleStage(stage); openBattle(); }}
+          onPlan={openPlan}
           onPractice={() => { setSeaOpen(false); setBattleStage(null); openBattle(); }}
           errorText={seaError}
         />
+      ) : null}
+      {planStage && pirate ? (
+        <PlanScreen
+          stage={planStage}
+          pirate={pirate}
+          data={data}
+          busy={busy}
+          error={examErr}
+          lang={i18n.language}
+          onClose={() => setPlanStage(null)}
+          onLaunch={attack}
+          onCrews={(c) => setPirate((p) => (p ? { ...p, crews: c } : p))}
+          errorText={seaError}
+          renderQuiz={(q) => <QuizList questions={q.questions} answers={q.answers} setAnswer={q.setAnswer} result={q.result} />}
+        />
+      ) : null}
+      {planStage && !pirate ? (
+        <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: "#0B1A2A" }]}>
+          {examErr ? <Text style={styles.warn}>{examErr}</Text> : <ActivityIndicator color="#fff" />}
+          {examErr ? <AppButton label={t("common_back")} onPress={() => setPlanStage(null)} /> : null}
+        </View>
       ) : null}
       {battle ? <BattleReplay battle={battle} onClose={() => setBattle(null)} /> : null}
       {!party && data.gifts?.length ? (
@@ -1645,6 +1683,7 @@ function BattlePanel({
   onReplay,
   onTyphoon,
   onFleet,
+  onPlan,
 }: {
   /** 바다 지도에서 고른 해적 단계 (없으면 아직 별 3개가 아닌 첫 단계) */
   initialStage?: number | null;
@@ -1657,6 +1696,7 @@ function BattlePanel({
   onReplay: (id: string) => void;
   onTyphoon: () => void;
   onFleet: () => void;
+  onPlan: (stage: number) => void;
 }) {
   const { t } = useTranslation();
   const ships = data.fleet?.ships ?? [];
@@ -1739,6 +1779,8 @@ function BattlePanel({
             ))}
           </View>
           <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={() => onAttack({ stage: cur, ships: chosen, lane, target })} />
+          {/* G2c-2: 지도를 눌러 작전을 짜고 대원을 상륙시키기 */}
+          <AppButton label={t("gm_pl_open")} icon="navigate-outline" variant="secondary" onPress={() => onPlan(cur)} />
           {pirate.history.length ? (
             <View style={styles.next}>
               <Text style={styles.text}>{t("gm_bt_history")}</Text>

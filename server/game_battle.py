@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 import daily
 import game
+import game_raid
 import store
 import textbook
 from game import _err, _iso, _lock, need_player
@@ -281,7 +282,9 @@ def pirate_view(rows, fleet, wl):
         for o in base[1:]:
             counts[o["type"]] = counts.get(o["type"], 0) + 1
         stages.append({"no": i, "stars": best.get(i, 0), "open": i == 1 or best.get(i - 1, 0) >= 1, "reward": st["reward"],
-                       "counts": counts, "power": max(o["level"] for o in base[1:])})
+                       "counts": counts, "power": max(o["level"] for o in base[1:]),
+                       # 작전 짜기 지도용 배치 (id = 목표 순서에 쓰는 번호)
+                       "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h")} for o in base]})
     return {"stages": stages, "ready": len(ready), "lanes": list(LANES), "max_ships": 6}
 
 
@@ -305,6 +308,8 @@ def pirate_state(user=Depends(need_player)):
     out["history"] = [{"id": b["id"], "stage": b["stage"], "stars": b["stars"], "at": b.get("created_at"),
                        "pct": (b.get("result") or {}).get("pct")} for b in got["history"]]
     out["typhoon"] = typhoon_view(uid, rows, base, got["buildings"])
+    out["crews"] = game_raid.crew_view(base, got["buildings"])   # G2c-2 상륙 대원
+    out["map"] = {"w": MAP_W, "h": MAP_H, "land": LAND_W}
     return out
 
 
@@ -313,6 +318,10 @@ class AttackBody(BaseModel):
     ships: list[str]
     lane: str = "middle"
     target: str = "defense"     # defense | hq
+    # G2c-2 작전 (landing 을 주면 상륙 전투): 상륙 부두 y, 대원이 부술 건물 id 순서(최대 3), 태울 대원 수
+    landing: int | None = None
+    order: list[int] = []
+    crews: dict[str, int] = {}
 
 
 @router.post("/game/pirate/attack")
@@ -340,8 +349,26 @@ def pirate_attack(body: AttackBody, user=Depends(need_player)):
         for f in picked:
             ws = game.warship_stats(f, wl)
             ships.append({"id": f["id"], "kind": f["kind"], "max_hp": ws["max_hp"], "attack": ws["attack"], "weapons": ws["weapons"]})
-        res = simulate(body.stage, ships, body.lane, body.target)
-        res["note"] = buddy_note(res)
+        raid = body.landing is not None
+        if raid:
+            if not 0 <= body.landing < MAP_H:
+                _err(400, "bad_plan")
+            have = game_raid.get_crews(base)
+            send = {k: max(0, int(body.crews.get(k, 0) or 0)) for k in game_raid.CREW_KINDS}
+            if any(send[k] > have[k] for k in send):
+                _err(400, "crew_short")
+            if sum(send.values()) > game_raid.ship_capacity(ships):
+                _err(400, "crew_room", n=game_raid.ship_capacity(ships))
+            res = game_raid.simulate_raid(pirate_base(body.stage), ships, body.lane, body.landing, body.order, send,
+                                          MAP_W, MAP_H, LAND_W, LANES, {"stage": body.stage})
+            res["note"] = game_raid.raid_note(res)
+            if any(res["crew_lost"].values()):   # 쓰러진 대원만 잃음 (살아 돌아온 대원은 다시 씀)
+                for k, v in res["crew_lost"].items():
+                    have[k] = max(0, have[k] - v)
+                game_raid._save_crews(uid, have)
+        else:
+            res = simulate(body.stage, ships, body.lane, body.target)
+            res["note"] = buddy_note(res)
         # 파손 저장 (침몰 없음)
         for s in res["ships"]:
             dmg = s["max_hp"] - s["hp"]

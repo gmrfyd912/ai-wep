@@ -1716,15 +1716,15 @@ def reclaim(user=Depends(need_player)):
 
 # ---- G2b 무기 연구·올리기, 전투함 선체·무기 달기, 장벽 한꺼번에 올리기 ----
 
-def _sql17(fn):
-    """step17 SQL 을 아직 안 돌렸으면 (새 칸 없음) need_sql17."""
+def _sql17(fn, code="need_sql17"):
+    """step17 SQL 을 아직 안 돌렸으면 (새 칸 없음) need_sql17. (G2c-2 대원은 code=need_sql18)"""
     try:
         return fn()
     except RuntimeError as e:
         m = str(e)
         print("[game] G2b 저장 실패", m[:300], flush=True)
         if "PGRST204" in m or "42703" in m or "column" in m or "schema cache" in m:
-            _err(503, "need_sql17")
+            _err(503, code)
         raise
 
 

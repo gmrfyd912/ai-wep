@@ -6,7 +6,8 @@ import { useTranslation } from "react-i18next";
 
 import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton } from "@/components/ui";
-import type { GameBattle } from "@/lib/api";
+import { CrewGlyph, CREW_COLOR } from "@/components/CrewFigure";
+import { CREW_KINDS, type GameBattle } from "@/lib/api";
 import { BUILDING_COLOR, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
@@ -24,7 +25,10 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
   const [play, setPlay] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [done, setDone] = useState(false);
+  const [cheer, setCheer] = useState(0);   // 이긴 상륙 전투: 끝나고 대원 환호 (0 = 안 함, 1~ = 환호 중 장면 번호)
   const n = battle.frames.length;
+  const landedAny = battle.frames.some((f) => f.c?.length);
+  const willCheer = !!battle.raid && battle.stars > 0 && landedAny;
 
   useEffect(() => {
     if (!play || done) return;
@@ -40,6 +44,15 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
     return () => clearInterval(id);
   }, [play, speed, done, n, battle.tick_sec]);
 
+  // 끝나면 대원 환호 2.4초 (깡충깡충) → 결과 카드
+  useEffect(() => {
+    if (!done || !willCheer) return;
+    setCheer(1);
+    const id = setInterval(() => setCheer((k) => (k >= 12 ? k : k + 1)), 200);
+    return () => clearInterval(id);
+  }, [done, willCheer]);
+  const showCard = done && (!willCheer || cheer >= 12);
+
   const fr = battle.frames[Math.min(i, n - 1)];
   const { w: MW, h: MH, land } = battle.map;
   const cell = Math.floor(Math.min((width * 0.92) / MW, (height - 120) / MH));
@@ -49,6 +62,7 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
 
   const restart = () => {
     setI(0);
+    setCheer(0);
     setDone(false);
     setPlay(true);
   };
@@ -58,7 +72,8 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
       <View style={styles.top}>
         <Text style={styles.title}>{t("gm_bt_title", { n: battle.stage })}</Text>
         <Text style={styles.small}>
-          {t(`gm_bt_lane_${battle.lane}`)} · {t(battle.target === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}
+          {t(`gm_bt_lane_${battle.lane}`)} ·{" "}
+          {battle.raid ? t("gm_pl_pierAt", { n: (battle.landing ?? 0) + 1 }) : t(battle.target === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}
         </Text>
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => setPlay((p) => !p)} style={styles.ctl} disabled={done}>
@@ -121,7 +136,19 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
           const [cx, cy] = C(o);
           return <Circle key={`b${e.boom}`} cx={cx} cy={cy} r={cell * (0.4 + (i - e.t) * 0.2)} fill="#FF8A1F" opacity={0.7 - (i - e.t) * 0.2} />;
         })}
-        {fr.f.map(([who, a, b], k) => {
+        {(cheer ? [] : fr.f).map(([who, a, b], k) => {
+          if (who === "c") {
+            const m = fr.c?.[a];
+            if (!m) return null;
+            const [tx, ty] = C(battle.base[b]);
+            return <Line key={`f${k}`} x1={m[0] * cell} y1={m[1] * cell} x2={tx} y2={ty} stroke="#9EE6FF" strokeWidth={1.5} />;
+          }
+          if (who === "dc") {
+            const m = fr.c?.[b];
+            if (!m) return null;
+            const [sx, sy] = C(battle.base[a]);
+            return <Line key={`f${k}`} x1={sx} y1={sy} x2={m[0] * cell} y2={m[1] * cell} stroke="#FF5252" strokeWidth={1.5} strokeDasharray="3 3" />;
+          }
           if (who === "s") {
             const s = fr.s[a];
             const [tx, ty] = C(battle.base[b]);
@@ -142,7 +169,17 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
             </G>
           );
         })}
+        {/* 상륙 대원 (쓰러지면 흐리게, 이기면 양팔 들고 환호) */}
+        {(fr.c ?? []).map(([x, y, hp, ki], k) => {
+          const kind = CREW_KINDS[ki];
+          const down = hp <= 0;
+          const hop = cheer && !down ? ((cheer + k) % 2) * cell * 0.18 : 0;
+          // 같은 길로 가서 겹치지 않게 조금씩 비켜 그림
+          const dx = ((k % 3) - 1) * cell * 0.28, dy = ((Math.floor(k / 3) % 3) - 1) * cell * 0.22;
+          return <CrewGlyph key={`c${k}`} kind={kind} x={x * cell + dx} y={y * cell + cell * 0.35 + dy} s={cell * 0.8} cheer={cheer > 0 && !down} hop={hop} dim={down} />;
+        })}
       </Svg>
+      {cheer > 0 && !showCard ? <Text style={styles.cheer}>{t("gm_pl_cheer")}</Text> : null}
       <View style={styles.legend}>
         <Leg color={WAR_COLOR} label={t("gm_bt_legShip")} />
         <Leg color={BUILDING_COLOR.battery} label={`B ${t("gm_b_battery")}`} />
@@ -152,9 +189,12 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
         <Leg color={PIRATE_COLOR.hq} label={`☠ ${t("gm_bt_hq")}`} />
         <Leg color="#FFD166" label={t("gm_bt_legMine")} />
         <Leg color="#FF5252" label={t("gm_bt_legTheirs")} />
+        {battle.raid
+          ? CREW_KINDS.filter((k) => battle.crew_sent?.[k]).map((k) => <Leg key={k} color={CREW_COLOR[k]} label={t(`gm_crew_${k}`)} />)
+          : null}
       </View>
 
-      {done ? (
+      {showCard ? (
         <View style={[StyleSheet.absoluteFill, styles.resBg]}>
           <ScrollView contentContainerStyle={styles.resWrap}>
             <View style={styles.card}>
@@ -183,6 +223,13 @@ export function BattleReplay({ battle, onClose }: { battle: GameBattle; onClose:
                 </Text>
               ))}
               {battle.ships.some((s) => s.hp < s.max_hp) ? <Text style={styles.smallC}>{t("gm_bt_repairNote")}</Text> : null}
+              {battle.raid && battle.crew_sent && Object.values(battle.crew_sent).some(Boolean) ? (
+                <Text style={styles.smallC}>
+                  {CREW_KINDS.filter((k) => battle.crew_sent![k])
+                    .map((k) => t("gm_pl_crewBack", { name: t(`gm_crew_${k}`), back: battle.crew_sent![k] - (battle.crew_lost?.[k] ?? 0), sent: battle.crew_sent![k] }))
+                    .join(" · ")}
+                </Text>
+              ) : null}
               <View style={{ flexDirection: "row", gap: space.sm }}>
                 <View style={{ flex: 1 }}>
                   <AppButton label={t("gm_bt_replay")} icon="refresh-outline" variant="secondary" onPress={restart} />
@@ -230,4 +277,5 @@ const styles = StyleSheet.create({
   item: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.cardAlt, borderRadius: 10, paddingVertical: 4, paddingHorizontal: 10 },
   itemText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   smallC: { color: colors.muted, fontSize: 12, textAlign: "center" },
+  cheer: { position: "absolute", top: "40%", color: "#FFD166", fontSize: 30, fontWeight: "900", textShadowColor: "#000", textShadowRadius: 6 },
 });
