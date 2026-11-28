@@ -49,7 +49,7 @@ ENGAGE = 2.5                            # 방어 대원이 이만큼(칸) 안에
 REACH = 0.6                             # 대원이 건물 가장자리에서 이만큼 안이면 부수기 시작
 # 해적 기지 방어 선원 (3단계부터, 연습용)
 PIRATE_CREWS = {3: {"welder": 2}, 4: {"welder": 3, "forklift": 1}, 5: {"welder": 4, "fitter": 2, "forklift": 1},
-                6: {"welder": 5, "fitter": 3, "forklift": 2}}
+                6: {"welder": 5, "fitter": 3, "forklift": 2}, 7: {"welder": 6, "fitter": 3, "forklift": 2}}
 _trainings: dict[str, dict] = {}        # 푸는 중인 대원 훈련 (메모리)
 
 
