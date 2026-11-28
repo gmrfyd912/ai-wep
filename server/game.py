@@ -1607,3 +1607,80 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         _err(400, "bad_value", key="supply_ox")
     _save_setting("game", cur)
     return {"settings": cur, "defaults": DEFAULTS}
+
+
+# ---- 관리자: 계정에 자원 지급 (박사 요청 2026-11-28) ----
+# 장부에 'admin:' 열쇠로 한 줄 적는다 (누가·언제·메모가 남음). 창고 한도는 무시하고 그대로 들어간다.
+# 음수를 넣으면 회수 (잔액보다 많이 빼지는 못함).
+GRANT_KEYS = ("steel", "rods", "tech", "passes", "fame")
+GRANT_MAX = 1000000
+
+
+@router.get("/admin/game/players")
+def admin_players(q: str = "", user=Depends(need_admin)):
+    rows = store.select("users", {"role": "in.(student,admin)", "select": "id,name,login_id,role,status",
+                                  "order": "name.asc", "limit": "5000"})
+    q = q.strip().lower()
+    out = [r for r in rows if r.get("status") != "deleted"
+           and (not q or q in (r.get("name") or "").lower() or q in (r.get("login_id") or "").lower())]
+    return {"players": [{"id": r["id"], "name": r.get("name") or "", "login_id": r.get("login_id") or "", "role": r["role"]}
+                        for r in out[:50]], "total": len(out)}
+
+
+def _player(uid):
+    try:
+        uuid.UUID(uid)
+    except ValueError:
+        _err(404, "not_found")
+    rows = store.select("users", {"id": f"eq.{uid}", "select": "id,name,login_id,role"})
+    if not rows or rows[0]["role"] not in GAME_ROLES:
+        _err(404, "not_found")
+    return rows[0]
+
+
+def _player_view(u):
+    rows = ledger(u["id"])
+    buildings = _buildings(u["id"])
+    hq = _hq(buildings)
+    grants = [{"at": r.get("created_at"), **{k: int(r.get(k) or 0) for k in GRANT_KEYS},
+               "by": (r.get("note") or "").split("|")[1] if (r.get("note") or "").count("|") >= 2 else "",
+               "memo": (r.get("note") or "").split("|", 2)[2] if (r.get("note") or "").count("|") >= 2 else ""}
+              for r in rows if r["key"].startswith("admin:")]
+    return {"player": {"id": u["id"], "name": u.get("name") or "", "login_id": u.get("login_id") or "", "role": u["role"]},
+            "started": bool(buildings), "hq_level": hq["level"] if hq else 0,
+            "resources": balance(rows), "caps": caps(buildings), "grants": grants[::-1][:30]}
+
+
+@router.get("/admin/game/player/{uid}")
+def admin_player(uid: str, user=Depends(need_admin)):
+    return _player_view(_player(uid))
+
+
+class GrantBody(BaseModel):
+    user_id: str
+    steel: int = 0
+    rods: int = 0
+    tech: int = 0
+    passes: int = 0
+    fame: int = 0
+    memo: str = ""
+
+
+@router.post("/admin/game/grant")
+def admin_grant(body: GrantBody, user=Depends(need_admin)):
+    u = _player(body.user_id)
+    amt = {k: int(getattr(body, k)) for k in GRANT_KEYS}
+    if not any(amt.values()):
+        _err(400, "grant_empty")
+    if any(abs(v) > GRANT_MAX for v in amt.values()):
+        _err(400, "grant_big", n=GRANT_MAX)
+    memo = (body.memo or "").replace("|", "/").strip()[:100]
+    with _lock(u["id"]):
+        bal = balance(ledger(u["id"]))
+        short = [k for k, v in amt.items() if v < 0 and bal[k] + v < 0]
+        if short:
+            _err(400, "grant_below_zero", res=short[0], have=bal[short[0]])
+        _add(u["id"], [{"key": f"admin:{uuid.uuid4()}", **amt,
+                        "note": f"admin|{user.get('login_id') or user.get('name') or ''}|{memo}"}])
+    return _player_view(u)
+
