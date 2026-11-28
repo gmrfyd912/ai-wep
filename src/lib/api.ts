@@ -1781,6 +1781,44 @@ export type GameBattle = {
 export const getPirate = () => request<GamePirate>("/game/pirate", {}, GAME_TIMEOUT);
 export const gamePirateAttack = (body: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) =>
   post<{ battle: GameBattle; state: GameState }>("/game/pirate/attack", body, GAME_TIMEOUT);
+/** G2c-1 바다 지도: 과정별 만·교육생 섬·해적 섬 (tier = 내 힘과 비교한 색깔) */
+export type SeaTier = "easy" | "even" | "hard";
+export type GameSea = {
+  size: { w: number; h: number };
+  bays: { id: string; name: string; x: number; y: number; r: number; lx: number; ly: number }[];
+  islands: { id: string; name: string; course: string; x: number; y: number; hq: number; score: number; tier: SeaTier; me: boolean; same: boolean; attackable: boolean }[];
+  pirates: { stage: number; x: number; y: number; stars: number; open: boolean; score: number; tier: SeaTier }[];
+  me: { id: string; course: string; score: number };
+  scouts: { used: number; max: number };
+  same_course_ok: boolean;
+  loot_pct: number;
+  raid_open: boolean;
+};
+/** 정찰 결과 (정답률 배수는 안 옴) */
+export type GameScout = {
+  kind: "pirate" | "user";
+  id: string;
+  name?: string;
+  stage?: number;
+  hq: number;
+  score: number;
+  tier?: SeaTier;
+  grid: { w: number; h: number; land?: number; sea?: number };
+  buildings: { type: string; level: number; x: number; y: number; w: number; h: number }[];
+  counts: Record<string, number>;
+  loot: { steel: number; rods: number; tech?: number; fame?: number };
+  loot_half?: boolean;
+  stars?: number;
+  expect?: number;
+  ships?: number;
+  same?: boolean;
+  attackable?: boolean;
+  raid_open?: boolean;
+  tip: string;
+  scouts: { used: number; max: number };
+};
+export const getSea = () => request<GameSea>("/game/sea", {}, GAME_TIMEOUT);
+export const gameScout = (kind: "pirate" | "user", id: string) => post<GameScout>("/game/sea/scout", { kind, id }, GAME_TIMEOUT);
 export const getBattle = (id: string) => request<{ battle: GameBattle }>(`/game/battle/${id}`, {}, GAME_TIMEOUT);
 export type GameTyphoon = { id: string; total: number; questions: GameExamQuestion[] };
 export type GameTyphoonResult = {

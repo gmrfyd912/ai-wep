@@ -173,6 +173,10 @@ DEFAULTS = {
     "supply_day_max": 0,              # 하루 최대 횟수 (0 = 무제한)
     # 방어 시설과 연결할 교재 장 (장 번호, 0 = 자동: 해안포대 1장, 미사일 기지 2장 … 차례로)
     "link_battery": 0, "link_missile": 0, "link_mine": 0, "link_asw": 0, "link_radar": 0, "link_wall": 0,
+    # G2c 바다 지도·공격 (박사 결정 2026-11-28: 같은 과정 동료도 기본 공격 가능, 약탈 창고 자원의 20%)
+    "raid_same_course": True,         # 같은 과정(반) 동료끼리 공격 허용
+    "raid_loot_pct": 20,              # 약탈: 상대 창고 강판·용접봉의 %
+    "scout_day_max": 20,              # 하루 정찰 횟수 (0 = 무제한, 같은 날 같은 섬은 한 번만 셈)
 }
 EXAM_KINDS = ("ox", "mc", "word", "short")
 EXAM_MAX_EACH = 20
@@ -2260,6 +2264,8 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
             _err(400, "bad_value", key=f"supply_{k}")
     if sum(cur[f"supply_{k}"] for k in SUPPLY_KINDS) < 1:
         _err(400, "bad_value", key="supply_ox")
+    if cur["raid_loot_pct"] > 100:
+        _err(400, "bad_value", key="raid_loot_pct")
     for t in DEFENSE_TYPES:
         if cur[f"link_{t}"] > 200:
             _err(400, "bad_value", key=f"link_{t}")

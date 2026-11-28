@@ -29,7 +29,9 @@ const NUMBER_KEYS = [
 const EXAM_KEYS = ["hq_exam_ox", "hq_exam_mc", "hq_exam_word", "hq_exam_short", "hq_exam_pass"] as const;
 /** 자재 조달 칸 (종류별 문제 수 + 1문제 보상 + 하루 횟수) */
 const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "supply_rods", "supply_day_max"] as const;
-const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS, ...SUPPLY_KEYS];
+/** 바다 지도·공격 칸 (약탈 %·하루 정찰 횟수). 같은 과정 공격 허용은 스위치 */
+const RAID_KEYS = ["raid_loot_pct", "scout_day_max"] as const;
+const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS, ...SUPPLY_KEYS, ...RAID_KEYS];
 /** 방어 시설과 연결할 교재 장 (0 = 자동) */
 const DEFENSE = ["battery", "missile", "mine", "asw", "radar", "wall"] as const;
 
@@ -94,6 +96,10 @@ export default function GameSettingsScreen() {
       setMsg(t("gm_setSupplyBad"));
       return;
     }
+    if (Number(next.raid_loot_pct) > 100) {
+      setMsg(t("gm_setBad"));
+      return;
+    }
     save(next);
   };
 
@@ -149,6 +155,36 @@ export default function GameSettingsScreen() {
       <Body muted>{t("gm_setSupplyHint")}</Body>
       <Card style={{ gap: space.sm }}>
         {SUPPLY_KEYS.map((k) => (
+          <View key={k} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>{t(`gm_set_${k}`)}</Text>
+              {defaults ? <Text style={styles.hint}>{t("gm_setDefault", { n: String(defaults[k]) })}</Text> : null}
+            </View>
+            <TextInput
+              style={styles.input}
+              value={text[k]}
+              onChangeText={(v) => setText((old) => ({ ...old, [k]: v.replace(/[^0-9]/g, "") }))}
+              keyboardType="number-pad"
+            />
+          </View>
+        ))}
+      </Card>
+      <Text style={styles.section}>{t("gm_setRaidTitle")}</Text>
+      <Body muted>{t("gm_setRaidHint")}</Body>
+      <Card style={{ gap: space.sm }}>
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>{t("gm_set_raid_same_course")}</Text>
+            {defaults ? <Text style={styles.hint}>{t("gm_setDefault", { n: defaults.raid_same_course ? "ON" : "OFF" })}</Text> : null}
+          </View>
+          <Switch
+            value={st.raid_same_course !== false}
+            disabled={saving}
+            onValueChange={(v) => save({ ...st, raid_same_course: v })}
+            trackColor={{ true: colors.primary, false: colors.border }}
+          />
+        </View>
+        {RAID_KEYS.map((k) => (
           <View key={k} style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>{t(`gm_set_${k}`)}</Text>

@@ -60,6 +60,7 @@ import {
 } from "@/lib/api";
 import { BattleReplay } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
+import { SeaMap } from "@/components/SeaMap";
 import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
@@ -113,6 +114,8 @@ export default function GameScreen() {
   const [supplyRes, setSupplyRes] = useState<GameSupplyResult | null>(null);
   const [supplyUnit, setSupplyUnit] = useState("");
   const [pirate, setPirate] = useState<GamePirate | null>(null);
+  const [seaOpen, setSeaOpen] = useState(false);       // G2c-1 바다 지도 (전체 화면)
+  const [battleStage, setBattleStage] = useState<number | null>(null);   // 바다 지도에서 고른 해적 단계
   const [battle, setBattle] = useState<GameBattle | null>(null);
   const [typhoon, setTyphoon] = useState<GameTyphoon | null>(null);
   const [typhoonRes, setTyphoonRes] = useState<GameTyphoonResult | null>(null);
@@ -258,6 +261,8 @@ export default function GameScreen() {
   const labels = useMemo(() => Object.fromEntries(TYPES.map((k) => [k, t(`gm_short_${k}`)])), [t]);
   const name = (k: string) => t(`gm_b_${k}`);
 
+  // 바다 지도 오류 문구 (훅이라 아래 "불러오는 중" return 보다 먼저)
+  const seaError = useCallback((e: unknown) => gameError(t, e), [t]);
   if (!data) {
     return (
       <View style={[styles.full, styles.center]}>
@@ -783,7 +788,7 @@ export default function GameScreen() {
           <Fab icon="boat" label={t("gm_ships")} onPress={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }} badge={data.ship?.ready ? "!" : undefined} />
           <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
           <Fab icon="cart" label={t("gm_supplyShort")} onPress={() => openSupply()} />
-          <Fab icon="flag" label={t("gm_bt_short")} onPress={openBattle} />
+          <Fab icon="map" label={t("gm_sea_short")} onPress={() => { setSelected(null); setInfo(null); setSeaOpen(true); }} />
           <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
           <Fab
             icon="book"
@@ -940,7 +945,7 @@ export default function GameScreen() {
                 onStart={(k) => run(() => gameShipStart(k))} onBuildPier={() => startPlace("pier")}
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
             ) : mode === "battle" ? (
-              <BattlePanel data={data} pirate={pirate} busy={busy} error={examErr} onClose={() => setMode("home")}
+              <BattlePanel key={battleStage ?? 0} initialStage={battleStage} data={data} pirate={pirate} busy={busy} error={examErr} onClose={() => setMode("home")}
                 onAttack={attack} onReplay={replay} onTyphoon={openTyphoon} onFleet={openWar} />
             ) : mode === "typhoon" ? (
               <Card style={{ gap: space.sm }}>
@@ -995,6 +1000,14 @@ export default function GameScreen() {
       ) : null}
 
       {party ? <LaunchParty info={party} onClose={() => setParty(null)} /> : null}
+      {seaOpen ? (
+        <SeaMap
+          onClose={() => setSeaOpen(false)}
+          onPlan={(stage) => { setSeaOpen(false); setBattleStage(stage); openBattle(); }}
+          onPractice={() => { setSeaOpen(false); setBattleStage(null); openBattle(); }}
+          errorText={seaError}
+        />
+      ) : null}
       {battle ? <BattleReplay battle={battle} onClose={() => setBattle(null)} /> : null}
       {!party && data.gifts?.length ? (
         <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
@@ -1622,6 +1635,7 @@ function ShipPanel({
 
 /** 해적 연습 전투: 단계 고르기 → 출격할 전투함·들어갈 길·먼저 칠 목표 → 출격 (자동 전투, 다시 보기) + 태풍 대비 훈련 */
 function BattlePanel({
+  initialStage,
   data,
   pirate,
   busy,
@@ -1632,6 +1646,8 @@ function BattlePanel({
   onTyphoon,
   onFleet,
 }: {
+  /** 바다 지도에서 고른 해적 단계 (없으면 아직 별 3개가 아닌 첫 단계) */
+  initialStage?: number | null;
   data: GameState;
   pirate: GamePirate | null;
   busy: boolean;
@@ -1645,7 +1661,7 @@ function BattlePanel({
   const { t } = useTranslation();
   const ships = data.fleet?.ships ?? [];
   const ready = ships.filter((f) => !f.damage && f.repair_left === undefined);
-  const [stage, setStage] = useState<number | null>(null);
+  const [stage, setStage] = useState<number | null>(initialStage ?? null);
   const [pick, setPick] = useState<string[] | null>(null);
   const [lane, setLane] = useState<GameLane>("middle");
   const [target, setTarget] = useState<"defense" | "hq">("defense");
