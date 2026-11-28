@@ -38,7 +38,8 @@ CREWS = {
     "crane":       {"hp": 150, "dmg": 3.0, "speed": 0.12, "cost": 5, "home": "garage", "unlock": 5, "seats": 2, "big": True},
 }
 CREW_KINDS = tuple(CREWS)
-HOMES = {"dorm": (8, 6), "garage": (2, 2)}   # 1레벨 수용, 레벨마다 더함
+HOMES = {"dorm": (8, 6), "garage": (2, 2)}   # (옛 건물) 1레벨 수용, 레벨마다 더함
+RALLY_ROOM = (8, 4)                          # 집결장 하나: 1레벨 8자리, 레벨마다 +4 (사람 1자리, 장비 2자리, 예시)
 HEAL_R = 1.6                             # 안전관리자 회복 거리
 CAPACITY = {"patrol": 2, "frigate": 4, "destroyer": 6, "submarine": 0, "landing": 12}
 CREW_QUIZ = {"ox": 2, "mc": 1}          # 대원 훈련 1번 = 문제 3개, 맞힌 수 = 훈련 점수
@@ -66,8 +67,14 @@ def home_cap(buildings, home):
 
 
 def crew_cap(buildings):
-    """(옛 이름) 사람 대원 + 장비 대원 자리 합."""
-    return home_cap(buildings, "dorm") + home_cap(buildings, "garage")
+    """대원 자리 합: 집결장마다 8 + 4×(레벨−1). (옛 기숙사·정비고가 남아 있으면 그 자리도 셈: 사람 1, 장비 2자리)"""
+    a, k = RALLY_ROOM
+    cap = sum(a + k * (int(b["level"]) - 1) for b in buildings if b["type"] == "rally" and int(b["level"]) >= 1)
+    return cap + home_cap(buildings, "dorm") + 2 * home_cap(buildings, "garage")
+
+
+def seats_used(c):
+    return sum(c[k] * CREWS[k]["seats"] for k in CREW_KINDS)
 
 
 def get_crews(base, now=None):
@@ -129,7 +136,7 @@ def crew_view(base, buildings):
     return {"have": {k: c[k] for k in CREW_KINDS}, "pts": c["pts"], "cap": crew_cap(buildings),
             "total": sum(c[k] for k in CREW_KINDS), "hurt": hc,
             "hurt_until": min([h[2] for h in c["hurt"]], default=None),
-            "homes": {h: {"used": home_used(c, h), "cap": home_cap(buildings, h), "level": _lv_of(buildings, h)} for h in HOMES},
+            "rally": {"used": seats_used(c), "cap": crew_cap(buildings), "n": sum(1 for b in buildings if b["type"] == "rally")},
             "trainhall": th,
             "specs": {k: {"hp": v["hp"], "dmg": v["dmg"], "speed": v["speed"], "cost": v["cost"], "home": v["home"],
                           "unlock": v["unlock"], "seats": v["seats"]} for k, v in CREWS.items()},
@@ -198,10 +205,10 @@ def simulate_raid(base, ships, lane, landing, order, crews, map_w, map_h, land_w
         n = int((defenders or {}).get(k, 0) or 0)
         if n <= 0:
             continue
-        home = next((o for o in base if o["type"] == CREWS[k]["home"]), None) \
-            or next((o for o in base if o["type"] == "hut"), None) or base[0]
-        hx, hy = _center(home)
+        homes = [o for o in base if o["type"] in ("rally", "dorm", "garage")] \
+            or [o for o in base if o["type"] == "hut"] or [base[0]]
         for j in range(n):
+            hx, hy = _center(homes[(j + CREW_KINDS.index(k)) % len(homes)])
             guards.append({"kind": k, "ki": CREW_KINDS.index(k), **CREWS[k], "hp": CREWS[k]["hp"], "max": CREWS[k]["hp"],
                            "x": hx + ((j % 3) - 1) * 0.3, "y": hy + ((j // 3) % 3 - 1) * 0.3, "down": False})
     landed_at = None
@@ -539,10 +546,9 @@ def hire(body: HireBody, user=Depends(need_player)):
         spec = CREWS[body.kind]
         if _lv_of(buildings, "trainhall") < spec["unlock"]:
             _err(400, "crew_locked", need=spec["unlock"])
-        home = spec["home"]
-        cap = home_cap(buildings, home)
-        if home_used(c, home) + body.n > cap:
-            _err(400, "crew_full_" + home if cap else "need_" + home, cap=cap)
+        cap = crew_cap(buildings)
+        if seats_used(c) + body.n * spec["seats"] > cap:
+            _err(400, "crew_full" if cap else "need_rally", cap=cap)
         price = spec["cost"] * body.n
         if c["pts"] < price:
             _err(400, "crew_pts", need=price, have=c["pts"])

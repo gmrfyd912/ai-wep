@@ -22,7 +22,14 @@ export const BUILDING_COLOR: Record<string, string> = {
   trainhall: "#C2577A",
   dorm: "#5FA36B",
   garage: "#C98E3A",
+  rally: "#D9C9A3",
 };
+/** 집결장에 서 있는 대원 색 (종류별) */
+const CREW_COLOR: Record<string, string> = {
+  welder: "#2B3A67", fitter: "#2E9D5B", piper: "#8A6A47", safety: "#F2C230",
+  forklift: "#F2A516", transporter: "#5B8BB5", crane: "#E0A526",
+};
+const MACHINES = new Set(["forklift", "transporter", "crane"]);
 /** 방어 시설 (지도에 이름표 대신 레벨만 작게: 장벽·기뢰는 많아서 이름표 생략) */
 const NO_TAG = new Set(["wall", "mine"]);
 /** 전투함 회색 (상선은 빨간 배) */
@@ -32,7 +39,7 @@ export const RES_COLOR = { steel: "#8FA3B8", rods: "#F2A516", tech: "#57C4E5", p
 const BASE_H: Record<string, number> = {
   hq: 0.8, yard: 0.3, rodstore: 0.4, cutting: 0.5, welding: 0.55, academy: 0.6, dock: 0, pier: 0.2,
   battery: 0.3, missile: 0.25, mine: 0, asw: 0.4, radar: 0.25, wall: 0.35,
-  trainhall: 0.55, dorm: 0.6, garage: 0.45,
+  trainhall: 0.55, dorm: 0.6, garage: 0.45, rally: 0,
 };
 
 type Pt = [number, number];
@@ -143,6 +150,7 @@ export function GameMap({
   onPlace,
   onCollect,
   names = true,
+  crews,
   now,
 }: {
   grid: number;
@@ -168,6 +176,8 @@ export function GameMap({
   onPlace: (x: number, y: number) => void;
   /** 건물 위 '받기' 동그라미를 눌렀을 때 (생산분 받기) */
   onCollect?: () => void;
+  /** 집결장에 보일 대원 (종류별 수) */
+  crews?: Partial<Record<string, number>>;
   /** 모든 건물 이름표 보이기 (끄면 고른 건물·공사 중 시간·받기 동그라미만) */
   names?: boolean;
   /** 화면 글자: 남은 시간 등 */
@@ -264,6 +274,30 @@ export function GameMap({
 
   const wall: React.ReactNode[] = [];
 
+  // 집결장마다 서 있을 대원: 자리(room)만큼 차례로 나눔 (사람 1·장비 2자리)
+  const rallyCrew: Record<string, string[]> = {};
+  {
+    const rallies = buildings.filter((b) => b.type === "rally" && b.level > 0);
+    const queue: string[] = [];
+    Object.entries(crews ?? {}).forEach(([k, n]) => {
+      for (let i = 0; i < (n ?? 0); i++) queue.push(k);
+    });
+    // 사람·장비가 골고루 섞이게 종류를 번갈아
+    queue.sort((a, b) => Number(MACHINES.has(a)) - Number(MACHINES.has(b)));
+    let qi = 0;
+    for (const r of rallies) {
+      const room = r.room ?? 8;
+      const list: string[] = [];
+      let used = 0;
+      while (qi < queue.length && used + (MACHINES.has(queue[qi]) ? 2 : 1) <= room) {
+        used += MACHINES.has(queue[qi]) ? 2 : 1;
+        list.push(queue[qi++]);
+      }
+      rallyCrew[r.id] = list;
+    }
+  }
+  const walkers: React.ReactNode[] = [];
+
   const tagInfo: { b: GameBuilding; sel: boolean; cx: number; y: number }[] = [];
   const sorted = [...buildings].sort((a, b) => a.x + a.w + a.y + a.h - (b.x + b.w + b.y + b.h));
   const items = sorted.map((b) => {
@@ -349,6 +383,40 @@ export function GameMap({
       parts.push(box(b.x + 0.38, b.y + 0.38, 0.24, 0.24, z + 1.1 * W, color, "mast"));
       const t = P(b.x + 0.5, b.y + 0.5);
       parts.push(<Ellipse key="dish" cx={t[0]} cy={t[1] - z - 1.15 * W} rx={W * 0.42} ry={W * 0.16} fill="#E8ECF4" stroke="#556" strokeWidth={1} />);
+    } else if (b.type === "rally" && b.level > 0) {
+      // 집결장: 넓은 광장 + 깃발 + 모여 선 대원·장비 (박사 요청 2026-11-28)
+      const A = P(b.x + 0.1, b.y + 0.1), B = P(b.x + b.w - 0.1, b.y + 0.1), C = P(b.x + b.w - 0.1, b.y + b.h - 0.1), D = P(b.x + 0.1, b.y + b.h - 0.1);
+      parts.push(<Polygon key="plaza" points={pts([A, B, C, D])} fill="#E6DCC4" stroke="#B8955A" strokeWidth={1.5} />);
+      const f = P(b.x + 0.35, b.y + 0.35);
+      parts.push(<Line key="fpole" x1={f[0]} y1={f[1]} x2={f[0]} y2={f[1] - 1.1 * W} stroke="#555" strokeWidth={1.5} />);
+      parts.push(<Polygon key="flag" points={pts([[f[0], f[1] - 1.1 * W], [f[0] + 0.45 * W, f[1] - 0.95 * W], [f[0], f[1] - 0.8 * W]])} fill="#FF8A1F" />);
+      const list = rallyCrew[b.id] ?? [];
+      const cols = 4, gap = (b.w - 0.6) / cols;
+      list.slice(0, 16).forEach((k, i) => {
+        const gx = b.x + 0.55 + (i % cols) * gap, gy = b.y + 0.75 + Math.floor(i / cols) * gap;
+        const c = P(gx, gy);
+        const col = CREW_COLOR[k] ?? "#333";
+        if (MACHINES.has(k)) {
+          parts.push(box(gx - 0.2, gy - 0.15, k === "transporter" ? 0.6 : 0.4, 0.3, (k === "crane" ? 0.5 : 0.22) * W, col, `m${i}`));
+        } else {
+          parts.push(<Rect key={`pb${i}`} x={c[0] - W * 0.07} y={c[1] - W * 0.28} width={W * 0.14} height={W * 0.22} rx={W * 0.03} fill={col} />);
+          parts.push(<Circle key={`ph${i}`} cx={c[0]} cy={c[1] - W * 0.34} r={W * 0.07} fill="#F2C9A0" />);
+          parts.push(<Rect key={`hh${i}`} x={c[0] - W * 0.08} y={c[1] - W * 0.43} width={W * 0.16} height={W * 0.05} rx={W * 0.02} fill="#FFC21A" />);
+        }
+      });
+      if (list.length > 16) {
+        const c = P(b.x + b.w - 0.4, b.y + b.h - 0.3);
+        parts.push(<SvgText key="more" x={c[0]} y={c[1]} fontSize={W * 0.32} fill="#5A4A2A" textAnchor="middle" fontWeight="bold">{`+${list.length - 16}`}</SvgText>);
+      }
+      // 대원 둘이 집결장과 가까운 건물 사이를 오감 (보기용)
+      if (list.length && !place && walkers.length < 3) {
+        const near = buildings.filter((o) => o.id !== b.id && o.type !== "wall" && o.type !== "mine" && o.x < grid)
+          .sort((p1, p2) => Math.abs(p1.x - b.x) + Math.abs(p1.y - b.y) - (Math.abs(p2.x - b.x) + Math.abs(p2.y - b.y)))[0];
+        if (near) {
+          walkers.push(<Walker key={`wk${b.id}`} from={P(b.x + b.w / 2, b.y + b.h + 0.2)} to={P(near.x + near.w / 2, near.y + near.h + 0.2)} size={W * 0.55}
+            color={CREW_COLOR[list[0]] ?? "#2B3A67"} offset={b.x * 131 + b.y * 17} />);
+        }
+      }
     } else if (b.level === 0) {
       // 새로 짓는 중: 비계(뼈대)
       parts.push(box(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, 0.12 * W, "#9B8F7A", "base"));
@@ -470,10 +538,36 @@ export function GameMap({
       {/* 놓기 모드: 건물을 흐리게, 누르기는 아래 땅 칸으로 (건물 그림에 가려진 칸에 잘못 놓이지 않게) */}
       <G opacity={place ? 0.28 : 1} pointerEvents={place ? "none" : "auto"}>
         {items}
+        {walkers}
       </G>
       {ghost}
       {place ? null : tags}
     </Svg>
+  );
+}
+
+/** 오가는 대원 (보기용): from → to 걸어갔다 돌아옴 */
+function Walker({ from, to, size, color, offset }: { from: Pt; to: Pt; size: number; color: string; offset: number }) {
+  const LOOP = 9000;
+  const [t, setT] = useState(offset % LOOP);
+  useEffect(() => {
+    const start = Date.now() - offset;
+    const id = setInterval(() => setT((Date.now() - start) % LOOP), 120);
+    return () => clearInterval(id);
+  }, [offset]);
+  const half = LOOP / 2;
+  const k = t < half ? t / half : 1 - (t - half) / half;
+  const x = from[0] + (to[0] - from[0]) * k, y = from[1] + (to[1] - from[1]) * k;
+  const s = size, step = Math.sin((t / 140) * Math.PI) * s * 0.12;
+  return (
+    <G pointerEvents="none">
+      <Circle cx={x} cy={y + 1} r={s * 0.2} fill="#0003" />
+      <Line x1={x - s * 0.06} y1={y - s * 0.3} x2={x - s * 0.08 + step} y2={y} stroke="#1E2A4A" strokeWidth={s * 0.1} strokeLinecap="round" />
+      <Line x1={x + s * 0.06} y1={y - s * 0.3} x2={x + s * 0.08 - step} y2={y} stroke="#1E2A4A" strokeWidth={s * 0.1} strokeLinecap="round" />
+      <Rect x={x - s * 0.15} y={y - s * 0.7} width={s * 0.3} height={s * 0.42} rx={s * 0.06} fill={color} />
+      <Circle cx={x} cy={y - s * 0.82} r={s * 0.13} fill="#F2C9A0" />
+      <Rect x={x - s * 0.17} y={y - s * 0.98} width={s * 0.34} height={s * 0.1} rx={s * 0.04} fill="#FFC21A" />
+    </G>
   );
 }
 

@@ -79,8 +79,11 @@ BUILDINGS = {
     "wall":     {"size": (1, 1), "steel": 60, "rods": 0, "unlock": 2, "max": 8, "sea": True, "defense": True, "instant": True},
     # 대원 (박사 승인 2026-11-28 대원 확장 계획안): 기술교육원 = 대원 훈련, 기숙사 = 사람 대원, 장비 정비고 = 장비 대원
     "trainhall": {"size": (2, 2), "steel": 300, "rods": 100, "unlock": 2, "max": 8},
-    "dorm":      {"size": (2, 2), "steel": 250, "rods": 50, "unlock": 2, "max": 8},
-    "garage":    {"size": (2, 3), "steel": 350, "rods": 100, "unlock": 3, "max": 8},
+    # 집결장: 대원·장비가 모여 있는 광장 (박사 결정 2026-11-28: 기숙사·장비 정비고 대신, 본관 레벨에 따라 최대 4개)
+    "rally":     {"size": (3, 3), "steel": 250, "rods": 50, "unlock": 2, "max": 8},
+    # 옛 건물 (새로 못 지음, 불러올 때 집결장으로 바뀜)
+    "dorm":      {"size": (2, 2), "steel": 250, "rods": 50, "unlock": 2, "max": 8, "gone": True},
+    "garage":    {"size": (2, 3), "steel": 350, "rods": 100, "unlock": 3, "max": 8, "gone": True},
 }
 COAST_TYPES = ("dock", "pier", "battery", "asw")
 SEA_TYPES = ("mine", "wall")      # 바다에 놓는 것 (간척하면 바다와 같이 옮김)
@@ -94,6 +97,8 @@ DEFENSE_COUNT = {
     "radar":   [0, 0, 0, 1, 1, 2, 2, 2, 3],
     "wall":    [0, 0, 8, 12, 16, 20, 24, 28, 32],
 }
+# 방어 시설이 아니지만 여러 개 지을 수 있는 건물: 본관 레벨(0~8)마다 개수 (숫자는 예시)
+MULTI_COUNT = {"rally": [0, 0, 1, 1, 2, 2, 3, 3, 4]}
 # 방어 시설 기본 능력 (1레벨, 장 정답률 1배). dmg = 한 번 쏠 때 피해, range = 사거리(칸), buff = 주변 시설 힘 +%
 DEFENSE_STATS = {
     "battery": {"hp": 300, "dmg": 30, "range": 3},
@@ -405,6 +410,26 @@ def _finish_reclaim(uid, base, buildings, now):
     base["reclaim"], base["reclaim_until"] = LAND_STAGE, None
 
 
+def _merge_homes(uid, buildings):
+    """옛 기숙사·장비 정비고 → 집결장 하나 (레벨은 둘 중 높은 쪽, 본관 가까운 빈 자리). 박사 결정 2026-11-28."""
+    old = [b for b in buildings if b["type"] in ("dorm", "garage")]
+    if not old or any(b["type"] == "rally" for b in buildings):
+        if old and any(b["type"] == "rally" for b in buildings):   # 이미 집결장이 있으면 옛 건물만 치움
+            for b in old:
+                store.delete("game_buildings", {"id": f"eq.{b['id']}"})
+                buildings.remove(b)
+        return
+    lv = max(max(int(b["level"]), 1) for b in old)
+    rest = [b for b in buildings if b["type"] not in ("dorm", "garage")]
+    spot = free_spot(rest, "rally") or (old[0]["x"], old[0]["y"])
+    for b in old:
+        store.delete("game_buildings", {"id": f"eq.{b['id']}"})
+        buildings.remove(b)
+    row = {"id": str(uuid.uuid4()), "user_id": uid, "type": "rally", "level": lv, "x": spot[0], "y": spot[1], "collected_at": _iso(_now())}
+    store.insert_rows("game_buildings", [row], returning=False)
+    buildings.append(row)
+
+
 def _prep(uid, now):
     """조선소 불러오기 + 끝난 공사·간척 마무리 → (base, buildings)."""
     got = _par(base=lambda: _base(uid), buildings=lambda: _buildings(uid))   # 이미 있는 조선소라 동시에 받아도 됨
@@ -412,6 +437,7 @@ def _prep(uid, now):
     buildings = got["buildings"]
     _finish_due(uid, buildings, None, now)
     _finish_reclaim(uid, base, buildings, now)
+    _merge_homes(uid, buildings)
     return base, buildings
 
 
@@ -792,6 +818,7 @@ def load(user, sync=True):
         buildings = _buildings(uid) if new else got0["buildings"]   # 처음 만든 조선소면 새 건물까지 다시 받기
         _finish_due(uid, buildings, None, now)
         _finish_reclaim(uid, base, buildings, now)
+        _merge_homes(uid, buildings)
         new_rows = []
         waiting = {"steel": 0, "rods": 0}
         # 장부·배·함대·공장 가동일·공부 기록을 한꺼번에 받기 (공부 보상은 장부와 비교해 나중에 거름)
@@ -893,7 +920,14 @@ def upgrade_block(b, buildings, rows):
 # ---- G2b 방어 시설·무기 ----
 
 def defense_max(btype, hq_lv):
-    return DEFENSE_COUNT[btype][max(0, min(hq_lv, len(DEFENSE_COUNT[btype]) - 1))]
+    table = DEFENSE_COUNT.get(btype) or MULTI_COUNT.get(btype)
+    if not table:
+        return 1
+    return table[max(0, min(hq_lv, len(table) - 1))]
+
+
+def count_table(btype):
+    return DEFENSE_COUNT.get(btype) or MULTI_COUNT.get(btype)
 
 
 def defense_link(btype, st, units):
@@ -1039,9 +1073,9 @@ def view(s, lang="ko"):
             item["cap"] = int(CAP_TABLE[max(b["level"], 1)] * 0.6)
         if b["type"] == "pier":
             item["fleet_cap"] = max(b["level"], 1) + 1
-        if b["type"] in ("dorm", "garage"):   # 기숙사(사람)·장비 정비고(장비): 머물 수 있는 자리
+        if b["type"] == "rally":   # 집결장: 대원 자리 (사람 1자리, 장비 2자리)
             import game_raid
-            a, k = game_raid.HOMES[b["type"]]
+            a, k = game_raid.RALLY_ROOM
             item["room"] = a + k * (max(b["level"], 1) - 1)
             item["room_step"] = k
         if spec.get("defense"):
@@ -1052,7 +1086,7 @@ def view(s, lang="ko"):
         out_b.append(item)
     catalog = []
     for t, spec in BUILDINGS.items():
-        if t in ("hq", "dock"):
+        if t in ("hq", "dock") or spec.get("gone"):
             continue
         have = sum(1 for b in buildings if b["type"] == t)
         item = {"type": t, "cost": cost(t, 1), "seconds": 0 if spec.get("instant") else build_seconds(1), "unlock": spec["unlock"],
@@ -1064,6 +1098,12 @@ def view(s, lang="ko"):
             item.update({"defense": True, "have": have, "max": mx, "full": not item["locked"] and have >= mx,
                          "more_at": nxt_hq, "sea": bool(spec.get("sea")),
                          "instant": bool(spec.get("instant"))})
+        elif t in MULTI_COUNT:
+            mx = defense_max(t, hq_lv)
+            nxt_hq = next((lv for lv in range(hq_lv + 1, len(MULTI_COUNT[t])) if MULTI_COUNT[t][lv] > mx), None)
+            if have and have >= mx and not nxt_hq:
+                continue
+            item.update({"have": have, "max": mx, "full": not item["locked"] and have >= mx, "more_at": nxt_hq})
         elif have:
             continue
         catalog.append(item)
@@ -1131,6 +1171,7 @@ def view(s, lang="ko"):
         "ships": ships, "ship": ship_out, "delivered": [d["kind"] for d in delivered],
         "warships": warships, "fleet": {"cap": fcap, "ships": fleet_out, "building": building_war},
         "reclaim": reclaim_view(base, hq_lv, busy_n, now),
+        "crews": _crews_brief(base, buildings),
         "weapons": weapons_view(base, buildings, hq_lv),
         "units": {"done": done_n, "total": len(units),
                   "next": next(({"key": u["key"], "title": u["title"], "pdf_page": u["pdf_page"], "seen": u["seen"],
@@ -1164,6 +1205,15 @@ def warship_block(kind, buildings, hq_lv, used, cap):
     if used >= cap:
         return "fleet_full"
     return None
+
+
+def _crews_brief(base, buildings):
+    """집결장에 보일 대원: 종류별 싸울 수 있는 수·부상·자리."""
+    import game_raid
+    c = game_raid.get_crews(base)
+    hurt = game_raid.hurt_counts(c)
+    return {"have": game_raid.available(c), "hurt": sum(hurt.values()), "used": game_raid.seats_used(c),
+            "cap": game_raid.crew_cap(buildings), "hurt_until": min([h[2] for h in c["hurt"]], default=None)}
 
 
 def reclaim_view(base, hq_lv, busy_n, now):
@@ -1435,7 +1485,7 @@ class BuildBody(BaseModel):
 def build(body: BuildBody, user=Depends(need_player)):
     uid = user["id"]
     spec = BUILDINGS.get(body.type)
-    if not spec or body.type in ("hq", "dock"):
+    if not spec or body.type in ("hq", "dock") or spec.get("gone"):
         _err(400, "bad_type")
     with _lock(uid):
         now = _now()
@@ -1444,7 +1494,7 @@ def build(body: BuildBody, user=Depends(need_player)):
         hq = _hq(buildings)
         hq_lv = hq["level"] if hq else 1
         have = sum(1 for b in buildings if b["type"] == body.type)
-        if spec.get("defense"):
+        if spec.get("defense") or body.type in MULTI_COUNT:
             if hq_lv < spec["unlock"]:
                 _err(400, "hq_level")
             if have >= defense_max(body.type, hq_lv):

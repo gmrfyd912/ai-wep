@@ -262,7 +262,7 @@ function PresetCard({ pv, err, onDone }: { pv: GamePlayerView; err: (e: unknown)
           <Text style={styles.label}>{t("gp_weapons", { list: Object.keys(p.weapons).map((k) => t(`gm_w_${k}`)).join(" · ") })}</Text>
           <Text style={styles.label}>{t("gp_ships", { list: list(shipCount, (k) => `gm_ship_${k}`) || t("gm_ct_none"), n: p.level })}</Text>
           <Text style={styles.label}>
-            {t("gp_crews", { list: list(p.crews as Record<string, number>, (k) => `gm_crew_${k}`) || t("gm_ct_none"), d: p.homes.dorm, g: p.homes.garage })}
+            {t("gp_crews2", { list: list(p.crews as Record<string, number>, (k) => `gm_crew_${k}`) || t("gm_ct_none"), n: p.homes.n, c: p.homes.rally })}
           </Text>
           <Text style={styles.hint}>{t("gp_keep")}</Text>
         </View>
