@@ -73,6 +73,7 @@ import {
 import { BattleReplay, type LiveCtl } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
+import { ClassGift } from "@/components/ClassGift";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
 import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
@@ -1412,6 +1413,7 @@ export default function GameScreen() {
                 ) : (
                   <AppButton label={t("gm_todoClaim")} icon="gift" disabled={busy || !data.todo.items.every((i) => i.done)} onPress={claimTodo} />
                 )}
+                <ClassGift onState={apply} errorText={(e) => gameError(t, e)} />
               </Card>
             ) : mode === "layout" ? (
               <Card style={{ gap: space.sm }}>
