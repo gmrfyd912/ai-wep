@@ -3,7 +3,15 @@ import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, TextInput, View
 import { useTranslation } from "react-i18next";
 
 import { AppButton, Body, Card, Screen } from "@/components/ui";
-import { getGameSettings, putGameSettings, type GameSettings } from "@/lib/api";
+import {
+  adminContestFinish,
+  adminContestPair,
+  adminGetContest,
+  getGameSettings,
+  putGameSettings,
+  type AdminContest,
+  type GameSettings,
+} from "@/lib/api";
 import { colors, radius, space } from "@/theme";
 
 /** 숫자 칸 순서 (서버 game.DEFAULTS 와 같은 이름) */
@@ -32,9 +40,10 @@ const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "s
 /** 바다 지도·공격 칸 (약탈 %·하루 정찰 횟수). 같은 과정 공격 허용은 스위치 */
 const RAID_KEYS = ["raid_loot_pct", "scout_day_max", "raid_day_max", "raid_shield_hours", "raid_newbie_days", "raid_level_gap",
   "raid_rest_days", "raid_defend_rods", "gift_amount", "gift_tech", "gift_recv_max",
+  "contest_study_pct", "contest_day_cap", "contest_win_steel", "contest_win_rods", "contest_win_fame", "contest_join_steel",
   "raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to", "crew_hurt_minutes"] as const;
 /** 바다 지도·공격 켜기/끄기 스위치 */
-const RAID_SWITCHES = ["raid_pvp", "raid_same_course", "raid_need_daily", "raid_time_lock", "gift_on"] as const;
+const RAID_SWITCHES = ["raid_pvp", "raid_same_course", "raid_need_daily", "raid_time_lock", "gift_on", "contest_on"] as const;
 const HOUR_KEYS = ["raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to"];
 const ALL_KEYS = [...NUMBER_KEYS, ...EXAM_KEYS, ...SUPPLY_KEYS, ...RAID_KEYS];
 /** 방어 시설과 연결할 교재 장 (0 = 자동) */
@@ -206,6 +215,7 @@ export default function GameSettingsScreen() {
           </View>
         ))}
       </Card>
+      <ContestAdmin />
       <Text style={styles.section}>{t("gm_setLinkTitle")}</Text>
       <Body muted>{t("gm_setLinkHint")}</Body>
       <Card style={{ gap: space.sm }}>
@@ -259,3 +269,47 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 });
+
+/** 주간 반 대항전: 이번 주 짝·점수 보기, 시험용 '지금 짝 정하기'·'지금 결과 내기' */
+function ContestAdmin() {
+  const { t } = useTranslation();
+  const [v, setV] = useState<AdminContest | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    adminGetContest().then(setV).catch((e) => setErr(String((e as Error)?.message ?? e)));
+  }, []);
+  const run = async (fn: () => Promise<AdminContest>) => {
+    setBusy(true);
+    setErr("");
+    try {
+      setV(await fn());
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const fmt = (n: number | null) => (n === null || n === undefined ? "-" : Number.isInteger(n) ? String(n) : n.toFixed(1));
+  return (
+    <>
+      <Text style={styles.section}>{t("gm_ac_title")}</Text>
+      <Body muted>{t("gm_ac_hint")}</Body>
+      <Card style={{ gap: space.sm }}>
+        {v && !v.ready ? <Text style={styles.hint}>{t("gm_err_need_sql22")}</Text> : null}
+        {v?.ready && v.rows.length === 0 ? <Text style={styles.hint}>{t("gm_ac_none")}</Text> : null}
+        {v?.rows.map((r, i) => (
+          <Text key={i} style={styles.label}>
+            {r.rival ? `${r.course} ${fmt(r.score)} : ${fmt(r.rival_score)} ${r.rival}` : `${r.course} ${fmt(r.score)} · ${r.rival_score === null ? t("gm_ac_soloFirst") : t("gm_ac_solo", { goal: fmt(r.rival_score) })}`}
+            {r.done ? ` · ${r.won ? t("gm_ac_won", { name: r.course }) : r.rival ? t("gm_ac_won", { name: r.rival }) : t("gm_ac_lost", { name: r.course })}` : ` · ${t("gm_ac_live")}`}
+          </Text>
+        ))}
+        {err ? <Text style={{ color: colors.warning }}>{err}</Text> : null}
+        <View style={{ flexDirection: "row", gap: space.sm, flexWrap: "wrap" }}>
+          <AppButton label={t("gm_ac_pair")} variant="secondary" disabled={busy} onPress={() => run(adminContestPair)} />
+          <AppButton label={t("gm_ac_finish")} variant="secondary" disabled={busy || !v?.rows.some((r) => !r.done)} onPress={() => run(adminContestFinish)} />
+        </View>
+      </Card>
+    </>
+  );
+}

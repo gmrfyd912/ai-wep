@@ -12,6 +12,8 @@ import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton, Body, Card } from "@/components/ui";
 import {
   CREW_KINDS,
+  getGameContest,
+  type GameContest,
   gameBuild,
   gameWallsBuild,
   gameCollect,
@@ -74,6 +76,7 @@ import { BattleReplay, type LiveCtl } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
 import { ClassGift } from "@/components/ClassGift";
+import { ContestBody, ContestChip } from "@/components/Contest";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
 import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
@@ -82,7 +85,7 @@ import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap,
 import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon" | "todo" | "layout";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon" | "todo" | "layout" | "contest";
 // 지도 빈 곳을 눌러도 닫지 않는 창: 문제 푸는 창(적던 답 보호)과 놓기 모드
 const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place", "layout"];
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
@@ -153,6 +156,14 @@ export default function GameScreen() {
   const [typhoon, setTyphoon] = useState<GameTyphoon | null>(null);
   const [typhoonRes, setTyphoonRes] = useState<GameTyphoonResult | null>(null);
   const [data, setData] = useState<GameState | null>(null);
+  // 주간 반 대항전 (위 가운데 한 줄 + 대항전 창)
+  const [contest, setContest] = useState<GameContest | null>(null);
+  const loadContest = useCallback(() => {
+    getGameContest().then(setContest).catch(() => null);
+  }, []);
+  useEffect(() => {
+    loadContest();
+  }, [loadContest]);
   // 무료 서버는 평일 낮에만 깨어 있어, 저녁·주말 첫 접속은 오래 걸릴 수 있음 → 5초 넘으면 안내
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -1066,6 +1077,13 @@ export default function GameScreen() {
         ) : null}
       </View>
 
+      {/* 위 가운데: 이번 주 반 대항전 */}
+      {!panelOpen ? (
+        <View style={[styles.hudTC, { top: 8 + insets.top }]} pointerEvents="box-none">
+          <ContestChip v={contest} onPress={() => { setSelected(null); loadContest(); setMode("contest"); }} />
+        </View>
+      ) : null}
+
       {/* 오른쪽 위: 자원 (세로로, 창고가 얼마나 찼는지 막대) */}
       {!panelOpen ? (
         <View style={[styles.hudTR, { top: 8 + insets.top, right: 8 + insets.right }]} pointerEvents="box-none">
@@ -1394,6 +1412,11 @@ export default function GameScreen() {
             ) : mode === "arms" ? (
               <ArmsPanel data={data} busy={busy} onClose={() => setMode("home")} onFleet={openWar}
                 onResearch={(k) => run(() => gameWeaponResearch(k))} onUpgrade={(k) => run(() => gameWeaponUpgrade(k))} />
+            ) : mode === "contest" ? (
+              <Card style={{ gap: space.sm }}>
+                <PanelHead title={t("gm_ct_contestTitle")} info={t("gm_ct_info")} onClose={() => setMode("home")} />
+                <ContestBody v={contest} setV={setContest} onState={apply} errorText={(e) => gameError(t, e)} />
+              </Card>
             ) : mode === "todo" && data.todo ? (
               <Card style={{ gap: space.sm }}>
                 <PanelHead title={t("gm_todoTitle")} info={t("gm_todoInfo")} onClose={() => setMode("home")} />
@@ -3015,6 +3038,7 @@ const styles = StyleSheet.create({
   trainCard: { backgroundColor: "#0F2236", borderRadius: radius.md, borderWidth: 1, borderColor: "#FFFFFF22", padding: space.sm, gap: space.sm, width: 520, maxWidth: "100%" },
   hudTL: { position: "absolute", gap: 4 },
   hudTR: { position: "absolute", gap: 4, alignItems: "flex-end" },
+  hudTC: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   hudBL: { position: "absolute", flexDirection: "row", gap: 8, alignItems: "flex-end" },
   hudBR: { position: "absolute", gap: 6, alignItems: "flex-end" },
   lvBadge: { width: 40, height: 40, borderRadius: 10, backgroundColor: "#2F5F9E", borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" },

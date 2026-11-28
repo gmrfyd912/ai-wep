@@ -1763,6 +1763,41 @@ export const getGameClass = () => request<GameClass>("/game/class", {}, GAME_TIM
 export const gameGift = (to: string, kind: "steel" | "rods") =>
   post<{ class: GameClass; state: GameState }>("/game/gift", { to, kind }, GAME_TIMEOUT);
 export const gameNeed = (kind: "steel" | "rods") => post<{ class: GameClass }>("/game/need", { kind }, GAME_TIMEOUT);
+
+/** 주간 반 대항전 (월 0시 ~ 토 0시, 점수는 서버 계산) */
+export type GameContestRow = {
+  week: string;
+  done: boolean;
+  ends_at: string;
+  us: { id: string; name: string; score: number };
+  them: { id: string; name: string } | null;
+  target: number | null;
+  rival_score: number | null;
+  won?: boolean;
+  me: { study: number; battle: number };
+};
+export type GameContest = {
+  on: boolean;
+  ready?: boolean;
+  row?: GameContestRow | null;
+  caps?: { study: number; battle: number };
+  pts?: Record<"daily" | "ox" | "crew" | "star" | "pirate" | "defend", number>;
+  next_start?: string;
+  prize?: { steel: number; rods: number; fame: number; join: number };
+  reward?: { week: string; won: boolean; steel: number; rods: number; fame: number } | null;
+  history?: { week: string; rival: string | null; score: number; rival_score: number | null; won: boolean }[];
+};
+export const getGameContest = () => request<GameContest>("/game/contest", {}, GAME_TIMEOUT);
+export const gameContestClaim = (week: string, force = false) =>
+  post<{ contest: GameContest; state: GameState; got: { steel: number; rods: number; fame: number } }>("/game/contest/claim", { week, force }, GAME_TIMEOUT);
+export type AdminContest = {
+  ready: boolean;
+  week?: string;
+  rows: { course: string; rival: string | null; score: number; rival_score: number | null; done: boolean; won: boolean | null }[];
+};
+export const adminGetContest = () => request<AdminContest>("/admin/game/contest", {}, GAME_TIMEOUT);
+export const adminContestPair = () => post<AdminContest>("/admin/game/contest/pair", {}, GAME_TIMEOUT);
+export const adminContestFinish = () => post<AdminContest>("/admin/game/contest/finish", {}, GAME_TIMEOUT);
 export const gameCollect = () => post<GameState>("/game/collect", {}, GAME_TIMEOUT);
 export const gameSpeedup = (target: string, using: "tech" | "pass") => post<GameState>("/game/speedup", { target, using }, GAME_TIMEOUT);
 export const gameReclaim = () => post<GameState>("/game/reclaim", {}, GAME_TIMEOUT);
