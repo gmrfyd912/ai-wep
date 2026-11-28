@@ -620,14 +620,38 @@ def g2b(c, user, A, T1, qs):
     pv = c.get("/game/pirate", headers=S).json()
     assert pv["stages"][0]["open"] and not pv["stages"][1]["open"] and pv["ready"] == 1, pv["stages"][:2]
     assert pv["typhoon"]["done_today"] is False and pv["history"] == []
-    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 2, "ships": [ship["id"]]})) == "stage_locked"
-    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": []})) == "no_ships"
-    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]], "lane": "x"})) == "bad_plan"
-    steel0 = c.get("/game/state", headers=S).json()["resources"]["steel"]
-    r = c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]], "lane": "middle", "target": "defense"})
+    import game_live as gl
+    import game_raid as gr
+
+    def live(stage, ships, y=None, headers=S):
+        """시간차 출동 전투: 시작 → 배를 모두 처음에 보냄 → 끝."""
+        r0 = c.post("/game/live/pirate/start", headers=headers, json={"stage": stage, "ships": ships})
+        if r0.status_code != 200:
+            return r0
+        lid = r0.json()["id"]
+        for i in range(len(ships)):
+            c.post("/game/live/deploy", headers=headers, json={"id": lid, "t": 0, "ship": i, "y": game_battle.MAP_H / 2 if y is None else y})
+        return c.post("/game/live/end", headers=headers, json={"id": lid})
+
+    assert code(live(2, [ship["id"]])) == "stage_locked"
+    assert code(live(1, [])) == "no_ships"
+    r0 = c.post("/game/live/pirate/start", headers=S, json={"stage": 1, "ships": [ship["id"]]}).json()
+    assert code(c.post("/game/live/deploy", headers=S, json={"id": r0["id"], "t": 0, "ship": 0, "y": 999})) == "bad_plan"
+    assert code(c.post("/game/live/deploy", headers=S, json={"id": r0["id"], "t": 0, "ship": 5, "y": 3})) == "live_sent"
+    # 진행 중 전투는 game_live 표에도 저장됨 (서버가 다시 켜져도 이어 하기)
+    row = next(x for x in db.TABLES["game_live"] if x["id"] == r0["id"])
+    assert row["done"] is False and row["kind"] == "pirate" and row["data"]["user"]["id"] == row["user_id"]
+    gl._live.clear()     # 서버가 다시 켜진 것처럼 메모리를 비움
+    r = c.post("/game/live/deploy", headers=S, json={"id": r0["id"], "t": 0, "ship": 0, "y": game_battle.MAP_H / 2})
     assert r.status_code == 200, r.text
+    assert next(x for x in db.TABLES["game_live"] if x["id"] == r0["id"])["deploys"][0]["ship"] == 0
+    gl._live.clear()
+    r = c.post("/game/live/end", headers=S, json={"id": r0["id"]})
+    assert r.status_code == 200, r.text
+    assert next(x for x in db.TABLES["game_live"] if x["id"] == r0["id"])["done"] is True
+    assert code(c.post("/game/live/deploy", headers=S, json={"id": r0["id"], "t": 1, "ship": 0, "y": 3})) == "live_gone"
     bt, st = r.json()["battle"], r.json()["state"]
-    assert bt["stars"] >= 1 and bt["frames"] and bt["first_stars"] == bt["stars"] and bt["note"]["id"], (bt["stars"], bt["pct"])
+    assert bt["live"] and bt["stars"] >= 1 and bt["frames"] and bt["first_stars"] == bt["stars"] and bt["note"]["id"], (bt["stars"], bt["pct"])
     assert bt["got"]["tech"] == int(10 * sum(game_battle.STAR_SHARE[:bt["stars"]])) or bt["got"]["tech"] > 0
     f = st["fleet"]["ships"][0]
     assert f["damage"] > 0 and f["repair"]["rods"] == f["damage"], f
@@ -635,9 +659,11 @@ def g2b(c, user, A, T1, qs):
     # 같은 입력이면 같은 결과
     ws = game.warship_stats({"kind": "patrol", "hull": 2, "weapons": ["torpedo"]}, {"gun": 3, "torpedo": 1})
     one = [{"id": "a", "kind": "patrol", "max_hp": ws["max_hp"], "attack": ws["attack"], "weapons": ws["weapons"]}]
-    assert game_battle.simulate(1, one, "middle", "defense")["frames"] == bt["frames"]
+    again = gl.simulate_live(game_battle.pirate_base(1), one, [{}], bt["deploys"], game_battle.MAP_W, game_battle.MAP_H,
+                             game_battle.LAND_W, {"stage": 1}, 1.0, gr.PIRATE_CREWS.get(1))
+    assert again["frames"] == bt["frames"]
     # 다친 배는 출격 못 함 → 수리 (용접봉 + 시간, 기술 포인트로 당기기)
-    assert code(c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]]})) == "ship_damaged"
+    assert code(live(1, [ship["id"]])) == "ship_damaged"
     d = c.post("/game/warship/repair", headers=S, json={"id": ship["id"]}).json()
     f = d["fleet"]["ships"][0]
     assert f["repair_left"] == f["damage"] * 6, f
@@ -652,8 +678,30 @@ def g2b(c, user, A, T1, qs):
     pv = c.get("/game/pirate", headers=S).json()
     assert pv["history"][0]["stars"] == bt["stars"] and pv["stages"][1]["open"]
     # 같은 별로는 두 번 안 받음
-    r2 = c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [ship["id"]]}).json()["battle"]
+    r2 = live(1, [ship["id"]]).json()["battle"]
     assert r2["first_stars"] == 0 and r2["got"] == {"steel": 0, "rods": 0, "tech": 0, "fame": 0}
+    # 주인이 안 돌아온 전투(서버가 다시 켜진 경우)는 시간이 지나면 저절로 끝나 결과가 반영됨
+    for x in db.TABLES["game_ships"]:
+        x["damage"], x["repair_until"] = 0, None
+    r0 = c.post("/game/live/pirate/start", headers=S, json={"stage": 1, "ships": [ship["id"]]}).json()
+    c.post("/game/live/deploy", headers=S, json={"id": r0["id"], "t": 0, "ship": 0, "y": game_battle.MAP_H / 2})
+    gl._live.clear()
+    row = next(x for x in db.TABLES["game_live"] if x["id"] == r0["id"])
+    row["started_at"] = "2020-01-01T00:00:00+00:00"
+    n0 = len(db.TABLES["game_battles"])
+    gl._db["swept"] = 0
+    gl._sweep()
+    assert row["done"] is True and len(db.TABLES["game_battles"]) == n0 + 1
+    assert db.TABLES["game_battles"][-1]["result"]["deploys"][0]["ship"] == 0
+    for x in db.TABLES["game_ships"]:
+        x["damage"], x["repair_until"] = 0, None
+    # 90일 지난 다시 보기는 장면만 지움 (결과는 남김), 다시 보기를 열면 안내
+    old = db.TABLES["game_battles"][-1]
+    old["created_at"] = "2020-01-01T00:00:00+00:00"
+    game_battle._prune["day"] = ""
+    assert game_battle.prune_old() >= 1 and game_battle.prune_old() == 0
+    assert "frames" not in old["result"] and old["result"]["pruned"] and old["result"]["stars"] == old["stars"]
+    assert code(c.get(f"/game/battle/{old['id']}", headers=S)) == "replay_old"
     # 태풍 대비 훈련: 하루 한 번, 장벽(레벨 합) + 문제
     ty = c.post("/game/typhoon/start", headers=S, json={"lang": "ko"}).json()
     assert ty["questions"], ty

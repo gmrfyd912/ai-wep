@@ -69,11 +69,21 @@ def main():
         a = ans(q)
         for x in q["questions"][:3 - right]:
             a[x["id"]] = 1
-        body = {"target": ids[target], "ships": [ship[who]], "lane": "middle", "landing": 7, "order": [0],
-                "crews": {"welder": 12}, "morale_id": q["id"], "answers": a, **extra}
+        body = {"target": ids[target], "ships": [ship[who]], "loads": {ship[who]: {"welder": 12}},
+                "morale_id": q["id"], "answers": a, **extra}
         for s in db.TABLES["game_ships"]:   # 시험마다 수리된 상태로
             s["damage"] = 0
-        return c.post("/game/raid/attack", headers=hd[who], json=body)
+        return live_raid(who, body)
+
+    def live_raid(who, body, y=None):
+        """시간차 출동 전투로 공격: 시작 → 배를 처음에 보냄 → 끝 (끝 응답에 results 를 붙여 돌려줌)."""
+        r0 = c.post("/game/live/raid/start", headers=hd[who], json=body)
+        if r0.status_code != 200:
+            return r0
+        lid, mh = r0.json()["id"], r0.json()["battle"]["map"]["h"]
+        for i in range(len(body["ships"])):
+            c.post("/game/live/deploy", headers=hd[who], json={"id": lid, "t": 0, "ship": i, "y": mh / 2 if y is None else y})
+        return c.post("/game/live/end", headers=hd[who], json={"id": lid})
 
     # 시간 잠금: 평일 10시(수업) / 23시(밤)
     st = game.settings()
@@ -107,7 +117,7 @@ def main():
     assert code(r) == "raid_time_lock" and r.json()["detail"]["why"] == "class", r.json()
     NOW[0] = datetime(2026, 12, 1, 10, 0, tzinfo=timezone.utc)
     # 3문제 없이(또는 지난 번호로)는 못 감
-    bad = c.post("/game/raid/attack", headers=hd["s1"], json={"target": ids["s2"], "ships": [ship["s1"]], "landing": 7, "morale_id": "x"})
+    bad = c.post("/game/live/raid/start", headers=hd["s1"], json={"target": ids["s2"], "ships": [ship["s1"]], "morale_id": "x"})
     assert code(bad) == "exam_gone"
 
     # 공격! (3문제 다 맞힘 → 사기 1.2배)
@@ -190,8 +200,7 @@ def main():
     for b in db.TABLES["game_bases"]:
         b["shield_until"] = None
     q = c.post("/game/raid/morale/start", headers=hd["s3"], json={"lang": "ko"}).json()
-    r = c.post("/game/raid/attack", headers=hd["s3"], json={"target": ids["s1"], "ships": [ship["s3"]], "lane": "north", "landing": 2,
-                                                            "morale_id": q["id"], "answers": ans(q)})
+    r = live_raid("s3", {"target": ids["s1"], "ships": [ship["s3"]], "morale_id": q["id"], "answers": ans(q)}, y=2.5)
     assert r.status_code == 200, r.text
     b3 = r.json()["battle"]
     if b3["stars"] <= 1:
@@ -221,6 +230,10 @@ def main():
     assert gl._busy(ids["s2"], ids["s3"]) is True and gl._busy(ids["s2"], ids["s1"]) is False
     r = c.post("/game/live/deploy", headers=hd["s1"], json={"id": lid, "t": 0, "ship": 0, "y": 16})
     assert r.status_code == 200, r.text
+    # 서버가 다시 켜져도 (메모리 비움) 표에서 불러와 공격 중 잠금·끝내기가 이어짐
+    gl._live.clear()
+    assert gl._busy(ids["s2"], ids["s3"]) is True
+    gl._live.clear()
     r = c.post("/game/live/end", headers=hd["s1"], json={"id": lid})
     assert r.status_code == 200, r.text
     lv = r.json()["battle"]

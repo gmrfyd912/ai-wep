@@ -96,16 +96,24 @@ def main():
     sid = str(uuid.uuid4())
     db.insert_rows("game_ships", {"id": sid, "user_id": uid, "kind": "frigate", "stage": 4, "delivered_at": "2026-11-30T00:00:00+00:00",
                                   "hull": 1, "weapons": ["gun"], "damage": 0})
-    plan = {"stage": 1, "ships": [sid], "lane": "north", "landing": 2, "order": [0]}
-    assert code(c.post("/game/pirate/attack", headers=S, json={**plan, "crews": {"welder": 3}})) == "crew_short"
-    assert code(c.post("/game/pirate/attack", headers=S, json={**plan, "landing": 10, "crews": {}})) == "bad_plan"
+    def live(stage, ships, loads, y=None):
+        """시간차 출동 전투: 시작 → 배를 모두 처음에 보냄 → 끝."""
+        r0 = c.post("/game/live/pirate/start", headers=S, json={"stage": stage, "ships": ships, "loads": loads})
+        if r0.status_code != 200:
+            return r0
+        lid = r0.json()["id"]
+        for i in range(len(ships)):
+            c.post("/game/live/deploy", headers=S, json={"id": lid, "t": 0, "ship": i, "y": gb.MAP_H / 2 if y is None else y})
+        return c.post("/game/live/end", headers=S, json={"id": lid})
+
+    assert code(live(1, [sid], {sid: {"welder": 3}})) == "crew_short"
     for b in db.TABLES["game_bases"]:
         b["crews"] = {"welder": 6, "fitter": 0, "forklift": 1, "transporter": 0, "pts": 0}
-    assert code(c.post("/game/pirate/attack", headers=S, json={**plan, "crews": {"welder": 5}})) == "crew_room"
-    r = c.post("/game/pirate/attack", headers=S, json={**plan, "crews": {"welder": 2, "forklift": 1}})
+    assert code(live(1, [sid], {sid: {"welder": 5}})) == "crew_room"
+    r = live(1, [sid], {sid: {"welder": 2, "forklift": 1}})
     assert r.status_code == 200, r.text
     bt = r.json()["battle"]
-    assert bt["raid"] and bt["landing"] == 2 and bt["order"] == [0] and bt["landed_at"] is not None, {k: bt[k] for k in ("raid", "landed_at")}
+    assert bt["raid"] and bt["landed_at"] is not None, {k: bt[k] for k in ("raid", "landed_at")}
     assert {k: v for k, v in bt["crew_sent"].items() if v} == {"welder": 2, "forklift": 1}, bt["crew_sent"]
     assert any(f["c"] for f in bt["frames"]) and len(bt["crews"]) == 3
     assert bt["stars"] >= 1 and bt["got"]["steel"] > 0, (bt["stars"], bt.get("got"))
@@ -115,6 +123,8 @@ def main():
     # 다시 보기에도 대원이 들어 있음
     rb = c.get(f"/game/battle/{bt['id']}", headers=S).json()["battle"]
     assert rb["raid"] and rb["crews"]
+    # 옛 작전 방식(바닷길·상륙 부두) 주소는 없어짐
+    assert c.post("/game/pirate/attack", headers=S, json={"stage": 1, "ships": [sid]}).status_code in (404, 405)
 
     # 상륙함: 대원 12명까지 태움 (호위함 4명보다 많이)
     lid = str(uuid.uuid4())
@@ -122,9 +132,8 @@ def main():
                                   "hull": 1, "weapons": ["gun"], "damage": 0})
     for b in db.TABLES["game_bases"]:
         b["crews"] = {"welder": 14, "fitter": 0, "forklift": 0, "transporter": 0, "pts": 0}
-    lplan = {**plan, "stage": 2, "ships": [lid]}
-    assert code(c.post("/game/pirate/attack", headers=S, json={**lplan, "crews": {"welder": 13}})) == "crew_room"
-    r = c.post("/game/pirate/attack", headers=S, json={**lplan, "crews": {"welder": 12}})
+    assert code(live(2, [lid], {lid: {"welder": 13}})) == "crew_room"
+    r = live(2, [lid], {lid: {"welder": 12}})
     assert r.status_code == 200, r.text
     assert r.json()["battle"]["crew_sent"]["welder"] == 12
 

@@ -236,18 +236,6 @@ def morale_start(body: LangBody, user=Depends(need_player)):
 
 # ---- 공격 ----
 
-class RaidBody(BaseModel):
-    target: str
-    ships: list[str]
-    lane: str = "middle"
-    landing: int
-    order: list[int] = []
-    crews: dict[str, int] = {}
-    morale_id: str = ""
-    answers: dict[str, str | int] = {}
-    revenge: str | None = None       # 복수: 내가 방어한 전투 id
-
-
 def grade_morale(uid, morale_id, answers):
     """출동 전 3문제 채점 (틀려도 문제는 푼 것으로 기록) → (결과, 맞힌 수, 사기 배수)."""
     with _lock(uid):
@@ -281,65 +269,6 @@ def _pair_locks(a, b):
     return _lock(first), _lock(second)
 
 
-@router.post("/game/raid/attack")
-def raid_attack(body: RaidBody, user=Depends(need_player)):
-    uid = user["id"]
-    if body.lane not in ("north", "middle", "south"):
-        _err(400, "bad_plan")
-    try:
-        uuid.UUID(body.target)
-    except ValueError:
-        _err(404, "not_found")
-    st = game.settings()
-    need_sql19()
-    # 먼저 지금 공격할 수 있는지 (막히면 3문제를 버리지 않게 채점 전에)
-    tg0 = _target(user, body.target, st)
-    code, extra = block_reason(uid, body.target, st, tg0["base"], tg0["same"])
-    if code:
-        _err(400, "raid_" + code, **extra)
-    results, right, mult = grade_morale(uid, body.morale_id, body.answers)
-    game.mark_todo(uid, "battle")
-    revenge = revenge_of(uid, body.target, body.revenge)
-    la, lb = _pair_locks(uid, body.target)
-    with la, lb:
-        now = game._now()
-        tg = _target(user, body.target, st)
-        code, extra = block_reason(uid, body.target, st, tg["base"], tg["same"], now=now)
-        if code:
-            _err(400, "raid_" + code, **extra)
-        base, buildings = game._prep(uid, now)
-        fleet = {f["id"]: f for f in game._fleet(uid)}
-        picked = [fleet[i] for i in dict.fromkeys(body.ships) if i in fleet]
-        if not picked:
-            _err(400, "no_ships")
-        if any(int(f.get("damage") or 0) or f.get("repair_until") for f in picked):
-            _err(400, "ship_damaged")
-        wl = game.weapon_levels(base)
-        ships = []
-        for f in picked:
-            ws = game.warship_stats(f, wl)
-            ships.append({"id": f["id"], "kind": f["kind"], "max_hp": ws["max_hp"], "attack": ws["attack"] * mult,
-                          "weapons": ws["weapons"]})
-        tbase, mp = battle_base(tg["blds"], st, tg["units"], game.grid_of(tg["base"]), game.sea_of(tg["base"]))
-        if not 0 <= body.landing < mp["h"]:
-            _err(400, "bad_plan")
-        have = game_raid.get_crews(base)
-        free = game_raid.available(have)
-        send = {k: max(0, int(body.crews.get(k, 0) or 0)) for k in game_raid.CREW_KINDS}
-        if any(send[k] > free[k] for k in send):
-            _err(400, "crew_short")
-        if game_raid.seats_of(send) > game_raid.ship_capacity(ships):
-            _err(400, "crew_room", n=game_raid.ship_capacity(ships))
-        tcrews = game_raid.get_crews(tg["base"], now)
-        guards = game_raid.available(tcrews)
-        res = game_raid.simulate_raid(tbase, ships, body.lane, body.landing, body.order, send, mp["w"], mp["h"], mp["land"],
-                                      mp["lanes"], {"stage": 0}, crew_mult=mult, defenders=guards)
-        res["note"] = game_raid.raid_note(res)
-        apply_raid_locked(user, body.target, tg, base, buildings, have, tcrews, res,
-                          {"right": right, "total": len(results), "mult": mult}, revenge, st, now)
-    return {"battle": res, "results": results, "state": game._fresh(user)}
-
-
 def apply_raid(user, target, res, morale, revenge):
     """시간차 출동 전투가 끝났을 때: 두 조선소를 잠그고 결과 반영."""
     uid = user["id"]
@@ -352,6 +281,8 @@ def apply_raid(user, target, res, morale, revenge):
         have = game_raid.get_crews(base)
         tcrews = game_raid.get_crews(tg["base"], now)
         apply_raid_locked(user, target, tg, base, buildings, have, tcrews, res, morale, revenge, st, now)
+    import game_sea
+    game_sea.forget_world()   # 보호막이 생겼으니 바다 지도 다시 받기
     return {"battle": res, "state": game._fresh(user)}
 
 
@@ -435,7 +366,8 @@ def defense_log(user=Depends(need_player)):
     uid = user["id"]
     try:
         rows = store.select("game_battles", {"defender_id": f"eq.{uid}", "kind": "eq.raid",
-                                             "select": "id,user_id,stars,created_at,result,defender_seen,revenge_used",
+                                             "select": "id,user_id,stars,created_at,defender_seen,revenge_used,r_pct:result->pct,r_lane:result->lane,"
+                                                       "r_att:result->attacker,r_lost:result->lost,r_def:result->defend",
                                              "order": "created_at.desc", "limit": "20"})
     except Exception as e:  # noqa: BLE001
         print("[pvp] 방어 기록 못 읽음 (step19 전?)", str(e)[:120], flush=True)
@@ -445,7 +377,9 @@ def defense_log(user=Depends(need_player)):
     today_rows = None
     log = []
     for r in rows:
-        res = r.get("result") or {}
+        # 다시 보기 장면(수백 개)까지 받지 않도록 필요한 값만 골라 받음
+        res = {"pct": r.get("r_pct"), "lane": r.get("r_lane"), "attacker": r.get("r_att"), "lost": r.get("r_lost"),
+               "defend": r.get("r_def")}
         item = {"id": r["id"], "at": r.get("created_at"), "stars": r["stars"], "pct": res.get("pct"),
                 "lane": res.get("lane"), "by": (res.get("attacker") or {}).get("name") or "",
                 "by_id": r["user_id"], "lost": res.get("lost") or {}, "defend": res.get("defend") or {},
