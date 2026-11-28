@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Speech from "expo-speech";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -69,6 +69,12 @@ export function StudyBuddy({
   const talking = useRef(false);
   const mouth = useRef<ReturnType<typeof setInterval> | null>(null);
   const typing = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 다른 화면(오늘의 문제 등)이 위에 떠 있는 동안에는 말하지 않음 (뒤에서 같은 안내가 또 나오지 않게)
+  const isFocused = useIsFocused();
+  const focused = useRef(isFocused);
+  focused.current = isFocused;
+  const textRef = useRef(text);
+  textRef.current = text;
 
   useEffect(() => {
     AsyncStorage.getItem(SOUND_KEY).then((v) => setSound(v !== "off"));
@@ -133,6 +139,10 @@ export function StudyBuddy({
   // 화면에 들어오면 한 번 인사 (말이 바뀌면 다시)
   useEffect(() => {
     if (sound === null || !text) return;
+    if (!focused.current) {
+      setShown(text);   // 뒤에 있을 때 말이 바뀌면 소리 없이 글만
+      return;
+    }
     say(sound);
   }, [text, nonce, sound === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -147,13 +157,16 @@ export function StudyBuddy({
 
   // 다른 탭·화면으로 가면 말을 멈춘다
   useFocusEffect(
-    useCallback(
-      () => () => {
+    useCallback(() => {
+      focused.current = true;
+      setShown((cur) => (cur.length < textRef.current.length ? textRef.current : cur));
+      return () => {
+        focused.current = false;
         Speech.stop();
         stopMouth();
-      },
-      [stopMouth],
-    ),
+        if (typing.current) clearInterval(typing.current);
+      };
+    }, [stopMouth]),
   );
 
   const toggleSound = () => {
@@ -182,7 +195,7 @@ export function StudyBuddy({
       </Pressable>
       {compact ? (
         <View style={[styles.bubble, styles.bubbleSmall]}>
-          <Text style={[styles.textSmall, boxLines ? { height: boxLines * 18 } : null]} numberOfLines={lines}>{shown || " "}</Text>
+          <Text style={[styles.textSmall, boxLines ? { height: boxLines * 18 + 12 } : null]} numberOfLines={lines}>{shown || " "}</Text>
           <Pressable onPress={toggleSound} hitSlop={10} style={styles.soundSmall} accessibilityLabel={sound ? t("buddy_soundOn") : t("buddy_soundOff")}>
             <Ionicons name={sound ? "volume-high-outline" : "volume-mute-outline"} size={15} color={colors.muted} />
           </Pressable>
