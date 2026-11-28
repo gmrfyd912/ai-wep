@@ -316,7 +316,7 @@ function ScoutCard({ s, sea, onPlan, onRaid, onOther }: {
         <AppButton label={t("gm_lv_prepare")} icon="navigate-outline" onPress={() => onPlan(s.stage ?? 1)} />
       ) : (
         <>
-          <AppButton label={t("gm_sc_plan")} icon="navigate-outline" disabled={!!s.block} onPress={() => onRaid(s.id)} />
+          <AppButton label={t("gm_lv_prepare")} icon="navigate-outline" disabled={!!s.block} onPress={() => onRaid(s.id)} />
           {s.block ? <Text style={styles.warnSm}>{t(`gm_rd_block_${s.block}`, s.block_info as Record<string, unknown>)}</Text> : null}
         </>
       )}

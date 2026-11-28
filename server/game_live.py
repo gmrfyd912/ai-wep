@@ -349,7 +349,11 @@ def simulate_live(base, ships, loads, deploys, map_w, map_h, land_w, info=None, 
         sent[c["kind"]] += 1
         if c["down"]:
             lost[c["kind"]] += 1
-    out = {"live": True, "stars": stars, "pct": pct, "hq_down": hq_down, "lane": "live", "landing": None, "order": [],
+    # 방어 기록·팁에 쓰는 '들어온 쪽': 대원 실은 배가 처음 닿은 곳 (없으면 처음 보낸 배)
+    order_dep = sorted(dep.items(), key=lambda p: p[1]["t"])
+    main = next((d for si, d in order_dep if sum((loads[si] or {}).values())), order_dep[0][1] if order_dep else None)
+    side = "middle" if main is None else "north" if main["y"] < map_h / 3 else "south" if main["y"] > map_h * 2 / 3 else "middle"
+    out = {"live": True, "stars": stars, "pct": pct, "hq_down": hq_down, "lane": side, "landing": None, "order": [],
            "ticks": len(frames), "tick_sec": gb.TICK, "max_ticks": LIVE_TICKS, "sonar": sonar, "raid": bool(team),
            "landed_at": landed_at, "deploys": [{"t": d["t"], "ship": si, "y": d["y"]} for si, d in sorted(dep.items(), key=lambda p: p[1]["t"])],
            "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h", "max")} for o in base],
@@ -574,3 +578,89 @@ def end(body: EndBody, user=Depends(need_player)):
     last = max([d["t"] for d in s["deploys"]] or [0])
     t = None if body.t is None else max(int(body.t), last)
     return _finish(s, t)
+
+
+# ---- 친구 조선소: 출동 전 3문제(사기) → 시작 → 배 보내기 → 끝 ----
+
+class RaidLoadBody(BaseModel):
+    target: str
+    ships: list[str]
+    loads: dict[str, dict[str, int]] = {}
+    morale_id: str = ""
+    answers: dict[str, str | int] = {}
+    revenge: str | None = None
+
+
+def _busy(target, uid):
+    """다른 교육생이 지금 이 조선소를 공격하는 중인지 (오래된 전투는 끝내고 봄)."""
+    with _live_lock:
+        others = [s for s in _live.values() if s.get("target") == target and s["uid"] != uid and not s.get("done")]
+    for s in others:
+        if time.time() - s["at"] > LIVE_TICKS * gb.TICK + 30:
+            try:
+                _finish(s, None)
+            except Exception as e:  # noqa: BLE001
+                print("[live] 오래된 공격 끝내기 실패", str(e)[:120], flush=True)
+        else:
+            return True
+    return False
+
+
+@router.post("/game/live/raid/start")
+def raid_start(body: RaidLoadBody, user=Depends(need_player)):
+    import game_pvp as pv
+    uid = user["id"]
+    try:
+        uuid.UUID(body.target)
+    except ValueError:
+        _err(404, "not_found")
+    st = game.settings()
+    pv.need_sql19()
+    _finish_old(uid)
+    tg0 = pv._target(user, body.target, st)
+    code, extra = pv.block_reason(uid, body.target, st, tg0["base"], tg0["same"])
+    if code:
+        _err(400, "raid_" + code, **extra)
+    if _busy(body.target, uid):
+        _err(400, "raid_busy")
+    results, right, mult = pv.grade_morale(uid, body.morale_id, body.answers)
+    game.mark_todo(uid, "battle")
+    revenge = pv.revenge_of(uid, body.target, body.revenge)
+    la, lb = pv._pair_locks(uid, body.target)
+    with la, lb:
+        now = game._now()
+        tg = pv._target(user, body.target, st)
+        code, extra = pv.block_reason(uid, body.target, st, tg["base"], tg["same"], now=now)
+        if code:
+            _err(400, "raid_" + code, **extra)
+        base, buildings = game._prep(uid, now)
+        fleet = {f["id"]: f for f in game._fleet(uid)}
+        picked = [fleet[i] for i in dict.fromkeys(body.ships) if i in fleet][:gb_max_ships()]
+        if not picked:
+            _err(400, "no_ships")
+        if any(int(f.get("damage") or 0) or f.get("repair_until") for f in picked):
+            _err(400, "ship_damaged")
+        wl = game.weapon_levels(base)
+        ships = []
+        for f in picked:
+            ws = game.warship_stats(f, wl)
+            ships.append({"id": f["id"], "kind": f["kind"], "max_hp": ws["max_hp"], "attack": ws["attack"] * mult,
+                          "weapons": ws["weapons"]})
+        loads, _ = _loads(base, ships, body.loads)
+        tbase, mp = pv.battle_base(tg["blds"], st, tg["units"], game.grid_of(tg["base"]), game.sea_of(tg["base"]))
+        guards = gr.available(gr.get_crews(tg["base"], now))
+    morale = {"right": right, "total": len(results), "mult": mult}
+    target = body.target
+
+    def finish(res):
+        return pv.apply_raid(user, target, res, morale, revenge)
+
+    sid = str(uuid.uuid4())
+    s = {"id": sid, "uid": uid, "at": time.time(), "base": tbase, "ships": ships, "loads": loads, "deploys": [],
+         "map": (mp["w"], mp["h"], mp["land"]), "mult": mult, "defenders": guards, "target": target,
+         "info": {"stage": 0, "kind": "raid", "morale": morale, "attacker": {"id": uid, "name": user.get("name") or ""},
+                  "defender": {"id": target, "name": tg["user"].get("name") or ""}},
+         "finish": finish}
+    with _live_lock:
+        _live[sid] = s
+    return {"id": sid, "battle": _run(s), "results": results}

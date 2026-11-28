@@ -120,8 +120,8 @@ export function PlanScreen({
   const map = target.map;
   const laneY = map.lanes ?? LANE_Y;
   const user = target.kind === "user";
-  // 해적 기지: 바닷길·부두·목표를 고르지 않고 배·대원만 준비 → 전투 중에 바다를 눌러 배를 하나씩 보냄
-  const live = !user;
+  // 바닷길·부두·목표를 고르지 않고 배·대원만 준비 → 전투 중에 바다를 눌러 배를 하나씩 보냄 (해적 기지·친구 조선소 모두)
+  const live = true;
   const short = user ? SHORT_USER : SHORT;
   const crews = pirate.crews;
   const ships = data.fleet?.ships ?? [];
@@ -161,7 +161,7 @@ export function PlanScreen({
 
   const launch = (morale?: { id: string; answers: Record<string, string | number> }) => {
     if (live) {
-      onLaunch({ ships: chosen, lane: "middle", landing: 0, order: [], crews: {}, loads });
+      onLaunch({ ships: chosen, lane: "middle", landing: 0, order: [], crews: {}, loads, morale_id: morale?.id, answers: morale?.answers });
       return;
     }
     if (landing === null) return;
@@ -179,7 +179,7 @@ export function PlanScreen({
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>{target.title}</Text>
         <Text style={styles.hint} numberOfLines={2}>
-          {live ? t("gm_lv_prepHint") : t(`gm_pl_step${step}`)}
+          {live ? t(user ? "gm_lv_prepHintUser" : "gm_lv_prepHint") : t(`gm_pl_step${step}`)}
         </Text>
       </View>
       <View style={[styles.body, { paddingLeft: 8 + insets.left }]}>
@@ -362,7 +362,7 @@ export function PlanScreen({
               {error ? <Text style={styles.warn}>{error}</Text> : null}
               {user ? (
                 <AppButton label={t("gm_rd_toMorale", { n: target.morale ?? 3 })} icon="school-outline"
-                  disabled={busy || landing === null || chosen.length === 0 || !!target.block} onPress={() => setView("morale")} />
+                  disabled={busy || (!live && landing === null) || chosen.length === 0 || !!target.block} onPress={() => setView("morale")} />
               ) : live ? (
                 <AppButton label={t("gm_lv_start")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={() => launch()} />
               ) : (

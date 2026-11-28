@@ -2009,6 +2009,8 @@ const uz: Translation = {
   gm_err_live_gone: "Bu jang allaqachon tugagan.",
   gm_lv_title: "Tayyorgarlik · Qaroqchi bazasi {{n}}",
   gm_lv_notSent: "Yuborilmadi (shikastlanmadi)",
+  gm_lv_prepHintUser: "Kema va ekipajni tanlab [Jo'nashdan oldin savollar]. Jang paytida dengizga bosib kemalarni birma-bir yuboring.",
+  gm_err_raid_busy: "Boshqa o'quvchi hozir bu kemasozlikka hujum qilmoqda. Birozdan so'ng urinib ko'ring.",
   gm_err_students_only: "Weldyning kemasozlik zavodi faqat tinglovchilar uchun.",
   gm_err_game_off: "Hozir o'yin o'chirilgan.",
   gm_err_money: "Resurs yetarli emas",
