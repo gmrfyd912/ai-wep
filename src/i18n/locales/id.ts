@@ -2156,6 +2156,7 @@ const id: Translation = {
   gm_gs_full: "{{n}} pemain dengan gudang terisi lebih dari {{pct}}%",
   gm_gs_low: "{{n}} pemain dengan baja di bawah {{steel}} dan kawat las di bawah {{rods}}",
   gm_gs_repair: "{{ships}} kapal perlu diperbaiki ({{n}} pemain)",
+  gm_bubbleNext: "Ketuk gelembung untuk lanjut",
   gm_err_students_only: "Galangan Kapal Weldy hanya untuk peserta pelatihan.",
   gm_err_game_off: "Game sedang dimatikan.",
   gm_err_money: "Sumber daya tidak cukup",

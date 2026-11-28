@@ -2156,6 +2156,7 @@ const th: Translation = {
   gm_gs_full: "ผู้ที่คลังเต็มเกิน {{pct}}% {{n}} คน",
   gm_gs_low: "ผู้ที่มีเหล็กแผ่นต่ำกว่า {{steel}} และลวดเชื่อมต่ำกว่า {{rods}} {{n}} คน",
   gm_gs_repair: "เรือที่ต้องซ่อม {{ships}} ลำ ({{n}} คน)",
+  gm_bubbleNext: "แตะกรอบคำพูดเพื่อฟังต่อ",
   gm_err_students_only: "อู่ต่อเรือของ Weldy สำหรับผู้เรียนเท่านั้น",
   gm_err_game_off: "ขณะนี้เกมปิดอยู่",
   gm_err_money: "ทรัพยากรไม่พอ",

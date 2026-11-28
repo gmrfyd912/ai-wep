@@ -2171,6 +2171,7 @@ const ko = {
   gm_gs_full: "창고가 {{pct}}% 넘게 찬 사람 {{n}}명",
   gm_gs_low: "강판 {{steel}}·용접봉 {{rods}} 미만인 사람 {{n}}명",
   gm_gs_repair: "수리해야 하는 배 {{ships}}척 ({{n}}명)",
+  gm_bubbleNext: "말풍선을 누르면 다음 이야기",
   gm_err_students_only: "웰디의 조선소는 교육생만 할 수 있어요.",
   gm_err_game_off: "지금은 게임이 꺼져 있어요.",
   gm_err_money: "자원이 모자라요",

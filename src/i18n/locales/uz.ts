@@ -2156,6 +2156,7 @@ const uz: Translation = {
   gm_gs_full: "Ombori {{pct}}% dan ortiq to'lgan {{n}} kishi",
   gm_gs_low: "{{steel}} po'lat va {{rods}} elektroddan kam bo'lgan {{n}} kishi",
   gm_gs_repair: "Ta'mirlash kerak bo'lgan {{ships}} kema ({{n}} kishi)",
+  gm_bubbleNext: "Davomi uchun pufakchani bosing",
   gm_err_students_only: "Weldyning kemasozlik zavodi faqat tinglovchilar uchun.",
   gm_err_game_off: "Hozir o'yin o'chirilgan.",
   gm_err_money: "Resurs yetarli emas",

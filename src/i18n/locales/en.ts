@@ -2156,6 +2156,7 @@ const en: Translation = {
   gm_gs_full: "{{n}} players with storage over {{pct}}% full",
   gm_gs_low: "{{n}} players under {{steel}} steel and {{rods}} rods",
   gm_gs_repair: "{{ships}} ships need repair ({{n}} players)",
+  gm_bubbleNext: "Tap the bubble for more",
   gm_err_students_only: "Weldy's Shipyard is for trainees only.",
   gm_err_game_off: "The game is turned off right now.",
   gm_err_money: "Not enough resources",
