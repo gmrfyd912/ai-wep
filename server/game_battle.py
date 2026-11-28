@@ -288,18 +288,23 @@ def pirate_view(rows, fleet, wl):
 @router.get("/game/pirate")
 def pirate_state(user=Depends(need_player)):
     uid = user["id"]
-    base, _ = game._base(uid)
-    rows = game.ledger(uid)
-    out = pirate_view(rows, game._fleet(uid), game.weapon_levels(base))
-    try:
-        out["history"] = [{"id": b["id"], "stage": b["stage"], "stars": b["stars"], "at": b.get("created_at"),
-                           "pct": (b.get("result") or {}).get("pct")}
-                          for b in store.select("game_battles", {"user_id": f"eq.{uid}", "select": "id,stage,stars,created_at,result",
-                                                                 "order": "created_at.desc", "limit": "5"})]
-    except Exception as e:  # noqa: BLE001  (step17 전)
-        print("[battle] 기록 못 읽음", str(e)[:120], flush=True)
-        out["history"] = []
-    out["typhoon"] = typhoon_view(uid, rows)
+
+    def _history():
+        try:
+            return store.select("game_battles", {"user_id": f"eq.{uid}", "select": "id,stage,stars,created_at,result",
+                                                 "order": "created_at.desc", "limit": "5"})
+        except Exception as e:  # noqa: BLE001  (step17 전)
+            print("[battle] 기록 못 읽음", str(e)[:120], flush=True)
+            return []
+    # 필요한 것 모두 한꺼번에 받기
+    got = game._par(base=lambda: game._base(uid), rows=lambda: game.ledger(uid), fleet=lambda: game._fleet(uid),
+                    buildings=lambda: game._buildings(uid), history=_history)
+    base, _ = got["base"]
+    rows = got["rows"]
+    out = pirate_view(rows, got["fleet"], game.weapon_levels(base))
+    out["history"] = [{"id": b["id"], "stage": b["stage"], "stars": b["stars"], "at": b.get("created_at"),
+                       "pct": (b.get("result") or {}).get("pct")} for b in got["history"]]
+    out["typhoon"] = typhoon_view(uid, rows, base, got["buildings"])
     return out
 
 
@@ -391,9 +396,11 @@ def wall_score(buildings, grid):
     return min(1.0, lv / max(grid, 1))
 
 
-def typhoon_view(uid, rows):
-    base, _ = game._base(uid)
-    buildings = game._buildings(uid)
+def typhoon_view(uid, rows, base=None, buildings=None):
+    if base is None:
+        base, _ = game._base(uid)
+    if buildings is None:
+        buildings = game._buildings(uid)
     done = any(str(r.get("key", "")).startswith(f"typhoon:{_today()}") for r in rows)
     ws = wall_score(buildings, game.grid_of(base))
     return {"done_today": done, "wall_pct": round(ws * TYPHOON["wall_part"]), "wall_part": TYPHOON["wall_part"],

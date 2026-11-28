@@ -1691,6 +1691,7 @@ const fil: Translation = {
   gm_repairShort: "Ayusin",
   gm_getShort: "Makukuha",
   gm_maxGet: "Hanggang",
+  gm_wallSkipped: "Nilaktawan ang {{n}} puwestong hindi pwede.",
   gm_err_students_only: "Para sa mga trainee lang ang Shipyard ni Weldy.",
   gm_err_game_off: "Naka-off ang laro ngayon.",
   gm_err_money: "Kulang ang resources",

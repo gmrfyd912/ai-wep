@@ -1691,6 +1691,7 @@ const id: Translation = {
   gm_repairShort: "Perbaiki",
   gm_getShort: "Didapat",
   gm_maxGet: "Maksimal",
+  gm_wallSkipped: "{{n}} petak yang tidak bisa dipakai dilewati.",
   gm_err_students_only: "Galangan Kapal Weldy hanya untuk peserta pelatihan.",
   gm_err_game_off: "Game sedang dimatikan.",
   gm_err_money: "Sumber daya tidak cukup",

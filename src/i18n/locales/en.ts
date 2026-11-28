@@ -1691,6 +1691,7 @@ const en: Translation = {
   gm_repairShort: "Repair",
   gm_getShort: "You get",
   gm_maxGet: "Up to",
+  gm_wallSkipped: "Skipped {{n}} spot(s) that can't be used.",
   gm_err_students_only: "Weldy's Shipyard is for trainees only.",
   gm_err_game_off: "The game is turned off right now.",
   gm_err_money: "Not enough resources",

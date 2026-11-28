@@ -529,6 +529,14 @@ def g2b(c, user, A, T1, qs):
     assert len(walls) == 2 and all(w["level"] == 1 and not w["busy_until"] for w in walls) and d["builders"]["busy"] == 1
     assert B("mine", 15, 2) == "ok"
     assert B("wall", 14, 7) == "spot"
+    # 여러 칸 한 번에: 이미 있는 칸·물길 칸은 건너뛰고, 쌓은 칸 수만큼만 강판
+    before = c.get("/game/state", headers=S).json()["resources"]["steel"]
+    r = c.post("/game/walls/build", headers=S, json={"spots": [[14, 7], [15, 6], [15, 7], [16, 7]]})
+    assert r.status_code == 200 and r.json()["placed"] == 2 and r.json()["skipped"] == 2, r.text[:300]
+    assert before - r.json()["resources"]["steel"] == 2 * game.cost("wall", 1)["steel"], (before, r.json()["resources"])
+    assert code(c.post("/game/walls/build", headers=S, json={"spots": [[16, 7]]})) == "spot"
+    new_ids = {b["id"] for b in r.json()["buildings"] if b["type"] == "wall" and b["x"] == 15}
+    db.TABLES["game_buildings"][:] = [b for b in db.TABLES["game_buildings"] if b["id"] not in new_ids]   # 아래 검사 그대로 두려고 지움
     tick(61)
     assert B("battery", 13, 11) == "ok" and B("battery", 13, 12) == "ok"
     assert B("battery", 13, 13) == "def_full"
