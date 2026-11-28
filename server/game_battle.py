@@ -345,6 +345,7 @@ def pirate_attack(body: AttackBody, user=Depends(need_player)):
             _err(400, "no_ships")
         if any(int(f.get("damage") or 0) or f.get("repair_until") for f in picked):
             _err(400, "ship_damaged")
+        game.mark_todo(uid, "battle")
         wl = game.weapon_levels(base)
         ships = []
         for f in picked:

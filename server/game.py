@@ -24,6 +24,7 @@ G2b-1(박사 승인 2026-11-28):
 G2b-2(해적 연습 전투·태풍 대비 훈련)·G2c(공격)·G3(대항전)는 다음 단계.
 """
 import math
+import random
 import threading
 import time
 import uuid
@@ -84,6 +85,8 @@ BUILDINGS = {
     # 옛 건물 (새로 못 지음, 불러올 때 집결장으로 바뀜)
     "dorm":      {"size": (2, 2), "steel": 250, "rods": 50, "unlock": 2, "max": 8, "gone": True},
     "garage":    {"size": (2, 3), "steel": 350, "rods": 100, "unlock": 3, "max": 8, "gone": True},
+    # 폐자재: 건물이 아니라 땅 위 장애물 (치우면 자원). 자리 검사에만 씀
+    "scrap":     {"size": (1, 1), "steel": 0, "rods": 0, "unlock": 99, "max": 1, "gone": True},
 }
 COAST_TYPES = ("dock", "pier", "battery", "asw")
 SEA_TYPES = ("mine", "wall")      # 바다에 놓는 것 (간척하면 바다와 같이 옮김)
@@ -806,6 +809,77 @@ def free_spot(buildings, btype, grid=GRID, sea=SEA):
     return (best[1], best[2]) if best else None
 
 
+# ---- 폐자재 치우기 (땅 위 장애물, 치우면 자원) ----
+
+SCRAP_START = 10                          # 처음 조선소에 흩어진 폐자재 수
+SCRAP_DAYS = 3                            # 하루 1개씩 새로 생김 (최근 며칠 것까지만 남음)
+SCRAP_REWARD = {"steel": 40, "rods": 20}  # 1개 치울 때 (예시)
+SCRAP_KINDS = ("pipe", "plate", "drum")
+
+
+def scraps(uid, buildings, rows, grid=GRID, now=None):
+    """아직 안 치운 폐자재 목록. 자리는 사용자마다 정해져 있고(같은 씨앗), 건물과 겹치면 없는 것으로 봄."""
+    cleared = {r["key"][6:] for r in rows if r["key"].startswith("scrap:")}
+    taken = set()
+    for b in buildings:
+        bx, by, bw, bh = _rect(b)
+        taken |= {(bx + i, by + j) for i in range(bw) for j in range(bh)}
+    c = grid // 2
+    out = []
+
+    def pick(sid, rnd):
+        for _ in range(30):
+            x, y = rnd.randint(1, grid - 5), rnd.randint(1, grid - 2)
+            if max(abs(x - c), abs(y - c)) < 5 or (x, y) in taken:
+                continue
+            taken.add((x, y))
+            if sid not in cleared:
+                out.append({"id": sid, "x": x, "y": y, "kind": rnd.choice(SCRAP_KINDS)})
+            return
+
+    rnd = random.Random(f"scrap:{uid}")
+    for i in range(SCRAP_START):
+        pick(f"s{i}", rnd)
+    first = (_dt(rows[0]["created_at"]) if rows and rows[0].get("created_at") else None)
+    if first:
+        today = (now or _now()).astimezone(KST).date()
+        start = first.astimezone(KST).date()
+        for k in range(SCRAP_DAYS):
+            d = today - timedelta(days=k)
+            if d > start:   # 시작한 날 다음 날부터 하루 1개
+                pick(f"d{d.isoformat()}", random.Random(f"scrap:{uid}:{d.isoformat()}"))
+    return out
+
+
+def scrap_blocks(uid, buildings, rows, grid=GRID):
+    """자리 검사용: 폐자재를 1칸짜리 가짜 건물로."""
+    return [{"id": "scrap:" + p["id"], "type": "scrap", "x": p["x"], "y": p["y"]} for p in scraps(uid, buildings, rows, grid)]
+
+
+# ---- 오늘 할 일 (4가지 다 하면 작은 보상, 하루 한 번) ----
+
+TODO_REWARD = {"tech": 10, "steel": 200}  # 예시
+TODO_KEYS = ("daily", "supply", "crew", "battle")
+
+
+def _kday(now=None):
+    return (now or _now()).astimezone(KST).date().isoformat()
+
+
+def mark_todo(uid, kind):
+    """대원 훈련·전투처럼 장부에 따로 안 남는 일을 '오늘 했음'으로 표시."""
+    _add(uid, [{"key": f"todo_{kind}:{_kday()}", "note": "todo"}])
+
+
+def todo_view(rows, run_today, now=None):
+    day = _kday(now)
+    keys = {r["key"] for r in rows}
+    done = {"daily": bool(run_today), "supply": supply_today(rows, now) > 0,
+            "crew": f"todo_crew:{day}" in keys, "battle": f"todo_battle:{day}" in keys}
+    return {"items": [{"key": k, "done": done[k]} for k in TODO_KEYS], "reward": TODO_REWARD,
+            "claimed": f"todo:{day}" in keys}
+
+
 # ---- 상태 모으기 ----
 
 def load(user, sync=True):
@@ -1064,6 +1138,7 @@ def view(s, lang="ko"):
         if b.get("busy_until"):
             left = max(0, int((_dt(b["busy_until"]) - now).total_seconds()))
             item["left"] = left
+            item["total"] = max(left, build_seconds(min(b["level"] + 1, len(LEVEL_TIME) - 1)))   # 진행 막대용
             item["speed"] = {"tech": math.ceil(left / TECH_SECONDS), "passes": 1}
         if b["type"] in ("cutting", "welding"):
             item["rate"] = int(PROD_TABLE[max(b["level"], 1)] * (0.5 if b["type"] == "welding" else 1))
@@ -1185,6 +1260,9 @@ def view(s, lang="ko"):
                                      "pass_jump", "supply_steel", "supply_rods", "supply_day_max")},
         "supply": {**supply_spec(st), "done_today": supply_today(s["rows"], now)},
         "gifts": unseen_gifts(s["rows"], now),
+        "scraps": scraps(s["uid"], buildings, s["rows"], grid_of(base), now),
+        "scrap_reward": SCRAP_REWARD,
+        "todo": todo_view(s["rows"], run_today, now),
     }
     data["tips"] = tips(data, s)
     return data
@@ -1505,7 +1583,8 @@ def build(body: BuildBody, user=Depends(need_player)):
             _err(400, "hq_level")
         if not spec.get("instant") and busy_count(buildings, base) >= BUILDERS:
             _err(400, "builders")
-        if not _free(buildings, body.type, body.x, body.y, grid=grid_of(base), sea=sea_of(base)):
+        blocks = scrap_blocks(uid, buildings, got["rows"], grid_of(base))
+        if not _free(buildings + blocks, body.type, body.x, body.y, grid=grid_of(base), sea=sea_of(base)):
             _err(400, "spot")
         price = cost(body.type, 1)
         if not _afford(balance(got["rows"]), price):
@@ -1584,9 +1663,39 @@ def move(body: MoveBody, user=Depends(need_player)):
             _err(404, "not_found")
         if BUILDINGS[b["type"]].get("fixed"):
             _err(400, "fixed")
-        if not _free(buildings, b["type"], body.x, body.y, skip_id=b["id"], grid=grid_of(base), sea=sea_of(base)):
+        blocks = scrap_blocks(uid, buildings, ledger(uid), grid_of(base))
+        if not _free(buildings + blocks, b["type"], body.x, body.y, skip_id=b["id"], grid=grid_of(base), sea=sea_of(base)):
             _err(400, "spot")
         store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": body.x, "y": body.y})
+    return _fresh(user)
+
+
+@router.post("/game/scrap/clear")
+def scrap_clear(body: IdBody, user=Depends(need_player)):
+    """폐자재 1개 치우기 → 자원 조금 (창고가 차면 넘치는 만큼은 사라짐)."""
+    uid = user["id"]
+    with _lock(uid):
+        base, buildings = _prep(uid, _now())
+        rows = ledger(uid)
+        if not any(p["id"] == body.id for p in scraps(uid, buildings, rows, grid_of(base))):
+            _err(404, "not_found")
+        bal, cap = balance(rows), caps(buildings)
+        got = {k: max(0, min(v, cap[k] - bal[k])) for k, v in SCRAP_REWARD.items()}
+        _add(uid, [{"key": f"scrap:{body.id}", **got, "note": "scrap"}])
+    return _fresh(user)
+
+
+@router.post("/game/todo/claim")
+def todo_claim(user=Depends(need_player)):
+    uid = user["id"]
+    s = load(user, sync=False)
+    run_today = daily.today(s["now"]).isoformat() in s["run_days"]
+    t = todo_view(s["rows"], run_today, s["now"])
+    if t["claimed"]:
+        _err(400, "already")
+    if not all(i["done"] for i in t["items"]):
+        _err(400, "todo_left")
+    _add(uid, [{"key": f"todo:{_kday(s['now'])}", **TODO_REWARD, "note": "todo"}])   # 같은 열쇠는 두 번 안 써짐
     return _fresh(user)
 
 

@@ -1628,6 +1628,8 @@ export type GameBuilding = {
   busy_until: string | null;
   /** 공사 남은 초 (공사 중일 때만) */
   left?: number;
+  /** 이번 공사 전체 초 (진행 막대용) */
+  total?: number;
   speed?: { tech: number; passes: number };
   pending: number;
   just_done: boolean;
@@ -1663,6 +1665,9 @@ export type GameReclaim = {
 };
 export type GameShipKind = "barge" | "bulk" | "container" | "lng" | "offshore";
 export type GameTip = { id: string; [k: string]: string | number };
+export type GameScrap = { id: string; x: number; y: number; kind: "pipe" | "plate" | "drum" };
+export type GameTodoKey = "daily" | "supply" | "crew" | "battle";
+
 export type GameState = {
   enabled: boolean;
   now: string;
@@ -1732,6 +1737,11 @@ export type GameState = {
   commissioned_now?: { kind: GameWarKind; no: number; count: number; cap: number };
   /** 선생님이 보낸 자원 중 아직 '받았어요'를 안 누른 것 */
   gifts?: GameGift[];
+  /** 땅 위 폐자재 (누르면 치우기 → 자원 조금) */
+  scraps?: GameScrap[];
+  scrap_reward?: { steel: number; rods: number };
+  /** 오늘 할 일 4가지 (다 하면 하루 한 번 보상) */
+  todo?: { items: { key: GameTodoKey; done: boolean }[]; reward: { tech: number; steel: number }; claimed: boolean };
 };
 const GAME_TIMEOUT = 90000;
 export const getGame = (lang: string) => request<GameState>(`/game/state?lang=${lang}`, {}, GAME_TIMEOUT);
@@ -1741,6 +1751,8 @@ export const gameWallsBuild = (spots: number[][]) =>
   post<GameState & { placed: number; skipped: number }>("/game/walls/build", { spots }, GAME_TIMEOUT);
 export const gameUpgrade = (id: string) => post<GameState>("/game/upgrade", { id }, GAME_TIMEOUT);
 export const gameMove = (id: string, x: number, y: number) => post<GameState>("/game/move", { id, x, y }, GAME_TIMEOUT);
+export const gameScrapClear = (id: string) => post<GameState>("/game/scrap/clear", { id }, GAME_TIMEOUT);
+export const gameTodoClaim = () => post<GameState>("/game/todo/claim", {}, GAME_TIMEOUT);
 export const gameCollect = () => post<GameState>("/game/collect", {}, GAME_TIMEOUT);
 export const gameSpeedup = (target: string, using: "tech" | "pass") => post<GameState>("/game/speedup", { target, using }, GAME_TIMEOUT);
 export const gameReclaim = () => post<GameState>("/game/reclaim", {}, GAME_TIMEOUT);

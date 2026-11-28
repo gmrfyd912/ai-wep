@@ -525,6 +525,8 @@ def train_submit(body: game.ExamSubmitBody, user=Depends(need_player)):
             opened.pop(q, None)
         base["crews"] = c
         view = crew_view(base, game._buildings(uid))
+    if right:
+        game.mark_todo(uid, "crew")
     return {"right": right, "total": len(results), "unsure": unsure, "results": results, "crews": view}
 
 
