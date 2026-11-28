@@ -11,6 +11,7 @@ import json, math, os, random, sys
 sys.path.insert(0, os.path.dirname(__file__))
 import artlib as A
 from artlib import box, cyl, ball, wedge, hazard, worker
+import units as U
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(ROOT, "assets", "yard")
@@ -449,6 +450,7 @@ SPRITES = {
     "tree1": tree(1), "tree2": tree(2),
     "cont_x1": containers(11, True), "cont_x2": containers(12, True),
     "cont_y1": containers(21, False), "cont_y2": containers(22, False),
+    **U.SPRITES,
 }
 
 if __name__ == "__main__":
