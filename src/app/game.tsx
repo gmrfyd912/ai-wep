@@ -69,7 +69,7 @@ import {
 import { BattleReplay } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
-import { PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
+import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
 import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
@@ -79,7 +79,7 @@ type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "
 // 지도 빈 곳을 눌러도 닫지 않는 창: 문제 푸는 창(적던 답 보호)과 놓기 모드
 const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place"];
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
-const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall"];
+const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall", "trainhall", "dorm", "garage"];
 const STAGES = 5;
 const WAR_KINDS = ["patrol", "frigate", "destroyer", "submarine", "landing"];
 /** 공정 이름 (전투함은 마지막 공정이 '인도' 대신 '취역') */
@@ -124,6 +124,7 @@ export default function GameScreen() {
   const [supplyRes, setSupplyRes] = useState<GameSupplyResult | null>(null);
   const [supplyUnit, setSupplyUnit] = useState("");
   const [pirate, setPirate] = useState<GamePirate | null>(null);
+  const [trainOpen, setTrainOpen] = useState(false);   // 기술교육원: 대원 훈련 창
   const [seaOpen, setSeaOpen] = useState(false);       // G2c-1 바다 지도 (전체 화면)
   const [battleStage, setBattleStage] = useState<number | null>(null);   // 바다 지도에서 고른 해적 단계
   const [planStage, setPlanStage] = useState<number | null>(null);       // G2c-2 작전 짜기 (전체 화면)
@@ -487,6 +488,17 @@ export default function GameScreen() {
     setInfo(null);
     setMode("battle");
     setExamErr("");
+    try {
+      setPirate(await getPirate());
+    } catch (e) {
+      setExamErr(gameError(t, e));
+    }
+  };
+  // 기술교육원: 대원 훈련 (문제로 훈련 점수 → 바로 대원 고용)
+  const openTrain = async () => {
+    setSelected(null);
+    setExamErr("");
+    setTrainOpen(true);
     try {
       setPirate(await getPirate());
     } catch (e) {
@@ -951,6 +963,7 @@ export default function GameScreen() {
                 onBook={(page) => data.book_id && router.push(`/book?id=${data.book_id}&page=${page}`)}
                 onArms={() => { setSelected(null); setMode("arms"); }}
                 onWalls={() => run(gameWallsUpgrade)}
+                onTrain={openTrain}
                 onClose={() => setSelected(null)}
               />
             ) : mode === "build" ? (
@@ -1117,6 +1130,26 @@ export default function GameScreen() {
           onPractice={() => { setSeaOpen(false); setBattleStage(null); openBattle(); }}
           errorText={seaError}
         />
+      ) : null}
+      {trainOpen ? (
+        <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: "#0B1A2AF2", zIndex: 55 }]}>
+          <ScrollView style={{ width: "100%" }} contentContainerStyle={{ alignItems: "center", padding: space.md }}>
+            <View style={styles.trainCard}>
+              {pirate ? (
+                <CrewTrain crews={pirate.crews} lang={i18n.language} onCrews={(c) => setPirate((p) => (p ? { ...p, crews: c } : p))}
+                  onBack={() => setTrainOpen(false)} errorText={seaError}
+                  renderQuiz={(q) => <QuizList questions={q.questions} answers={q.answers} setAnswer={q.setAnswer} result={q.result} />} />
+              ) : examErr ? (
+                <>
+                  <Text style={styles.warn}>{examErr}</Text>
+                  <AppButton label={t("common_back")} onPress={() => setTrainOpen(false)} />
+                </>
+              ) : (
+                <ActivityIndicator color="#fff" />
+              )}
+            </View>
+          </ScrollView>
+        </View>
       ) : null}
       {planStage && pirate ? (
         <PlanScreen
@@ -1456,6 +1489,7 @@ function BuildingPanel({
   onBook,
   onArms,
   onWalls,
+  onTrain,
   onClose,
 }: {
   b: GameBuilding;
@@ -1474,6 +1508,7 @@ function BuildingPanel({
   onBook: (page: number) => void;
   onArms: () => void;
   onWalls: () => void;
+  onTrain: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -1488,6 +1523,7 @@ function BuildingPanel({
   if (b.rate) lines.push(t("gm_rate", { n: b.rate, res: t(b.type === "cutting" ? "gm_steel" : "gm_rods") }));
   if (b.cap) lines.push(t("gm_cap", { n: b.cap, res: t(b.type === "yard" ? "gm_steel" : "gm_rods") }));
   if (b.pending > 0) lines.push(t("gm_pendingLine", { n: b.pending }));
+  if (b.room && b.level > 0) lines.push(t(`gm_roomLine_${b.type}`, { n: b.room, step: b.room_step ?? 0 }));
   if (b.type === "pier" && b.level > 0) lines.push(t("gm_fleetLine", { n: data.fleet?.ships.length ?? 0, cap: data.fleet?.cap ?? 0 }));
   if (b.type === "pier" && b.next && b.level > 0) lines.push(t("gm_pierNext", { n: b.next.level + 1 }));
   const speedTech = left !== null ? Math.ceil(left / (data.speed_rule.tech_minutes * 60)) : 0;
@@ -1524,6 +1560,7 @@ function BuildingPanel({
       {b.type === "pier" && b.level > 0 ? <AppButton label={t("gm_fleetSee")} icon="boat-outline" onPress={onFleet} /> : null}
       {(b.type === "cutting" || b.type === "welding") && b.pending > 0 ? <AppButton label={t("gm_collectAll")} icon="cube-outline" onPress={onCollect} disabled={busy} /> : null}
       {b.type === "academy" ? <AppButton label={t("gm_armsTitle")} icon="flask-outline" onPress={onArms} /> : null}
+      {b.type === "trainhall" && b.level > 0 ? <AppButton label={t("gm_ct_title")} icon="people-outline" onPress={onTrain} /> : null}
       {df ? (
         <View style={styles.next}>
           <Text style={styles.text}>
@@ -2335,6 +2372,7 @@ const FAB_ROW = 7 * 64 + 8;   // 아래 오른쪽 메뉴 단추 7개 자리
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#1F6FA8" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
+  trainCard: { backgroundColor: "#0F2236", borderRadius: radius.md, borderWidth: 1, borderColor: "#FFFFFF22", padding: space.sm, gap: space.sm, width: 520, maxWidth: "100%" },
   hudTL: { position: "absolute", gap: 4 },
   hudTR: { position: "absolute", flexDirection: "row", gap: 6 },
   hudBL: { position: "absolute", gap: 4, maxWidth: 560 },

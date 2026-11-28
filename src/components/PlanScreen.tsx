@@ -50,6 +50,8 @@ export type PlanTarget = {
   lootHalf?: boolean;
   block?: string | null;
   morale?: number;
+  /** 상대 방어 대원 수 */
+  guards?: Partial<Record<CrewKind, number>>;
 };
 export type PlanLaunch = {
   ships: string[]; lane: GameLane; landing: number; order: number[]; crews: Partial<Record<CrewKind, number>>;
@@ -102,11 +104,16 @@ export function PlanScreen({
   const [landing, setLanding] = useState<number | null>(null);
   const [order, setOrder] = useState<number[]>([]);
   const [pick, setPick] = useState<string[] | null>(null);
-  const [send, setSend] = useState<Record<CrewKind, number>>({ welder: 0, fitter: 0, forklift: 0, transporter: 0 });
+  const [send, setSend] = useState<Record<CrewKind, number>>(() => Object.fromEntries(CREW_KINDS.map((k) => [k, 0])) as Record<CrewKind, number>);
   const [view, setView] = useState<"plan" | "train" | "morale">("plan");
   const chosen = (pick ?? ready.map((f) => f.id)).filter((id) => ready.some((f) => f.id === id));
   const room = chosen.reduce((a, id) => a + (crews.capacity[ships.find((f) => f.id === id)?.kind ?? ""] ?? 0), 0);
-  const sent = CREW_KINDS.reduce((a, k) => a + Math.min(send[k], crews.have[k]), 0);
+  // 지금 싸울 수 있는 대원 (다친 대원 빼고), 장비 대원은 배에서 2자리
+  const free = (k: CrewKind) => Math.max(0, (crews.have[k] ?? 0) - (crews.hurt?.[k] ?? 0));
+  const seat = (k: CrewKind) => crews.specs[k]?.seats ?? 1;
+  const sent = CREW_KINDS.reduce((a, k) => a + Math.min(send[k], free(k)) * seat(k), 0);
+  const shown = CREW_KINDS.filter((k) => (crews.have[k] ?? 0) > 0 || (crews.trainhall ?? 0) >= (crews.specs[k]?.unlock ?? 1));
+  const guardText = Object.entries(target.guards ?? {}).filter(([, n]) => n).map(([k, n]) => `${t(`gm_crew_${k}`)} ${n}`).join(" · ");
 
   const sheetW = Math.min(360, Math.max(280, width * 0.4));
   const areaW = width - sheetW - 24 - insets.left - insets.right;
@@ -122,7 +129,7 @@ export function PlanScreen({
   const launch = (morale?: { id: string; answers: Record<string, string | number> }) => {
     if (landing === null) return;
     const c: Partial<Record<CrewKind, number>> = {};
-    for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], crews.have[k]);
+    for (const k of CREW_KINDS) if (send[k] > 0) c[k] = Math.min(send[k], free(k));
     onLaunch({ ships: chosen, lane, landing, order, crews: c, morale_id: morale?.id, answers: morale?.answers });
   };
   const dock = landing === null ? null : { x: (map.land + 0.45) * cell, y: (landing + 0.5) * cell };
@@ -258,25 +265,31 @@ export function PlanScreen({
                 <Text style={styles.label}>{t("gm_pl_crews", { n: sent, room })}</Text>
                 <Text style={styles.small}>{t("gm_pl_have", { n: crews.total, cap: crews.cap })}</Text>
               </View>
-              {CREW_KINDS.map((k) => (
-                <View key={k} style={styles.crewRow}>
-                  <CrewFigure kind={k} size={26} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.textB}>
-                      {t(`gm_crew_${k}`)} <Text style={styles.small}>×{crews.have[k]}</Text>
-                    </Text>
-                    <Text style={styles.small} numberOfLines={1}>{t(`gm_crew_${k}_role`)}</Text>
+              {shown.map((k) => {
+                const full = send[k] >= free(k) || sent + seat(k) > room;
+                return (
+                  <View key={k} style={styles.crewRow}>
+                    <CrewFigure kind={k} size={26} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.textB}>
+                        {t(`gm_crew_${k}`)} <Text style={styles.small}>×{free(k)}</Text>
+                        {crews.hurt?.[k] ? <Text style={styles.warnSm}> {t("gm_ct_hurtN", { n: crews.hurt[k] })}</Text> : null}
+                      </Text>
+                      <Text style={styles.small} numberOfLines={1}>
+                        {seat(k) > 1 ? `${t("gm_ct_seats", { n: seat(k) })} · ` : ""}{t(`gm_crew_${k}_role`)}
+                      </Text>
+                    </View>
+                    <Pressable disabled={send[k] <= 0} onPress={() => setSend((s) => ({ ...s, [k]: s[k] - 1 }))} style={[styles.pm, send[k] <= 0 && styles.dim]}>
+                      <Ionicons name="remove" size={16} color="#fff" />
+                    </Pressable>
+                    <Text style={styles.count}>{Math.min(send[k], free(k))}</Text>
+                    <Pressable disabled={full} onPress={() => setSend((s) => ({ ...s, [k]: s[k] + 1 }))} style={[styles.pm, full && styles.dim]}>
+                      <Ionicons name="add" size={16} color="#fff" />
+                    </Pressable>
                   </View>
-                  <Pressable disabled={send[k] <= 0} onPress={() => setSend((s) => ({ ...s, [k]: s[k] - 1 }))} style={[styles.pm, send[k] <= 0 && styles.dim]}>
-                    <Ionicons name="remove" size={16} color="#fff" />
-                  </Pressable>
-                  <Text style={styles.count}>{Math.min(send[k], crews.have[k])}</Text>
-                  <Pressable disabled={send[k] >= crews.have[k] || sent >= room} onPress={() => setSend((s) => ({ ...s, [k]: s[k] + 1 }))}
-                    style={[styles.pm, (send[k] >= crews.have[k] || sent >= room) && styles.dim]}>
-                    <Ionicons name="add" size={16} color="#fff" />
-                  </Pressable>
-                </View>
-              ))}
+                );
+              })}
+              {guardText ? <Text style={styles.small}>{t("gm_ct_enemyGuards", { list: guardText })}</Text> : null}
               {room === 0 && chosen.length ? <Text style={styles.warnSm}>{t("gm_pl_noRoom")}</Text> : null}
               <AppButton label={t("gm_pl_train", { pts: crews.pts })} icon="school-outline" variant="secondary" onPress={() => setView("train")} />
               {user && target.loot ? (
@@ -368,7 +381,7 @@ function MoraleQuiz({
 }
 
 /** 대원 훈련: 문제 3개 → 맞힌 수 = 훈련 점수 → 점수로 대원 뽑기 */
-function CrewTrain({
+export function CrewTrain({
   crews,
   lang,
   onCrews,
@@ -426,7 +439,11 @@ function CrewTrain({
       setBusy(false);
     }
   };
-  const full = crews.total >= crews.cap;
+  const hall = crews.trainhall ?? 0;
+  const homeFull = (k: CrewKind) => {
+    const h = crews.homes?.[crews.specs[k].home];
+    return !h || h.used >= h.cap;
+  };
   return (
     <>
       <View style={styles.rowBetween}>
@@ -438,27 +455,40 @@ function CrewTrain({
       <Text style={styles.small}>{t("gm_ct_rule", { n: crews.quiz })}</Text>
       <View style={styles.rowBetween}>
         <Text style={styles.textB}>{t("gm_ct_pts", { n: crews.pts })}</Text>
-        <Text style={styles.small}>{t("gm_pl_have", { n: crews.total, cap: crews.cap })}</Text>
+        <Text style={styles.small}>
+          {t("gm_ct_homes", { d: crews.homes?.dorm.used ?? 0, dc: crews.homes?.dorm.cap ?? 0, g: crews.homes?.garage.used ?? 0, gc: crews.homes?.garage.cap ?? 0 })}
+        </Text>
       </View>
-      {CREW_KINDS.map((k) => (
-        <View key={k} style={styles.crewRow}>
-          <CrewFigure kind={k} size={26} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.textB}>
-              {t(`gm_crew_${k}`)} <Text style={styles.small}>×{crews.have[k]}</Text>
-            </Text>
-            <Text style={styles.small} numberOfLines={2}>{t(`gm_crew_${k}_role`)}</Text>
+      {hall < 1 ? <Text style={styles.warnSm}>{t("gm_ct_needHall")}</Text> : null}
+      {CREW_KINDS.map((k) => {
+        const sp = crews.specs[k];
+        const locked = hall < sp.unlock;
+        const noHome = (crews.homes?.[sp.home].cap ?? 0) < 1;
+        const off = busy || locked || homeFull(k) || crews.pts < sp.cost;
+        return (
+          <View key={k} style={[styles.crewRow, locked && { opacity: 0.55 }]}>
+            <CrewFigure kind={k} size={26} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.textB}>
+                {t(`gm_crew_${k}`)} <Text style={styles.small}>×{crews.have[k] ?? 0}{crews.hurt?.[k] ? ` · ${t("gm_ct_hurtN", { n: crews.hurt[k] })}` : ""}</Text>
+              </Text>
+              <Text style={styles.small} numberOfLines={2}>
+                {locked
+                  ? t("gm_ct_locked", { n: sp.unlock })
+                  : noHome
+                    ? t(`gm_ct_need_${sp.home}`)
+                    : `${t(`gm_ct_home_${sp.home}`)} · ${t(`gm_crew_${k}_role`)}`}
+              </Text>
+            </View>
+            <Pressable disabled={off} onPress={() => hire(k)} style={[styles.hire, off && styles.dim]}>
+              <Text style={styles.chipText}>+1 · {t("gm_ct_cost", { n: sp.cost })}</Text>
+            </Pressable>
           </View>
-          <Pressable disabled={busy || full || crews.pts < crews.specs[k].cost} onPress={() => hire(k)}
-            style={[styles.hire, (busy || full || crews.pts < crews.specs[k].cost) && styles.dim]}>
-            <Text style={styles.chipText}>+1 · {t("gm_ct_cost", { n: crews.specs[k].cost })}</Text>
-          </Pressable>
-        </View>
-      ))}
-      {full ? <Text style={styles.warnSm}>{t("gm_err_crew_full", { cap: crews.cap })}</Text> : null}
+        );
+      })}
       {err ? <Text style={styles.warn}>{err}</Text> : null}
       {!quiz || result ? (
-        <AppButton label={t(result ? "gm_ct_again" : "gm_ct_start")} icon="school-outline" disabled={busy} onPress={start} />
+        <AppButton label={t(result ? "gm_ct_again" : "gm_ct_start")} icon="school-outline" disabled={busy || hall < 1} onPress={start} />
       ) : null}
       {busy && !quiz ? <ActivityIndicator color={colors.primary} /> : null}
       {quiz ? renderQuiz({ questions: quiz.questions, answers, setAnswer: (id, v) => setAnswers((a) => ({ ...a, [id]: v })), result }) : null}

@@ -39,10 +39,16 @@ def main():
                                           "choices": ["a", "b", "c", "d"], "answer": 2, "status": "active", "translations": {}})
     assert c.get("/game/state", headers=S).status_code == 200
 
-    # 처음: 대원 0, 숙소 = 10 + 본관 1 × 4
+    # 기술교육원이 없으면 훈련 못 함
+    assert c.post("/game/crew/train/start", headers=S, json={"lang": "ko"}).json()["detail"]["code"] == "need_trainhall"
+    # 기술교육원 3레벨·기숙사 1레벨(8명)·장비 정비고 1레벨(2대)
+    for t_, lv, x in (("trainhall", 3, 0), ("dorm", 1, 2), ("garage", 1, 4)):
+        db.insert_rows("game_buildings", {"id": str(uuid.uuid4()), "user_id": uid, "type": t_, "level": lv, "x": x, "y": 10,
+                                          "collected_at": "2026-11-30T00:00:00+00:00"})
     p = c.get("/game/pirate", headers=S).json()
     cr = p["crews"]
-    assert cr["have"] == {"welder": 0, "fitter": 0, "forklift": 0, "transporter": 0} and cr["pts"] == 0 and cr["cap"] == 14, cr
+    assert all(v == 0 for v in cr["have"].values()) and cr["pts"] == 0 and cr["cap"] == 10, cr
+    assert cr["homes"] == {"dorm": {"used": 0, "cap": 8, "level": 1}, "garage": {"used": 0, "cap": 2, "level": 1}}, cr["homes"]
     assert p["map"] == {"w": 14, "h": 10, "land": 6, "lanes": gb.LANES}
 
     # 대원 훈련: 문제 3개(OX 2 + 객관식 1) → 맞힌 수만큼 훈련 점수
@@ -66,10 +72,15 @@ def main():
     assert r["crews"]["have"]["welder"] == 2 and r["crews"]["have"]["forklift"] == 1 and r["crews"]["pts"] == 0, r
     assert code(c.post("/game/crew/hire", headers=S, json={"kind": "fitter", "n": 1})) == "crew_pts"
     assert code(c.post("/game/crew/hire", headers=S, json={"kind": "boss", "n": 1})) == "bad_kind"
-    # 숙소가 차면 못 뽑음
+    # 기숙사·장비 정비고가 차면 못 뽑음, 기술교육원 레벨이 낮으면 못 뽑음
     for b in db.TABLES["game_bases"]:
         b["crews"] = {**b["crews"], "pts": 100}
-    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "welder", "n": 12})) == "crew_full"
+    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "welder", "n": 12})) == "crew_full_dorm"
+    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "forklift", "n": 2})) == "crew_full_garage"
+    assert code(c.post("/game/crew/hire", headers=S, json={"kind": "crane", "n": 1})) == "crew_locked"
+    assert c.post("/game/crew/hire", headers=S, json={"kind": "piper", "n": 1}).status_code == 200
+    for b in db.TABLES["game_bases"]:
+        b["crews"]["piper"] = 0
     for b in db.TABLES["game_bases"]:
         b["crews"] = {**b["crews"], "pts": 0}
 
@@ -87,7 +98,7 @@ def main():
     assert r.status_code == 200, r.text
     bt = r.json()["battle"]
     assert bt["raid"] and bt["landing"] == 2 and bt["order"] == [0] and bt["landed_at"] is not None, {k: bt[k] for k in ("raid", "landed_at")}
-    assert bt["crew_sent"] == {"welder": 2, "fitter": 0, "forklift": 1, "transporter": 0}
+    assert {k: v for k, v in bt["crew_sent"].items() if v} == {"welder": 2, "forklift": 1}, bt["crew_sent"]
     assert any(f["c"] for f in bt["frames"]) and len(bt["crews"]) == 3
     assert bt["stars"] >= 1 and bt["got"]["steel"] > 0, (bt["stars"], bt.get("got"))
     lost = bt["crew_lost"]

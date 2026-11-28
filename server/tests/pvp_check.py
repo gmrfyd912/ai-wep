@@ -167,6 +167,12 @@ def main():
     # 해적 전투 기록에는 안 섞임
     assert c.get("/game/pirate", headers=hd["s1"]).json()["history"] == []
 
+    # 방어하다 쓰러진 s2 대원은 부상 (1시간 뒤 돌아옴) → 그동안 출동 못 함
+    s2b = next(b for b in db.TABLES["game_bases"] if b["user_id"] == ids["s2"])
+    if any(bt["guard_lost"].values()):
+        assert s2b["crews"].get("hurt"), s2b["crews"]
+    assert bt["guard_sent"]["welder"] == 12, bt["guard_sent"]
+    s2b["crews"]["hurt"] = []
     # 복수 1번 (s2 → s1): 규칙은 그대로, 두 번은 안 됨
     assert row["revenge_block"] is None, row
     r = attack("s2", "s1", right=0, revenge=bt["id"])

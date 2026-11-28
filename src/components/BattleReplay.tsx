@@ -152,6 +152,12 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
             const [tx, ty] = C(battle.base[b]);
             return <Line key={`f${k}`} x1={m[0] * cell} y1={m[1] * cell} x2={tx} y2={ty} stroke="#9EE6FF" strokeWidth={1.5} />;
           }
+          if (who === "cg" || who === "gc") {
+            const m = who === "cg" ? fr.c?.[a] : fr.d?.[a];
+            const g = who === "cg" ? fr.d?.[b] : fr.c?.[b];
+            if (!m || !g) return null;
+            return <Line key={`f${k}`} x1={m[0] * cell} y1={m[1] * cell} x2={g[0] * cell} y2={g[1] * cell} stroke={who === "cg" ? "#9EE6FF" : "#FF5252"} strokeWidth={1.5} strokeDasharray={who === "gc" ? "3 3" : undefined} />;
+          }
           if (who === "dc") {
             const m = fr.c?.[b];
             if (!m) return null;
@@ -191,6 +197,12 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
           const dx = ((k % 3) - 1) * cell * 0.28, dy = ((Math.floor(k / 3) % 3) - 1) * cell * 0.22;
           return <CrewGlyph key={`c${k}`} kind={kind} x={x * cell + dx} y={y * cell + cell * 0.35 + dy} s={cell * 0.8} cheer={cheer > 0 && !down} hop={hop} dim={down} />;
         })}
+        {/* 방어 대원 (빨간 고리, 쓰러지면 흐리게) */}
+        {(fr.d ?? []).map(([x, y, hp, ki], k) => {
+          const down = hp <= 0;
+          const dx = ((k % 3) - 1) * cell * 0.24, dy = ((Math.floor(k / 3) % 3) - 1) * cell * 0.2;
+          return <CrewGlyph key={`d${k}`} kind={CREW_KINDS[ki]} x={x * cell + dx} y={y * cell + cell * 0.35 + dy} s={cell * 0.8} dim={down} ring="#FF5252" />;
+        })}
       </Svg>
       {cheer > 0 && !showCard ? <Text style={styles.cheer}>{t("gm_pl_cheer")}</Text> : null}
       <View style={styles.legend}>
@@ -203,8 +215,9 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
         <Leg color="#FFD166" label={t(defense ? "gm_rd_legEnemyShots" : "gm_bt_legMine")} />
         <Leg color="#FF5252" label={t(defense ? "gm_rd_legMyShots" : pvp ? "gm_rd_legTheirShots" : "gm_bt_legTheirs")} />
         {battle.raid
-          ? CREW_KINDS.filter((k) => battle.crew_sent?.[k]).map((k) => <Leg key={k} color={CREW_COLOR[k]} label={t(`gm_crew_${k}`)} />)
+          ? CREW_KINDS.filter((k) => battle.crew_sent?.[k] || battle.guard_sent?.[k]).map((k) => <Leg key={k} color={CREW_COLOR[k]} label={t(`gm_crew_${k}`)} />)
           : null}
+        {battle.guards?.length ? <Leg color="#FF5252" label={t(defense ? "gm_rd_legMyGuards" : "gm_rd_legGuards")} ring /> : null}
       </View>
 
       {showCard ? (
@@ -273,6 +286,17 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
                     .join(" · ")}
                 </Text>
               ) : null}
+              {battle.guard_sent && Object.values(battle.guard_sent).some(Boolean) ? (
+                <Text style={styles.smallC}>
+                  {t(defense ? "gm_rd_myGuards" : "gm_rd_theirGuards", {
+                    list: CREW_KINDS.filter((k) => battle.guard_sent![k])
+                      .map((k) => `${t(`gm_crew_${k}`)} ${battle.guard_sent![k]}`)
+                      .join(" · "),
+                    down: Object.values(battle.guard_lost ?? {}).reduce((a, b) => a + (b || 0), 0),
+                  })}
+                  {defense && Object.values(battle.guard_lost ?? {}).some(Boolean) ? `\n${t("gm_rd_hurtBack", { m: battle.hurt_minutes ?? 60 })}` : ""}
+                </Text>
+              ) : null}
               <View style={{ flexDirection: "row", gap: space.sm }}>
                 <View style={{ flex: 1 }}>
                   <AppButton label={t("gm_bt_replay")} icon="refresh-outline" variant="secondary" onPress={restart} />
@@ -289,10 +313,10 @@ export function BattleReplay({ battle, onClose, defense = false }: { battle: Gam
   );
 }
 
-function Leg({ color, label }: { color: string; label: string }) {
+function Leg({ color, label, ring = false }: { color: string; label: string; /** 방어 대원: 빈 고리 */ ring?: boolean }) {
   return (
     <View style={styles.leg}>
-      <View style={[styles.dot, { backgroundColor: color }]} />
+      <View style={[styles.dot, ring ? { borderWidth: 2, borderColor: color, borderRadius: 5 } : { backgroundColor: color }]} />
       <Text style={styles.legText}>{label}</Text>
     </View>
   );

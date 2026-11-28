@@ -199,7 +199,8 @@ def raid_target(target_id: str, user=Depends(need_player)):
     return {"id": target_id, "name": tg["user"].get("name") or "", "hq": _hq_lv(tg["blds"]),
             "base": [{k: o[k] for k in ("id", "type", "level", "x", "y", "w", "h")} for o in base], "map": mp,
             "loot": loot, "loot_half": half, "same": tg["same"], "block": code, "block_info": extra,
-            "morale": sum(MORALE_QUIZ.values())}
+            "morale": sum(MORALE_QUIZ.values()),
+            "guards": {k: v for k, v in game_raid.available(game_raid.get_crews(tg["base"])).items() if v}}
 
 
 # ---- 출동 전 3문제 (사기) ----
@@ -313,13 +314,19 @@ def raid_attack(body: RaidBody, user=Depends(need_player)):
         if not 0 <= body.landing < mp["h"]:
             _err(400, "bad_plan")
         have = game_raid.get_crews(base)
+        free = game_raid.available(have)
         send = {k: max(0, int(body.crews.get(k, 0) or 0)) for k in game_raid.CREW_KINDS}
-        if any(send[k] > have[k] for k in send):
+        if any(send[k] > free[k] for k in send):
             _err(400, "crew_short")
-        if sum(send.values()) > game_raid.ship_capacity(ships):
+        if game_raid.seats_of(send) > game_raid.ship_capacity(ships):
             _err(400, "crew_room", n=game_raid.ship_capacity(ships))
+        tcrews = game_raid.get_crews(tg["base"], now)
+        guards = game_raid.available(tcrews)
         res = game_raid.simulate_raid(tbase, ships, body.lane, body.landing, body.order, send, mp["w"], mp["h"], mp["land"],
-                                      mp["lanes"], {"stage": 0}, crew_mult=mult)
+                                      mp["lanes"], {"stage": 0}, crew_mult=mult, defenders=guards)
+        if any(res["guard_lost"].values()):   # 방어하다 쓰러진 대원은 부상 → 정한 시간 뒤 돌아옴
+            game_raid.add_hurt(tcrews, res["guard_lost"], int(st["crew_hurt_minutes"]), now)
+            game_raid._save_crews(body.target, tcrews)
         for s in res["ships"]:        # 보여 줄 공격력은 원래 값으로
             s.pop("attack", None)
         res["note"] = game_raid.raid_note(res)
@@ -334,7 +341,7 @@ def raid_attack(body: RaidBody, user=Depends(need_player)):
         # 약탈: 별 비율만큼, 내 창고 자리만큼 (상대는 내가 가져온 만큼만 잃음)
         full, half = loot_full(tg)
         share = STAR_LOOT[res["stars"]]
-        want = {k: int(full[k] * share) for k in full}
+        want = {k: int(full[k] * share * (1 + ((res.get("loot_bonus") or 0) if res["stars"] else 0))) for k in full}
         mine_bal = game.balance(game.ledger(uid))
         take = game.clip_storage(want, mine_bal, game.caps(buildings))
         bid = str(uuid.uuid4())
@@ -358,7 +365,7 @@ def raid_attack(body: RaidBody, user=Depends(need_player)):
             game._sql17(lambda: store.patch("game_bases", {"user_id": f"eq.{body.target}"}, {"shield_until": _iso(shield_until)}),
                         code="need_sql19")
         res.update({"id": bid, "kind": "raid", "got": got, "lost": {"steel": take["steel"], "rods": take["rods"]},
-                    "defend": defend, "loot_half": half, "first_stars": 0,
+                    "defend": defend, "loot_half": half, "first_stars": 0, "hurt_minutes": int(st["crew_hurt_minutes"]),
                     "morale": {"right": right, "total": len(results), "mult": mult},
                     "attacker": {"id": uid, "name": user.get("name") or ""},
                     "defender": {"id": body.target, "name": tg["user"].get("name") or ""}, "revenge": bool(revenge)})

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 import game
 import game_battle
 import game_pvp
+import game_raid
 import manage
 import store
 from game import _err, need_player
@@ -290,6 +291,7 @@ def scout_pirate(uid, stage, st):
             "grid": {"w": game_battle.MAP_W, "h": game_battle.MAP_H, "land": game_battle.LAND_W},
             "buildings": [{"type": o["type"], "level": o["level"], "x": o["x"], "y": o["y"], "w": o["w"], "h": o["h"]} for o in items],
             "counts": _counts(items), "loot": left, "stars": prev, "expect": expect, "ships": len(ships),
+            "guards": game_raid.PIRATE_CREWS.get(stage, {}),
             "tip": tip}
 
 
@@ -328,6 +330,7 @@ def scout_user(me, target, st):
             "buildings": items, "counts": _counts(blds), "loot": loot, "loot_half": half, "same": same,
             "attackable": bool(attackable), "raid_open": bool(st["raid_pvp"]), "block": block, "block_info": block_info,
             "shield": game_pvp.shield_left(base),
+            "guards": {k: v for k, v in game_raid.available(game_raid.get_crews(base)).items() if v},
             "tip": "user_weak" if half else "user_hard" if tr == "hard" else "user_easy" if tr == "easy" else "user_even"}
 
 
