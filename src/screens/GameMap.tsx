@@ -54,7 +54,13 @@ type Prim = ComponentType<any>;
 export type MapKit = {
   G: Prim; Polygon: Prim; Line: Prim; Circle: Prim; Ellipse: Prim; Rect: Prim; SvgText: Prim;
   /** 미리 그려 둔 건물 그림 (이름, 기준 칸 x·y) → 없으면 null */
-  sprite?: (name: string, x: number, y: number, P: (x: number, y: number) => Pt, W: number, key: string) => ReactNode | null;
+  sprite?: (name: string, x: number, y: number, P: (x: number, y: number) => Pt, W: number, key: string, scale?: number) => ReactNode | null;
+  /** 물 위에서 출렁이는 묶음 (seed 로 박자를 다르게) */
+  Bob?: Prim;
+  /** 길(칸 목록)을 따라 오가는 지게차 */
+  Mover?: Prim;
+  /** 깜빡이는 용접 불빛 */
+  Spark?: Prim;
   Ground?: Prim;
   Smoke?: Prim;
   /** 오가는 대원·작업 반장 (없으면 아래 Walker·Foreman) */
@@ -93,6 +99,29 @@ export function origin(grid: number, W: number) {
 export function mapSize(grid: number, W: number, sea = 2) {
   const { oy } = origin(grid, W);
   return { width: (grid + sea / 2 + 2 * MARGIN) * W, height: oy + ((2 * grid + sea + 2 * MARGIN) * W) / 4 + 0.5 * W };
+}
+
+/** 빈 칸을 따라 가는 가장 짧은 길 (칸 목록). 없으면 null */
+function cellPath(from: [number, number], to: [number, number], grid: number, blocked: Set<string>): [number, number][] | null {
+  const key = (x: number, y: number) => `${x},${y}`;
+  const ok = (x: number, y: number) => x >= 0 && y >= 0 && x < grid && y < grid && !blocked.has(key(x, y));
+  if (!ok(from[0], from[1]) || !ok(to[0], to[1])) return null;
+  const prev = new Map<string, [number, number] | null>([[key(from[0], from[1]), null]]);
+  const q: [number, number][] = [from];
+  for (let h = 0; h < q.length; h++) {
+    const [x, y] = q[h];
+    if (x === to[0] && y === to[1]) {
+      const out: [number, number][] = [];
+      let c: [number, number] | null = [x, y];
+      while (c) { out.unshift(c); c = prev.get(key(c[0], c[1])) ?? null; }
+      return out;
+    }
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (ok(nx, ny) && !prev.has(key(nx, ny))) { prev.set(key(nx, ny), [x, y]); q.push([nx, ny]); }
+    }
+  }
+  return null;
 }
 
 /** 건물 가운데가 지도 그림에서 어디인지 (화면을 그 건물로 옮길 때) */
@@ -232,7 +261,7 @@ export function GameMap({
 }) {
   const { G, Polygon, Line, Circle, Ellipse, Rect, SvgText } = kit;
   const WalkerC = kit.Walker ?? Walker, ForemanC = kit.Foreman ?? Foreman;
-  const spr = (name: string, x: number, y: number, key: string) => (kit.sprite ? kit.sprite(name, x, y, P, W, key) : null);
+  const spr = (name: string, x: number, y: number, key: string, scale = 1) => (kit.sprite ? kit.sprite(name, x, y, P, W, key, scale) : null);
   const H = W / 2;
   const WATER_COLS = sea;
   const { width, height } = mapSize(grid, W, sea);
@@ -420,7 +449,9 @@ export function GameMap({
       const base = spr("dock_base", b.x, b.y, "pool");
       parts.push(base ?? <Polygon key="pool" points={pts([A, B, C, D])} fill="#1F6FA8" stroke="#555" strokeWidth={2} />);
       const hullC = ship?.war ? WAR_COLOR : "#B33B2E";
-      if (ship) {
+      const shipArt = ship ? spr(ship.stage >= 4 ? `ship_${ship.kind}` : `ship_${ship.war ? "w" : "c"}${Math.max(0, ship.stage)}`, b.x, b.y, "ship") : null;
+      if (shipArt) parts.push(shipArt);
+      else if (ship) {
         const len = [1.2, 2.2, 3.2, 4.4, 4.4][ship.stage] ?? 4.4;
         const hullY = b.y + 0.3;
         if (ship.stage <= 1) {
@@ -446,6 +477,10 @@ export function GameMap({
       parts.push(art);
       if (kit.Smoke && b.level > 0 && (b.type === "welding" || b.type === "cutting")) {
         const c = P(b.x + 0.45, b.y + 0.45), tier = b.level <= 3 ? 1 : b.level <= 6 ? 2 : 3;
+        if (kit.Spark && b.type === "welding") {
+          const sp = P(b.x + 1.0, b.y + 2.0);
+          smokes.push(<kit.Spark key={`sp${b.id}`} x={sp[0]} y={sp[1] - 0.075 * W} W={W} seed={b.x * 3 + b.y} />);
+        }
         smokes.push(<kit.Smoke key={`sm${b.id}`} x={c[0]} y={c[1] - (1.7 + 0.12 * tier) * 0.612 * W} W={W} seed={b.x * 7 + b.y * 13} />);
       }
     } else if (b.type === "pier" && b.level > 0) {
@@ -459,6 +494,12 @@ export function GameMap({
         const col = Math.floor(i / b.h), row = i % b.h;
         const sx = b.x + b.w + 0.1 + col * 1.05, sy = b.y + row + 0.2;
         const len = kind === "landing" ? 1.0 : kind === "frigate" ? 0.95 : 0.75;
+        // 새 그림: 2칸 길이로 부두에 나란히 (둘째 줄은 그 바깥)
+        const warArt = spr(`war_${kind}`, b.x + b.w + 0.1 + col * 2.05, b.y + row, `wa${i}`);
+        if (warArt) {
+          parts.push(kit.Bob ? <kit.Bob key={`wb${i}`} seed={i * 1.7 + b.y} amp={W * 0.035}>{warArt}</kit.Bob> : warArt);
+          return;
+        }
         parts.push(box(sx, sy, len, 0.55, 0.22 * W, WAR_COLOR, `ws${i}`));
         parts.push(box(sx + 0.05, sy + 0.05, len - 0.1, 0.45, 0.1 * W, "#4A5561", `wd${i}`));
         if (kind === "landing") {
@@ -524,7 +565,9 @@ export function GameMap({
       shown.forEach(({ k, i, gx, gy }) => {
         const c = P(gx, gy);
         const col = CREW_COLOR[k] ?? "#333";
-        if (MACHINES.has(k)) {
+        const crewArt = spr(`crew_${k}`, gx - 0.5, gy - 0.5, `ca${i}`, MACHINES.has(k) ? 1 : 1.2);
+        if (crewArt) parts.push(crewArt);
+        else if (MACHINES.has(k)) {
           parts.push(box(gx - 0.25, gy - 0.18, k === "transporter" ? 0.65 : 0.45, 0.36, (k === "crane" ? 0.6 : 0.28) * W, col, `m${i}`));
         } else {
           const u = W * 1.4;   // 사람 크기
@@ -683,7 +726,9 @@ export function GameMap({
   const scrapItems = scraps.map((p) => {
     const c = P(p.x + 0.5, p.y + 0.5);
     const k: React.ReactNode[] = [];
-    if (p.kind === "pipe") {
+    const scrapArt = spr(`scrap_${p.kind === "pipe" || p.kind === "plate" ? p.kind : "drum"}`, p.x, p.y, "sa");
+    if (scrapArt) k.push(scrapArt);
+    else if (p.kind === "pipe") {
       [0, 1, 2].forEach((i) => {
         const a = P(p.x + 0.2, p.y + 0.3 + i * 0.18), e = P(p.x + 0.85, p.y + 0.3 + i * 0.18);
         k.push(<Line key={i} x1={a[0]} y1={a[1] - (i === 1 ? 3 : 0)} x2={e[0]} y2={e[1] - (i === 1 ? 3 : 0)} stroke="#6E747B" strokeWidth={W * 0.11} strokeLinecap="round" />);
@@ -699,11 +744,26 @@ export function GameMap({
       hits.push(<SvgEllipse key={`hs${p.id}`} cx={c[0]} cy={c[1] - W * 0.1} rx={W * 0.5} ry={W * 0.34} {...HIT} onPress={() => onScrap(p.id)} />);
     return (
       <G key={`scrap-${p.id}`} onPress={place || !onScrap ? undefined : () => onScrap(p.id)}>
-        <Ellipse cx={c[0]} cy={c[1]} rx={W * 0.48} ry={W * 0.24} fill="#5B4A3355" />
+        {scrapArt ? null : <Ellipse cx={c[0]} cy={c[1]} rx={W * 0.48} ry={W * 0.24} fill="#5B4A3355" />}
         {k}
       </G>
     );
   });
+
+  // 지게차: 강판 야드에서 가까운 공장 문 앞까지 빈 땅을 따라 오감 (보기용, 건물보다 먼저 그려 앞 건물에 가려짐)
+  let mover: React.ReactNode = null;
+  if (kit.Mover && !place) {
+    const yardB = buildings.find((o) => o.type === "yard" && o.level > 0);
+    const shops = buildings.filter((o) => (o.type === "cutting" || o.type === "welding") && o.level > 0);
+    if (yardB && shops.length) {
+      const shop = [...shops].sort((a, c) => Math.abs(a.x - yardB.x) + Math.abs(a.y - yardB.y) - (Math.abs(c.x - yardB.x) + Math.abs(c.y - yardB.y)))[0];
+      const blocked = new Set<string>();
+      buildings.forEach((o) => { for (let i = 0; i < o.w; i++) for (let j = 0; j < o.h; j++) blocked.add(`${o.x + i},${o.y + j}`); });
+      scraps.forEach((o) => blocked.add(`${o.x},${o.y}`));
+      const path = cellPath([yardB.x, yardB.y + yardB.h], [shop.x, shop.y + shop.h], grid, blocked);
+      if (path && path.length > 2) mover = <kit.Mover key={`mv${path.length}-${path[0]}-${path[path.length - 1]}`} path={path} P={P} W={W} />;
+    }
+  }
 
   // 놓기 모드: 고른 자리(또는 추천 자리) 미리보기
   let ghost: React.ReactNode = null;
@@ -727,6 +787,7 @@ export function GameMap({
         {wall}
         <G opacity={place ? 0.28 : 1}>
           {scrapItems}
+          {mover}
           {items}
           {walkers}
           {smokes}

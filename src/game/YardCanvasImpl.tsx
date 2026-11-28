@@ -213,6 +213,63 @@ function SkForeman({ from, to, size, offset, clock }: { from: Pt; to: Pt; size: 
   return <Group transform={tr}><Figure s={s} color="#2B3A67" step={step} arm={{ from: armFrom, hand, head, spark }} /></Group>;
 }
 
+/** 물 위에서 천천히 출렁임 */
+function Bob({ seed, amp, clock, children }: { seed: number; amp: number; clock: SharedValue<number>; children: ReactNode }) {
+  const tr = useDerivedValue(() => [{ translateY: Math.sin(clock.value / 900 + seed) * amp }]);
+  return <Group transform={tr}>{children}</Group>;
+}
+
+/** 용접 불빛: 불규칙하게 번쩍이는 주황 빛 */
+function Spark({ x, y, W, seed, clock }: { x: number; y: number; W: number; seed: number; clock: SharedValue<number> }) {
+  const o = useDerivedValue(() => {
+    const t = clock.value / 90 + seed * 13;
+    const on = Math.sin(t / 9) > -0.2 ? 1 : 0;          // 잠깐 쉬었다가 다시
+    return on * (0.35 + 0.65 * Math.abs(Math.sin(t * 1.7) * Math.sin(t * 0.61)));
+  });
+  const o2 = useDerivedValue(() => o.value * 0.35);
+  return (
+    <Group>
+      <Circle cx={x} cy={y} r={W * 0.22} color="#FFB347" opacity={o2} />
+      <Circle cx={x} cy={y} r={W * 0.09} color="#FFF3C4" opacity={o} />
+    </Group>
+  );
+}
+
+/** 지게차: 칸 길을 따라 갔다가 되돌아옴. 가는 방향에 맞는 그림 4장 가운데 하나만 보임 */
+const LIFT = ["lift_px", "lift_nx", "lift_py", "lift_ny"];
+function Mover({ path, P, W, clock, images }: { path: [number, number][]; P: (x: number, y: number) => Pt; W: number; clock: SharedValue<number>; images: Record<string, SkImage | null> }) {
+  const pts = useMemo(() => path.map(([x, y]) => P(x + 0.5, y + 0.5)), [path, P]);
+  const dirs = useMemo(() => path.slice(1).map(([x, y], i) => (x > path[i][0] ? 0 : x < path[i][0] ? 1 : y > path[i][1] ? 2 : 3)), [path]);
+  const n = path.length - 1, STEP = 650, WAIT = 1800, total = 2 * (n * STEP + WAIT);
+  // st = [x, y, 방향]
+  const st = useDerivedValue(() => {
+    let t = clock.value % total;
+    let back = false;
+    if (t >= n * STEP + WAIT) { back = true; t -= n * STEP + WAIT; }
+    const u = Math.min(n - 0.0001, t / STEP);                  // 끝에서는 잠깐 서 있음
+    const i = Math.floor(u), f = u - i;
+    const a = back ? n - i : i, b = back ? n - i - 1 : i + 1;
+    const d = dirs[back ? n - i - 1 : i];
+    return [pts[a][0] + (pts[b][0] - pts[a][0]) * f, pts[a][1] + (pts[b][1] - pts[a][1]) * f, back ? d ^ 1 : d];
+  });
+  const tr = useDerivedValue(() => [{ translateX: st.value[0] }, { translateY: st.value[1] }]);
+  const o0 = useDerivedValue(() => (st.value[2] === 0 ? 1 : 0));
+  const o1 = useDerivedValue(() => (st.value[2] === 1 ? 1 : 0));
+  const o2 = useDerivedValue(() => (st.value[2] === 2 ? 1 : 0));
+  const o3 = useDerivedValue(() => (st.value[2] === 3 ? 1 : 0));
+  const k = W / CELL;
+  return (
+    <Group transform={tr}>
+      {LIFT.map((name, i) => {
+        const m = SPRITES[name], img = images[name];
+        if (!m || !img) return null;
+        const cx = m.ax + ((m.w - m.h) * CELL) / 4, cy = m.ay + ((m.w + m.h) * CELL) / 8;
+        return <Image key={name} image={img} x={-cx * k} y={-cy * k} width={m.pw * k} height={m.ph * k} fit="fill" opacity={[o0, o1, o2, o3][i]} />;
+      })}
+    </Group>
+  );
+}
+
 /** 지도에 쓰는 그림 파일 (assets/yard) — 목록이 바뀌지 않으므로 차례대로 불러도 됨 */
 const IMAGE_NAMES = Object.keys(YARD_IMAGES);
 function useYardImages(): Record<string, SkImage | null> {
@@ -246,12 +303,17 @@ function YardCanvasImpl({ width, height, map }: YardCanvasProps) {
   const ready = Object.values(images).every(Boolean);
   const kit = useMemo<MapKit>(() => ({
     G: KG, Polygon: KPolygon, Line: KLine, Circle: KCircle, Ellipse: KEllipse, Rect: KRect, SvgText: KText,
-    sprite: (name, x, y, P, W, key): ReactNode => {
+    sprite: (name, x, y, P, W, key, scale = 1): ReactNode => {
       const m = SPRITES[name], img = images[name];
       if (!m || !img) return null;
-      const k = W / CELL, p = P(x, y);
-      return <Image key={key} image={img} x={p[0] - m.ax * k} y={p[1] - m.ay * k} width={m.pw * k} height={m.ph * k} fit="fill" />;
+      const k = (W / CELL) * scale, p = P(x + m.w / 2, y + m.h / 2);
+      // 발자국 가운데를 기준으로 놓음 (scale 로 키워도 서 있는 자리는 그대로)
+      const cx = m.ax + ((m.w - m.h) * CELL) / 4, cy = m.ay + ((m.w + m.h) * CELL) / 8;
+      return <Image key={key} image={img} x={p[0] - cx * k} y={p[1] - cy * k} width={m.pw * k} height={m.ph * k} fit="fill" />;
     },
+    Bob: (p: any) => <Bob {...p} clock={clock} />,
+    Spark: (p: any) => <Spark {...p} clock={clock} />,
+    Mover: (p: any) => <Mover {...p} clock={clock} images={images} />,
     Ground: (p: any) => <Ground {...p} clock={clock} />,
     Smoke: (p: any) => <Smoke {...p} clock={clock} />,
     Walker: (p: any) => <SkWalker {...p} clock={clock} />,
