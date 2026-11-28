@@ -3,7 +3,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -27,6 +27,8 @@ import {
   gameSupplySubmit,
   gameExamSubmit,
   gameMove,
+  gameScrapClear,
+  gameTodoClaim,
   gameReclaim,
   gameShipNext,
   gameShipStart,
@@ -74,12 +76,13 @@ import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen"
 import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
-import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
+import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, scrapBlocks, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
+import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
 
-type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon";
+type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon" | "todo" | "layout";
 // 지도 빈 곳을 눌러도 닫지 않는 창: 문제 푸는 창(적던 답 보호)과 놓기 모드
-const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place"];
+const STAY_OPEN_MODES: Mode[] = ["exam", "supply", "typhoon", "place", "layout"];
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
 const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier", "battery", "missile", "mine", "asw", "radar", "wall", "trainhall", "dorm", "garage", "rally"];
 const STAGES = 5;
@@ -164,6 +167,18 @@ export default function GameScreen() {
   const [weldyBig, setWeldyBig] = useState(false);    // 웰디 말풍선 크게
   const [focus, setFocus] = useState<{ x: number; y: number; n: number } | null>(null);
   const firstFocus = useRef(false);
+  // 배치 바꾸기: 여러 건물을 화면에서만 옮겨 두었다가 [저장]으로 한꺼번에
+  const [layout, setLayout] = useState<Record<string, { x: number; y: number }>>({});
+  const [layoutSel, setLayoutSel] = useState<string | null>(null);
+  const [fxState, setFxState] = useState(true);   // 소리·진동
+  useEffect(() => {
+    void fxOn().then(setFxState);
+    // 웹: 지도를 끄는 동안 페이지 자체가 밀려 올라가지 않게
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const els = [document.documentElement, document.body], prev = els.map((e) => e.style.overflow);
+    els.forEach((e) => (e.style.overflow = "hidden"));
+    return () => els.forEach((e, i) => (e.style.overflow = prev[i]));
+  }, []);
   const [, setTick] = useState(0);
   const fetchedAt = useRef(Date.now());
   const grabOff = useRef({ x: 0, y: 0 });   // 놓을 건물을 끌 때 잡은 곳과 건물 귀퉁이 거리
@@ -351,10 +366,19 @@ export default function GameScreen() {
   const res = wallQ.length && wallCat
     ? { ...data.resources, steel: data.resources.steel - wallCat.cost.steel * wallQ.length, rods: data.resources.rods - wallCat.cost.rods * wallQ.length }
     : data.resources;
-  const mapBuildings: GameBuilding[] = wallQ.length
+  const mapBuildings: GameBuilding[] = mode === "layout" ? [...data.buildings] : wallQ.length
     ? [...data.buildings, ...wallQ.map((p) => ({ id: `q${p.x}_${p.y}`, type: "wall" as const, level: 1, x: p.x, y: p.y, w: 1, h: 1, fixed: false,
         busy_until: null, pending: 0, just_done: false, block: null, sea: true, instant: true }))]
     : data.buildings;
+  if (mode === "layout") {
+    // 배치 바꾸기: 옮겨 둔 자리로 보여 줌
+    for (let i = 0; i < mapBuildings.length; i++) {
+      const o = layout[mapBuildings[i].id];
+      if (o) mapBuildings[i] = { ...mapBuildings[i], x: o.x, y: o.y };
+    }
+  }
+  // 자리 검사: 건물 + 폐자재 (폐자재 칸엔 못 지음)
+  const obst = [...mapBuildings, ...scrapBlocks(data.scraps)];
   const queueWall = (x: number, y: number) => {
     const q = wallQRef.current;
     if (q.some((p) => p.x === x && p.y === y)) return;
@@ -387,7 +411,7 @@ export default function GameScreen() {
     setMoveId(null);
     const tutPick = tutStep === "yard" && tut.spot ? tut.spot : null;
     const rule = ruleOf(type, null);
-    const spot = type === "wall" ? null : tutPick ?? autoSpot(data.buildings, rule, data.grid, sea);
+    const spot = type === "wall" ? null : tutPick ?? autoSpot(obst, rule, data.grid, sea);
     setPick(spot);
     // 놓은 자리가 화면 가운데 오게 (큰 땅이라 안 보일 수 있음), 장벽은 해안으로
     const at = spot ?? (type === "wall" ? { x: data.grid, y: data.grid / 2 } : null);
@@ -403,8 +427,14 @@ export default function GameScreen() {
   };
   // 놓을 건물 미리보기를 손가락으로 끌기: 잡은 곳과 건물 귀퉁이 거리만큼 띄워서 따라감, 놓을 수 있는 칸에만
   const onGrab = (phase: "start" | "move" | "end", px: number, py: number) => {
-    if (!pick || !placeType) return;
     const c = cellAt(px, py, data.grid, W);
+    if (mode === "place" && placeType === "wall" && !moveId) {
+      // 방파 장벽: 바다 위를 손가락으로 쭉 그으면 지나간 칸마다 한 칸씩
+      const x = Math.floor(c.x), y = Math.floor(c.y);
+      if (phase !== "end" && canPlace(obst, { w: 1, h: 1, sea: true }, data.grid, sea, x, y)) queueWall(x, y);
+      return;
+    }
+    if (!pick || !placeType) return;
     if (phase === "start") {
       grabOff.current = { x: c.x - pick.x, y: c.y - pick.y };
       return;
@@ -417,12 +447,12 @@ export default function GameScreen() {
       for (let dx = -2; dx <= 2; dx++) {
         const x = Math.round(fx) + dx, y = Math.round(fy) + dy;
         const d = (x - fx) ** 2 + (y - fy) ** 2;
-        if ((!best || d < best.d) && canPlace(data.buildings, rule, data.grid, sea, x, y)) best = { x, y, d };
+        if ((!best || d < best.d) && canPlace(obst, rule, data.grid, sea, x, y)) best = { x, y, d };
       }
     if (best && (best.x !== pick.x || best.y !== pick.y)) setPick({ x: best.x, y: best.y });
   };
   const placeSpec = (() => {
-    if (mode !== "place" || !placeType) return null;
+    if ((mode !== "place" && !(mode === "layout" && layoutSel)) || !placeType) return null;
     const mv = moveId ? data.buildings.find((b) => b.id === moveId) : null;
     const cat = data.catalog.find((c) => c.type === placeType);
     const w = mv?.w ?? cat?.w ?? 2;
@@ -438,13 +468,113 @@ export default function GameScreen() {
       setMode("home");
       setSelected(moveId);
     });
-    else run(() => gameBuild(placeType, pick.x, pick.y), () => setMode("home"));
+    else run(() => gameBuild(placeType, pick.x, pick.y), () => {
+      fx("build");
+      setMode("home");
+    });
   };
+
+  // 폐자재 치우기 → 자원 조금
+  const clearScrap = (id: string) => {
+    if (!tapOk()) return;
+    const before = data.resources;
+    run(() => gameScrapClear(id), (d) => {
+      const steel = Math.max(0, d.resources.steel - before.steel), rods = Math.max(0, d.resources.rods - before.rods);
+      fx(steel + rods > 0 ? "coin" : "tap");
+      setMsg(steel + rods > 0 ? t("gm_scrapGot", { steel, rods }) : t("gm_scrapFull"));
+    });
+  };
+
+  // 배치 바꾸기
+  const posOf = (b: GameBuilding) => layout[b.id] ?? { x: b.x, y: b.y };
+  const commitLayout = () => {
+    if (!layoutSel || !pick) return layout;
+    const b = data.buildings.find((o) => o.id === layoutSel);
+    const next = { ...layout };
+    if (b && (b.x !== pick.x || b.y !== pick.y)) next[layoutSel] = { ...pick };
+    else delete next[layoutSel];
+    setLayout(next);
+    return next;
+  };
+  const startLayout = () => {
+    setLayout({});
+    setLayoutSel(null);
+    setMoveId(null);
+    setPick(null);
+    setSelected(null);
+    setDetail(false);
+    setMode("layout");
+  };
+  const pickLayout = (id: string) => {
+    const b = data.buildings.find((o) => o.id === id);
+    if (!b) return;
+    if (b.fixed) return setMsg(t("gm_err_fixed"));
+    commitLayout();
+    fx("tap");
+    setLayoutSel(b.id);
+    setMoveId(b.id);
+    setPlaceType(b.type);
+    setPick(posOf(b));
+  };
+  const dropLayout = () => {
+    commitLayout();
+    setLayoutSel(null);
+    setMoveId(null);
+    setPick(null);
+  };
+  const endLayout = () => {
+    setLayout({});
+    setLayoutSel(null);
+    setMoveId(null);
+    setPick(null);
+    setMode("home");
+  };
+  const saveLayout = async () => {
+    const all = commitLayout();
+    setLayoutSel(null);
+    setMoveId(null);
+    setPick(null);
+    let todo = Object.entries(all);
+    if (!todo.length) return endLayout();
+    setBusy(true);
+    let last: GameState | null = null;
+    // 서로 자리를 바꾸는 경우가 있어 막힌 것은 한 번 더 시도
+    for (let pass = 0; pass < 2 && todo.length; pass++) {
+      const left: typeof todo = [];
+      for (const [id, p] of todo) {
+        try {
+          last = await gameMove(id, p.x, p.y);
+        } catch {
+          left.push([id, p]);
+        }
+      }
+      todo = left;
+    }
+    setBusy(false);
+    if (last) apply(last);
+    fx("build");
+    setLayout({});
+    setMode("home");
+    setMsg(todo.length ? t("gm_layoutSomeFail", { n: todo.length }) : t("gm_layoutSaved"));
+  };
+  const toggleFx = () => {
+    const v = !fxState;
+    setFxState(v);
+    void setFxOn(v);
+    if (v) fx("tap");
+  };
+  const claimTodo = () =>
+    run(gameTodoClaim, () => {
+      fx("done");
+      const r = data.todo?.reward;
+      if (r) setMsg(t("gm_todoGot", { tech: r.tech, steel: r.steel }));
+    });
 
   const doCollect = () =>
     run(gameCollect, (d) => {
       const c = d.collected;
       if (!c) return;
+      if (c.steel + c.rods > 0) fx("coin");
       if (d.collect_gift) setMsg(t("gm_collectGift", { steel: c.steel, rods: c.rods }));
       else if (c.steel + c.rods > 0) setMsg(t("gm_collected", { steel: c.steel, rods: c.rods }));
       else setMsg(d.run_today ? t("gm_collectedNoneRun") : t("gm_collectedNoneOff"));
@@ -808,6 +938,16 @@ export default function GameScreen() {
     setDetail(false);
     if (!STAY_OPEN_MODES.includes(mode)) setMode("home");
   };
+  // 배치 바꾸기에서 옮긴 건물 수 (지금 끌고 있는 것 포함)
+  const layoutN = (() => {
+    const ids = new Set(Object.keys(layout));
+    const b = layoutSel ? data.buildings.find((o) => o.id === layoutSel) : null;
+    if (b && pick) {
+      if (b.x !== pick.x || b.y !== pick.y) ids.add(b.id);
+      else ids.delete(b.id);
+    }
+    return ids.size;
+  })();
   const sheetW = Math.min(380, Math.max(280, width * 0.42));
   const pendingN = data.pending.steel + data.pending.rods;
 
@@ -818,7 +958,9 @@ export default function GameScreen() {
       <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.5} maxZoom={2.5} onZoom={setZoom}
         onMove={(on) => { moving.current = { on, at: Date.now() }; }}
         onTapEmpty={() => tapOk() && tapEmpty()}
-        grab={placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
+        grab={mode === "place" && placeType === "wall" && !moveId
+          ? cellBox(data.grid, 0, sea, data.grid, data.grid, W, 0)
+          : placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
         onGrab={onGrab}
         focus={focus}>
             <GameMap
@@ -830,14 +972,18 @@ export default function GameScreen() {
               buildings={mapBuildings}
               selected={selected}
               labels={labels}
-              names={names || mode === "place"}
+              names={names || mode === "place" || mode === "layout"}
               crews={data.crews?.have}
+              scraps={data.scraps}
+              onScrap={mode === "home" ? clearScrap : undefined}
               onCollect={doCollect}
               place={placeSpec}
               ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
               onSelect={(id) => {
                 if (!tapOk()) return;
+                if (mode === "layout") return id ? pickLayout(id) : undefined;
                 if (!id) return tapEmpty();
+                fx("tap");
                 setSelected(id);
                 setDetail(false);
                 setMode("home");
@@ -866,7 +1012,7 @@ export default function GameScreen() {
             <Text style={[styles.lvSub, { color: data.run_today ? "#7FD18F" : "#FFB066" }]}>{data.run_today ? t("gm_runOnShort") : t("gm_runOffShort")}</Text>
           </View>
         </View>
-        {/* 왼쪽 세로 작은 단추: 오늘 문제 · 교재 · 이름 보기 · 도움말 */}
+        {/* 왼쪽 세로 작은 단추: 오늘 문제 · 교재 · 오늘 할 일 · 도움말(설정: 이름 보기·배치 바꾸기·소리) */}
         {!panelOpen ? (
           <View style={styles.sideCol}>
             <SideBtn icon="create" label={t("gm_dailyShort")} badge={!data.run_today ? "!" : undefined} onPress={() => router.push("/daily")} />
@@ -875,7 +1021,10 @@ export default function GameScreen() {
               label={t("gm_bookShort")}
               onPress={() => (data.book_id ? router.push(`/book?id=${data.book_id}&page=${data.units.next?.pdf_page ?? 1}`) : null)}
             />
-            <SideBtn icon={names ? "pricetags" : "pricetags-outline"} label={t("gm_names")} on={names} onPress={() => setNames((v) => !v)} />
+            {data.todo ? (
+              <SideBtn icon="checkbox" label={t("gm_todoShort")} onPress={() => { setSelected(null); setMode("todo"); }}
+                badge={data.todo.claimed ? undefined : data.todo.items.every((i) => i.done) ? "!" : `${data.todo.items.filter((i) => i.done).length}/${data.todo.items.length}`} />
+            ) : null}
             <SideBtn icon="help" label={t("gm_helpShort")} onPress={() => setMode("earn")} />
           </View>
         ) : null}
@@ -1204,8 +1353,44 @@ export default function GameScreen() {
             ) : mode === "arms" ? (
               <ArmsPanel data={data} busy={busy} onClose={() => setMode("home")} onFleet={openWar}
                 onResearch={(k) => run(() => gameWeaponResearch(k))} onUpgrade={(k) => run(() => gameWeaponUpgrade(k))} />
+            ) : mode === "todo" && data.todo ? (
+              <Card style={{ gap: space.sm }}>
+                <PanelHead title={t("gm_todoTitle")} info={t("gm_todoInfo")} onClose={() => setMode("home")} />
+                {data.todo.items.map((it) => (
+                  <View key={it.key} style={styles.todoRow}>
+                    <Ionicons name={it.done ? "checkmark-circle" : "ellipse-outline"} size={22} color={it.done ? "#4CD07D" : colors.muted} />
+                    <Text style={[styles.text, { flex: 1 }, it.done && { color: colors.muted, textDecorationLine: "line-through" }]}>{t(`gm_todo_${it.key}`)}</Text>
+                    {!it.done ? (
+                      <AppButton label={t("gm_todoGo")} variant="secondary"
+                        onPress={() => (it.key === "daily" ? router.push("/daily") : it.key === "supply" ? openSupply() : it.key === "crew" ? openCrew() : openBattle())} />
+                    ) : null}
+                  </View>
+                ))}
+                <Text style={styles.small}>{t("gm_todoReward", { tech: data.todo.reward.tech, steel: data.todo.reward.steel })}</Text>
+                {data.todo.claimed ? (
+                  <Text style={[styles.text, { color: "#4CD07D" }]}>{t("gm_todoClaimed")}</Text>
+                ) : (
+                  <AppButton label={t("gm_todoClaim")} icon="gift" disabled={busy || !data.todo.items.every((i) => i.done)} onPress={claimTodo} />
+                )}
+              </Card>
+            ) : mode === "layout" ? (
+              <Card style={{ gap: space.sm }}>
+                <Text style={styles.cardTitle}>{t("gm_layoutTitle")}</Text>
+                <Text style={styles.small}>{layoutSel ? t("gm_layoutPicked", { name: name(placeType ?? "hq") }) : t("gm_layoutHint")}</Text>
+                <Text style={styles.text}>{t("gm_layoutCount", { n: layoutN })}</Text>
+                <LegendDot color="#73C985" label={t("gm_legendFree")} />
+                {layoutSel ? <AppButton label={t("gm_layoutDrop")} icon="checkmark" variant="secondary" onPress={dropLayout} /> : null}
+                <AppButton label={t("gm_layoutSave")} icon="save" disabled={busy} onPress={saveLayout} />
+                <AppButton label={t("common_cancel")} variant="secondary" onPress={endLayout} />
+              </Card>
             ) : mode === "earn" ? (
               <>
+                <Card style={{ gap: space.sm }}>
+                  <Text style={styles.cardTitle}>{t("gm_settings")}</Text>
+                  <AppButton label={names ? t("gm_namesOn") : t("gm_namesOff")} icon={names ? "pricetags" : "pricetags-outline"} variant="secondary" onPress={() => setNames((v) => !v)} />
+                  <AppButton label={t("gm_layoutStart")} icon="move" variant="secondary" onPress={startLayout} />
+                  <AppButton label={fxState ? t("gm_fxOn") : t("gm_fxOff")} icon={fxState ? "volume-high" : "volume-mute"} variant="secondary" onPress={toggleFx} />
+                </Card>
                 <EarnPanel data={data} onClose={() => setMode("home")} />
                 <Card style={{ gap: space.xs }}>
                   <LegendDot color="#73C985" label={t("gm_legendFree")} />
@@ -2777,7 +2962,7 @@ const HUD = "#0B2033D9";
 const BL_W = 96 + 8 + 3 * 62 + 34 + 16;   // 아래 왼쪽 [바다 지도] + 서랍 자리
 const BR_W = 96 + 16;                      // 아래 오른쪽 [짓기] 자리
 const styles = StyleSheet.create({
-  full: { flex: 1, backgroundColor: "#1F6FA8" },
+  full: { flex: 1, backgroundColor: "#1F6FA8", overflow: "hidden", userSelect: "none" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   trainCard: { backgroundColor: "#0F2236", borderRadius: radius.md, borderWidth: 1, borderColor: "#FFFFFF22", padding: space.sm, gap: space.sm, width: 520, maxWidth: "100%" },
   hudTL: { position: "absolute", gap: 4 },
@@ -2789,6 +2974,7 @@ const styles = StyleSheet.create({
   lvName: { color: "#fff", fontSize: 13, fontWeight: "700", textShadowColor: "#000", textShadowRadius: 3 },
   lvSub: { fontSize: 11, fontWeight: "700", textShadowColor: "#000", textShadowRadius: 3 },
   sideCol: { gap: 6, marginTop: 4 },
+  todoRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   side: { width: 52, height: 52, borderRadius: 12, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 1, borderWidth: 1, borderColor: "#FFFFFF22" },
   resBar: { width: 190, height: 28, borderRadius: 14, backgroundColor: HUD, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, overflow: "hidden" },
   resFill: { position: "absolute", left: 0, top: 0, bottom: 0, opacity: 0.55 },

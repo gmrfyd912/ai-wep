@@ -441,6 +441,36 @@ def main():
     # 큰 땅 가장자리에도 지을 수 있음
     assert c.post("/game/build", headers=S8, json={"type": "yard", "x": 0, "y": 30}).status_code == 200
     tick(61)
+    # 폐자재: 처음 10개쯤, 그 자리엔 못 짓고, 치우면 자원 + 목록에서 빠짐, 두 번은 안 됨
+    d = c.get("/game/state", headers=S8).json()
+    sc = d["scraps"]
+    assert 5 <= len(sc) <= 13 and all(p["x"] + 1 < d["grid"] for p in sc), sc
+    p0 = sc[0]
+    import game as G
+    blds = G._buildings(s8)
+    blocks = G.scrap_blocks(s8, blds, G.ledger(s8), d["grid"])
+    assert G._free(blds, "radar", p0["x"], p0["y"]) and not G._free(blds + blocks, "radar", p0["x"], p0["y"])
+    r0 = d["resources"]
+    out = c.post("/game/scrap/clear", headers=S8, json={"id": p0["id"]}).json()
+    assert not any(p["id"] == p0["id"] for p in out["scraps"])
+    assert out["resources"]["steel"] >= r0["steel"] and out["resources"]["rods"] >= r0["rods"]
+    assert c.post("/game/scrap/clear", headers=S8, json={"id": p0["id"]}).status_code == 404
+    # 오늘 할 일: 4가지 중 다 안 했으면 못 받음, 다 하면 한 번만
+    t = out["todo"]
+    assert [i["key"] for i in t["items"]] == ["daily", "supply", "crew", "battle"] and not t["claimed"]
+    if not all(i["done"] for i in t["items"]):
+        assert c.post("/game/todo/claim", headers=S8).json()["detail"]["code"] == "todo_left"
+    for k in ("crew", "battle"):
+        G.mark_todo(s8, k)
+    day = G._kday()
+    db.insert_rows("game_ledger", {"user_id": s8, "key": f"supply:{day}:x", "steel": 0, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
+    t = c.get("/game/state", headers=S8).json()["todo"]
+    assert all(i["done"] for i in t["items"] if i["key"] != "daily"), t
+    if all(i["done"] for i in t["items"]):
+        tech0 = c.get("/game/state", headers=S8).json()["resources"]["tech"]
+        out = c.post("/game/todo/claim", headers=S8).json()
+        assert out["todo"]["claimed"] and out["resources"]["tech"] == tech0 + G.TODO_REWARD["tech"]
+        assert c.post("/game/todo/claim", headers=S8).json()["detail"]["code"] == "already"
     db.insert_rows("game_ledger", {"user_id": s8, "key": "hq_exam:3", "steel": 0, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
     assert c.post("/game/upgrade", headers=S8, json={"id": hq8["id"]}).status_code == 200
     tick(1801)

@@ -281,6 +281,7 @@ def raid_attack(body: RaidBody, user=Depends(need_player)):
     for q in mo["qids"]:
         opened.pop(q, None)
     mult = morale_mult(right, len(results))
+    game.mark_todo(uid, "battle")
     revenge = None
     if body.revenge:
         try:

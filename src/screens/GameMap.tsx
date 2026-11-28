@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Svg, { Circle, Ellipse, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
 
-import type { GameBuilding, GameShipKind, GameWarKind } from "@/lib/api";
+import type { GameBuilding, GameScrap, GameShipKind, GameWarKind } from "@/lib/api";
 
 /** 건물 색 (화면 범례와 같음) */
 export const BUILDING_COLOR: Record<string, string> = {
@@ -74,6 +74,12 @@ export function centerOf(b: { x: number; y: number; w: number; h: number }, grid
 
 /** 놓을 건물 크기·조건 */
 export type PlaceRule = { w: number; h: number; coast?: boolean; sea?: boolean; skipId?: string };
+
+/** 폐자재를 자리 검사용 1칸짜리 가짜 건물로 (서버 scrap_blocks 와 같음) */
+export function scrapBlocks(scraps: GameScrap[] | undefined): GameBuilding[] {
+  return (scraps ?? []).map((p) => ({ id: `scrap:${p.id}`, type: "scrap" as GameBuilding["type"], level: 1, x: p.x, y: p.y, w: 1, h: 1,
+    fixed: true, busy_until: null, pending: 0, just_done: false, block: null }) as unknown as GameBuilding);
+}
 
 /** 그 칸(x, y)에 놓을 수 있나 (서버 _free 와 같은 규칙: 겹침·해안·바다·배 물길) */
 export function canPlace(buildings: GameBuilding[], r: PlaceRule, grid: number, sea: number, x: number, y: number) {
@@ -151,6 +157,8 @@ export function GameMap({
   onCollect,
   names = true,
   crews,
+  scraps = [],
+  onScrap,
   now,
 }: {
   grid: number;
@@ -176,6 +184,9 @@ export function GameMap({
   onPlace: (x: number, y: number) => void;
   /** 건물 위 '받기' 동그라미를 눌렀을 때 (생산분 받기) */
   onCollect?: () => void;
+  /** 땅 위 폐자재 (누르면 치우기) */
+  scraps?: GameScrap[];
+  onScrap?: (id: string) => void;
   /** 집결장에 보일 대원 (종류별 수) */
   crews?: Partial<Record<string, number>>;
   /** 모든 건물 이름표 보이기 (끄면 고른 건물·공사 중 시간·받기 동그라미만) */
@@ -201,7 +212,32 @@ export function GameMap({
     );
   };
 
-  const fits = (x: number, y: number) => !!place && canPlace(buildings, place, grid, WATER_COLS, x, y);
+  /** 레벨이 오르면 층 줄·창문이 늘어남 (앞 두 면에) */
+  const floors = (x: number, y: number, w: number, h: number, z: number, lv: number) => {
+    const out: React.ReactNode[] = [];
+    const n = Math.min(1 + Math.floor(lv / 2), 4);   // 층 수: 1·2·2·3·3·4…
+    const D = P(x, y + h), C = P(x + w, y + h), B = P(x + w, y);
+    const L = (a: Pt, b2: Pt, t: number, up: number): Pt => [a[0] + (b2[0] - a[0]) * t, a[1] + (b2[1] - a[1]) * t - up];
+    const fh = z / n;
+    for (let k = 0; k < n; k++) {
+      const h0 = k * fh + fh * 0.3, h1 = k * fh + fh * 0.75;
+      if (k > 0) out.push(<Polygon key={`fl${k}`} points={pts([L(D, C, 0, k * fh), L(D, C, 1, k * fh), L(C, B, 1, k * fh)])} fill="none" stroke="#0002" strokeWidth={0.8} />);
+      // 창문: 앞면(D→C) w칸마다 2개, 옆면(C→B) h칸마다 1개
+      const nw = Math.max(1, Math.round(w * 1.5)), nh = Math.max(1, Math.round(h));
+      for (let i = 0; i < nw; i++) {
+        const t0 = (i + 0.25) / nw, t1 = (i + 0.7) / nw;
+        out.push(<Polygon key={`wf${k}-${i}`} points={pts([L(D, C, t0, h0), L(D, C, t1, h0), L(D, C, t1, h1), L(D, C, t0, h1)])} fill="#DDEBF5" opacity={0.85} />);
+      }
+      for (let i = 0; i < nh; i++) {
+        const t0 = (i + 0.3) / nh, t1 = (i + 0.7) / nh;
+        out.push(<Polygon key={`ws${k}-${i}`} points={pts([L(C, B, t0, h0), L(C, B, t1, h0), L(C, B, t1, h1), L(C, B, t0, h1)])} fill="#B9CCDA" opacity={0.8} />);
+      }
+    }
+    return out;
+  };
+
+  const blocked = useMemo(() => [...buildings, ...scrapBlocks(scraps)], [buildings, scraps]);
+  const fits = (x: number, y: number) => !!place && canPlace(blocked, place, grid, WATER_COLS, x, y);
 
   // 바깥 땅·바다·조선소 땅: 큰 판 몇 장 + 칸 줄 (칸마다 그리지 않아 가벼움)
   const M = grid * 2;   // 화면 끝까지 덮게 넉넉히
@@ -426,12 +462,23 @@ export function GameMap({
       parts.push(<Line key="sc3" x1={A[0]} y1={A[1] - 0.8 * W} x2={C[0]} y2={C[1] - 0.8 * W} stroke="#F2C230" strokeWidth={2} />);
     } else {
       parts.push(box(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, z, color, "body"));
+      parts.push(...floors(b.x + 0.1, b.y + 0.1, b.w - 0.2, b.h - 0.2, z, lv));
+      if (lv >= 4 && b.type !== "hq") parts.push(box(b.x + 0.35, b.y + 0.35, 0.5, 0.45, z + 0.22 * W, shade(color, 0.85), "roof1"));
+      if (lv >= 7 && b.type !== "hq") parts.push(box(b.x + b.w - 0.8, b.y + b.h - 0.75, 0.4, 0.4, z + 0.3 * W, "#B9C2CC", "roof2"));
       if (b.type === "hq") {
         const t = P(b.x + b.w / 2, b.y + b.h / 2);
         parts.push(<Line key="pole" x1={t[0]} y1={t[1] - z} x2={t[0]} y2={t[1] - z - 0.9 * W} stroke="#eee" strokeWidth={1.5} />);
         parts.push(<Rect key="flag" x={t[0]} y={t[1] - z - 0.9 * W} width={0.45 * W} height={0.28 * W} fill="#FF8A1F" />);
       }
       if (b.type === "cutting" || b.type === "welding") parts.push(box(b.x + b.w - 0.6, b.y + 0.3, 0.3, 0.3, z + 0.6 * W, "#6B6B6B", "chim"));
+    }
+    if (b.busy_until && b.level > 0 && b.type !== "dock" && b.type !== "wall" && b.type !== "mine") {
+      // 레벨 올리는 중: 건물 둘레에 노란 비계 (앞쪽 기둥 세 개 + 가로대)
+      const sh = z + 0.25 * W;
+      const cs = [P(b.x + 0.05, b.y + b.h - 0.05), P(b.x + b.w - 0.05, b.y + b.h - 0.05), P(b.x + b.w - 0.05, b.y + 0.05)];
+      cs.forEach((c, i) => parts.push(<Line key={`sp${i}`} x1={c[0]} y1={c[1]} x2={c[0]} y2={c[1] - sh} stroke="#F2C230" strokeWidth={1.6} />));
+      [0.35, 0.7, 1].forEach((t, i) =>
+        parts.push(<Polygon key={`sb${i}`} points={pts(cs.map((c) => [c[0], c[1] - sh * t] as Pt))} fill="none" stroke="#E0A800" strokeWidth={1.2} />));
     }
     if (b.busy_until && b.type !== "dock") {
       // 공사 중: 작업 반장이 건물 앞쪽을 오가며 망치질 (건물과 같은 층이라 앞 건물에 알맞게 가려짐)
@@ -502,6 +549,18 @@ export function GameMap({
               <SvgText x={cx} y={tagY - (showName ? fs + 5 : -1)} fontSize={fs} fill={left ? "#FFD166" : "#fff"} textAnchor="middle">
                 {chip}
               </SvgText>
+              {left && b.busy_until && b.total ? (() => {
+                // 공사 진행 막대 (채워진 만큼 끝나 감)
+                const rest = Math.max(0, (Date.parse(b.busy_until) - Date.now()) / 1000);
+                const f = Math.min(1, Math.max(0.03, 1 - rest / b.total));
+                const by = tagY - (showName ? fs + 8 : -fs + 2) + fs + 7;
+                return (
+                  <G>
+                    <Rect x={cx - cw / 2 + 3} y={by} width={cw - 6} height={4} rx={2} fill="#0B2033" />
+                    <Rect x={cx - cw / 2 + 3} y={by} width={(cw - 6) * f} height={4} rx={2} fill="#4CD07D" />
+                  </G>
+                );
+              })() : null}
             </G>
           )}
           {coin && (
@@ -515,6 +574,30 @@ export function GameMap({
         </G>
       );
     });
+
+  // 폐자재: 쇠파이프 더미·철판 조각·드럼통 (누르면 치우기)
+  const scrapItems = scraps.map((p) => {
+    const c = P(p.x + 0.5, p.y + 0.5);
+    const k: React.ReactNode[] = [];
+    if (p.kind === "pipe") {
+      [0, 1, 2].forEach((i) => {
+        const a = P(p.x + 0.2, p.y + 0.3 + i * 0.18), e = P(p.x + 0.85, p.y + 0.3 + i * 0.18);
+        k.push(<Line key={i} x1={a[0]} y1={a[1] - (i === 1 ? 3 : 0)} x2={e[0]} y2={e[1] - (i === 1 ? 3 : 0)} stroke="#6E747B" strokeWidth={W * 0.11} strokeLinecap="round" />);
+      });
+    } else if (p.kind === "plate") {
+      k.push(box(p.x + 0.15, p.y + 0.2, 0.7, 0.55, 0.08 * W, "#8C7A66", "p1"));
+      k.push(box(p.x + 0.3, p.y + 0.3, 0.5, 0.4, 0.16 * W, "#A0522D", "p2"));
+    } else {
+      k.push(<Ellipse key="d1" cx={c[0] - W * 0.12} cy={c[1] - W * 0.18} rx={W * 0.13} ry={W * 0.2} fill="#C0392B" stroke="#5A1A12" strokeWidth={0.8} />);
+      k.push(<Ellipse key="d2" cx={c[0] + W * 0.14} cy={c[1] - W * 0.12} rx={W * 0.13} ry={W * 0.2} fill="#2E6DA4" stroke="#123" strokeWidth={0.8} />);
+    }
+    return (
+      <G key={`scrap-${p.id}`} onPress={place || !onScrap ? undefined : () => onScrap(p.id)}>
+        <Ellipse cx={c[0]} cy={c[1]} rx={W * 0.48} ry={W * 0.24} fill="#5B4A3355" />
+        {k}
+      </G>
+    );
+  });
 
   // 놓기 모드: 고른 자리(또는 추천 자리) 미리보기
   let ghost: React.ReactNode = null;
@@ -537,6 +620,7 @@ export function GameMap({
       {wall}
       {/* 놓기 모드: 건물을 흐리게, 누르기는 아래 땅 칸으로 (건물 그림에 가려진 칸에 잘못 놓이지 않게) */}
       <G opacity={place ? 0.28 : 1} pointerEvents={place ? "none" : "auto"}>
+        {scrapItems}
         {items}
         {walkers}
       </G>
