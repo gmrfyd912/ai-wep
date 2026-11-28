@@ -2011,6 +2011,8 @@ const es: Translation = {
   gm_lv_notSent: "No enviado (sin daños)",
   gm_lv_prepHintUser: "Elige barcos y tripulación y pulsa [Preguntas antes de zarpar]. En la batalla, toca el mar para enviar barcos uno a uno.",
   gm_err_raid_busy: "Otro alumno está atacando este astillero ahora. Inténtalo un poco más tarde.",
+  gm_shipHurt: "Vida {{hp}}/{{max}} · Repáralo para poder zarpar",
+  gm_repairNeedRods: "Faltan electrodos (se necesitan {{n}}, tienes {{have}})",
   gm_err_students_only: "El astillero de Weldy es solo para aprendices.",
   gm_err_game_off: "El juego está apagado ahora.",
   gm_err_money: "No hay recursos suficientes",

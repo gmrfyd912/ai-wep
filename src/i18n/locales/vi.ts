@@ -2011,6 +2011,8 @@ const vi: Translation = {
   gm_lv_notSent: "Chưa gửi (không bị hư)",
   gm_lv_prepHintUser: "Chọn tàu, đội viên rồi [Làm câu hỏi trước khi xuất kích]. Trong trận, chạm biển để gửi từng tàu.",
   gm_err_raid_busy: "Một học viên khác đang tấn công xưởng này. Hãy thử lại sau.",
+  gm_shipHurt: "Máu {{hp}}/{{max}} · Sửa xong mới xuất kích được",
+  gm_repairNeedRods: "Thiếu que hàn (cần {{n}}, đang có {{have}})",
   gm_err_students_only: "Xưởng đóng tàu của Weldy chỉ dành cho học viên.",
   gm_err_game_off: "Trò chơi đang tắt.",
   gm_err_money: "Không đủ tài nguyên",

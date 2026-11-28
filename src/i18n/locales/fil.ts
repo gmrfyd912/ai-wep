@@ -2011,6 +2011,8 @@ const fil: Translation = {
   gm_lv_notSent: "Hindi ipinadala (walang pinsala)",
   gm_lv_prepHintUser: "Pumili ng barko at crew, saka [Pagsusulit bago maglayag]. Habang lumalaban, i-tap ang dagat para magpadala isa-isa.",
   gm_err_raid_busy: "May ibang trainee na umaatake sa shipyard na ito ngayon. Subukan ulit mamaya.",
+  gm_shipHurt: "HP {{hp}}/{{max}} · Ayusin muna bago makapaglayag",
+  gm_repairNeedRods: "Kulang ang welding rod (kailangan {{n}}, mayroon {{have}})",
   gm_err_students_only: "Para sa mga trainee lang ang Shipyard ni Weldy.",
   gm_err_game_off: "Naka-off ang laro ngayon.",
   gm_err_money: "Kulang ang resources",

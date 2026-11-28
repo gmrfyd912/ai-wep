@@ -2011,6 +2011,8 @@ const en: Translation = {
   gm_lv_notSent: "Not sent (unharmed)",
   gm_lv_prepHintUser: "Pick ships and crews, then [Solve questions before launch]. During battle, tap the sea to send ships one by one.",
   gm_err_raid_busy: "Another trainee is attacking this shipyard right now. Try again a little later.",
+  gm_shipHurt: "HP {{hp}}/{{max}} · Repair it before it can sail",
+  gm_repairNeedRods: "Not enough welding rods ({{n}} needed, you have {{have}})",
   gm_err_students_only: "Weldy's Shipyard is for trainees only.",
   gm_err_game_off: "The game is turned off right now.",
   gm_err_money: "Not enough resources",
