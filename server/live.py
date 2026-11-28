@@ -372,16 +372,18 @@ def _teacher_view(quiz):
 def live_now(lang: str = "ko", authorization: str | None = Header(None)):
     """교육생 앱이 3초마다 묻는다: 지금 내 반에 돌발 OX 가 있나?"""
     launch = game.has_recent_launch()   # 같은 반 친구 진수 알림 (G1, 메모리만 봄)
+    gift = game.has_recent_gift()       # 관리자 지급 알림 (메모리만 봄)
     with _lock:
-        if not _live and not launch:
-            return {"quiz": None, "launches": []}
+        if not _live and not launch and not gift:
+            return {"quiz": None, "launches": [], "gifts": []}
     me = _who_am_i(authorization)
     if me["role"] != "student":
-        return {"quiz": None, "launches": []}
+        return {"quiz": None, "launches": [], "gifts": []}
     launches = game.recent_launches(me) if launch else []
+    gifts = game.recent_gifts(me["id"]) if gift else []
     with _lock:
         if not _live:
-            return {"quiz": None, "launches": launches}
+            return {"quiz": None, "launches": launches, "gifts": gifts}
     lang = daily._lang(lang)
     need_tr = None
     with _lock:
@@ -399,14 +401,14 @@ def live_now(lang: str = "ko", authorization: str | None = Header(None)):
             if not best or quiz["created"] > best["created"]:
                 best = quiz
         if not best:
-            return {"quiz": None, "launches": launches}
+            return {"quiz": None, "launches": launches, "gifts": gifts}
         view = _student_view(best, me["id"], lang)
         ex = best.get("explain") or {}
         if lang != "ko" and ex.get("ko") and lang not in ex:
             need_tr = best
     if need_tr:
         _bg(_translate_explain, need_tr, lang)
-    return {"quiz": view, "launches": launches}
+    return {"quiz": view, "launches": launches, "gifts": gifts}
 
 
 class AnswerBody(BaseModel):

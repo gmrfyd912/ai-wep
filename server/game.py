@@ -143,6 +143,10 @@ LAUNCH_KEEP = 600            # 같은 반 친구에게 진수 알림을 보여 �
 _launches: list[dict] = []   # 최근 진수 (메모리, 서버가 다시 켜지면 비워짐)
 _launch_lock = threading.Lock()
 
+GIFT_KEEP = 1800             # 관리자 지급 알림을 앱 어디서든 띄우는 시간 (초). 게임 화면에서는 '받았어요' 누를 때까지 보임
+GIFT_DAYS = 7                # 게임 화면 선물 알림: 이 날짜 안의 지급만
+_gifts: list[dict] = []      # 최근 지급 (메모리)
+
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -810,6 +814,7 @@ def view(s, lang="ko"):
                                      "tutor_ok_tech", "unit_done_tech", "practice_steel", "pass_day_max", "pass_high_score",
                                      "pass_jump", "supply_steel", "supply_rods", "supply_day_max")},
         "supply": {**supply_spec(st), "done_today": supply_today(s["rows"], now)},
+        "gifts": unseen_gifts(s["rows"], now),
     }
     data["tips"] = tips(data, s)
     return data
@@ -986,6 +991,67 @@ def recent_launches(me):
         out = [{"id": e["id"], "name": e["name"], "kind": e["kind"], "at": _iso(e["at"])} for e in _launches
                if (now - e["at"]).total_seconds() <= LAUNCH_KEEP and e["user_id"] != me["id"] and e["courses"] & mine]
     return out[-3:]
+
+
+# ---- 관리자 지급 알림 (박사 승인 2026-11-28: "선생님이 강판 5000을 보냈어요!") ----
+
+def _gift_amt(r):
+    """지급 줄에서 받은 것(양수)만."""
+    return {k: int(r.get(k) or 0) for k in GRANT_KEYS if int(r.get(k) or 0) > 0}
+
+
+def unseen_gifts(rows, now):
+    """아직 '받았어요'를 안 누른 지급 (최근 GIFT_DAYS 일, 받은 것이 있는 줄만, 오래된 것부터)."""
+    seen = {r["key"][len("gift_seen:"):] for r in rows if r["key"].startswith("gift_seen:")}
+    out = []
+    for r in rows:
+        if not r["key"].startswith("admin:"):
+            continue
+        gid = r["key"][len("admin:"):]
+        at = _dt(r.get("created_at"))
+        amt = _gift_amt(r)
+        if gid in seen or not amt or (at and (now - at).total_seconds() > GIFT_DAYS * 86400):
+            continue
+        note = r.get("note") or ""
+        out.append({"id": gid, **amt, "memo": note.split("|", 2)[2] if note.count("|") >= 2 else "", "at": r.get("created_at")})
+    return out
+
+
+def _push_gift(uid, gid, amt, memo):
+    now = _now()
+    with _launch_lock:
+        _gifts.append({"id": gid, "user_id": uid, "amt": amt, "memo": memo, "at": now})
+        _gifts[:] = [g for g in _gifts if (now - g["at"]).total_seconds() <= GIFT_KEEP][-200:]
+
+
+def has_recent_gift():
+    now = _now()
+    with _launch_lock:
+        return any((now - g["at"]).total_seconds() <= GIFT_KEEP for g in _gifts)
+
+
+def recent_gifts(uid):
+    """앱 어디서든 띄울 내 지급 알림 (최근 GIFT_KEEP 초, 게임 화면에서 받았어요를 누르면 빠짐)."""
+    now = _now()
+    with _launch_lock:
+        return [{"id": g["id"], **g["amt"], "memo": g["memo"], "at": _iso(g["at"])} for g in _gifts
+                if g["user_id"] == uid and (now - g["at"]).total_seconds() <= GIFT_KEEP]
+
+
+class GiftSeenBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/game/gifts/seen")
+def gifts_seen(body: GiftSeenBody, user=Depends(need_player)):
+    uid = user["id"]
+    with _lock(uid):
+        mine = {r["key"][len("admin:"):] for r in ledger(uid) if r["key"].startswith("admin:")}
+        ids = [i for i in body.ids[:50] if i in mine]
+        _add(uid, [{"key": f"gift_seen:{i}", "note": "gift_seen"} for i in ids])
+    with _launch_lock:
+        _gifts[:] = [g for g in _gifts if not (g["user_id"] == uid and g["id"] in ids)]
+    return _fresh(user)
 
 
 # ---- API ----
@@ -1710,7 +1776,11 @@ def admin_grant(body: GrantBody, user=Depends(need_admin)):
         short = [k for k, v in amt.items() if v < 0 and bal[k] + v < 0]
         if short:
             _err(400, "grant_below_zero", res=short[0], have=bal[short[0]])
-        _add(u["id"], [{"key": f"admin:{uuid.uuid4()}", **amt,
+        gid = str(uuid.uuid4())
+        _add(u["id"], [{"key": f"admin:{gid}", **amt, "created_at": _iso(_now()),
                         "note": f"admin|{user.get('login_id') or user.get('name') or ''}|{memo}"}])
+    got = {k: v for k, v in amt.items() if v > 0}
+    if got:
+        _push_gift(u["id"], gid, got, memo)   # 교육생 앱 어디서든 "선생님이 보냈어요" 알림
     return _player_view(u)
 
