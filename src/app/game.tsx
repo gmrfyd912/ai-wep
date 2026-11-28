@@ -85,10 +85,11 @@ import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen"
 import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
-import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, scrapBlocks, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
+import { artH, artName, autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, scrapBlocks, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GAME_BUILD } from "@/game/build";
 import { YardCanvas } from "@/game/YardCanvas";
+import type { YardFxItem, YardFxKind } from "@/game/YardFx";
 import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
 
@@ -191,6 +192,45 @@ export default function GameScreen() {
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<Mode>("home");
   const [selected, setSelected] = useState<string | null>(null);
+  // 지도 위 순간 효과 (새 그림에서만 보임): 공사 끝·자원 받기·짓기 시작·폐자재 치움·건물 고름·진수
+  const [mapFx, setMapFx] = useState<YardFxItem[]>([]);
+  const fxSeq = useRef(0);
+  const addFx = useCallback((list: { kind: YardFxKind; x: number; y: number; h?: number; size?: number }[]) => {
+    if (!list.length) return;
+    const now = Date.now();
+    // 번호 = 만든 시각이라, 3초 지난 것은 새로 넣을 때 치움
+    setMapFx((old) => [...old.filter((f) => now - f.id / 100 < 3000), ...list.slice(0, 12).map((f) => ({ ...f, id: now * 100 + (fxSeq.current++ % 100) }))]);
+  }, []);
+  const prevData = useRef<GameState | null>(null);
+  useEffect(() => {
+    const was = prevData.current;
+    prevData.current = data;
+    if (!was || !data) return;
+    const out: Parameters<typeof addFx>[0] = [];
+    const old = new Map(was.buildings.map((b) => [b.id, b]));
+    for (const b of data.buildings) {
+      if (b.type === "wall" || b.type === "mine") continue;
+      const o = old.get(b.id), at = { x: b.x + b.w / 2, y: b.y + b.h / 2, size: Math.max(b.w, b.h), h: artH(artName(b)) };
+      if (!o) out.push({ kind: "dust", ...at });                                                    // 새로 놓음
+      else if (o.x !== b.x || o.y !== b.y) out.push({ kind: "dust", ...at });                         // 옮김
+      else if (b.level > o.level || (b.just_done && !o.just_done)) out.push({ kind: "done", ...at }); // 공사 끝
+      else if (b.busy_until && !o.busy_until) out.push({ kind: "dust", ...at });                      // 레벨 올리기 시작
+      else if (o.pending > 0 && b.pending === 0) out.push({ kind: "collect", ...at });                // 생산분 받음
+    }
+    const left = new Set((data.scraps ?? []).map((p) => p.id));
+    for (const p of was.scraps ?? []) if (!left.has(p.id)) out.push({ kind: "clear", x: p.x + 0.5, y: p.y + 0.5, size: 1 });
+    const dock = data.buildings.find((b) => b.type === "dock");
+    if (dock && was.ship) {
+      const at = { x: dock.x + dock.w / 2, y: dock.y + dock.h / 2, size: 3, h: 0.6 };
+      if (!data.ship || data.delivered_now) out.push({ kind: "launch", ...at, x: dock.x + dock.w + 1 });   // 진수: 도크 앞바다
+      else if (data.ship.stage > was.ship.stage) out.push({ kind: "done", ...at });                        // 배 한 단계 완성
+    }
+    addFx(out);
+  }, [data, addFx]);
+  useEffect(() => {
+    const b = selected ? prevData.current?.buildings.find((o) => o.id === selected) : null;
+    if (b) addFx([{ kind: "tap", x: b.x + b.w / 2, y: b.y + b.h / 2, size: Math.max(b.w, b.h) }]);
+  }, [selected, addFx]);
   const [placeType, setPlaceType] = useState<GameBuildingType | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
@@ -1115,7 +1155,7 @@ export default function GameScreen() {
             {newArt ? (
               <View pointerEvents="none" style={{ position: "absolute", left: 0, top: 0, width: artDim.width, height: artDim.height,
                 transform: [{ translateX: (mapDim.width - artDim.width) / 2 }, { translateY: (mapDim.height - artDim.height) / 2 }, { scale: mapDim.width / artDim.width }] }}>
-                <YardCanvas width={artDim.width} height={artDim.height} map={{ ...mapProps, W: artW }} />
+                <YardCanvas width={artDim.width} height={artDim.height} map={{ ...mapProps, W: artW }} fx={mapFx} />
               </View>
             ) : null}
             <GameMap {...mapProps} layer={newArt ? "touch" : "all"} />

@@ -2,12 +2,13 @@ import {
   Canvas, Circle, DashPathEffect, Fill, Group, Image, Line, LinearGradient, Oval, Path, Rect, RoundedRect,
   useImage, vec, type SkImage,
 } from "@shopify/react-native-skia";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo, useRef, type ReactNode } from "react";
 import { useDerivedValue, useFrameCallback, useSharedValue, type SharedValue } from "react-native-reanimated";
 
 import { GameMap, origin, type MapKit } from "@/screens/GameMap";
 
 import META from "./yardArt.json";
+import { YardFx, type YardFxItem } from "./YardFx";
 import { YARD_IMAGES } from "./yardImages";
 
 /**
@@ -285,21 +286,31 @@ export type YardCanvasProps = {
   height: number;
   /** GameMap 에 주는 것과 같은 값 (W 만 그림판용 칸 너비) */
   map: Omit<React.ComponentProps<typeof GameMap>, "kit" | "layer">;
+  /** 순간 효과 (공사 끝·자원 받기 등). 새 번호가 들어오면 그때부터 한 번 보여 줌 */
+  fx?: YardFxItem[];
 };
 
 /** 움직임용 시계 (ms). 1초에 약 30번만 바뀌어, 큰 그림판을 그만큼만 다시 그린다 */
 function useSlowClock() {
   const clock = useSharedValue(0);
+  const acc = useSharedValue(0);
   useFrameCallback((f) => {
     "worklet";
-    if (f.timeSinceFirstFrame - clock.value >= 32) clock.value = f.timeSinceFirstFrame;
+    // 지난 장부터 흐른 시간을 더해 감 (화면을 다시 그릴 때 이 함수가 새로 등록돼도 시계가 뒤로 가거나 멈추지 않게)
+    acc.value += Math.min(100, f.timeSincePreviousFrame ?? 16);
+    if (acc.value - clock.value >= 32) clock.value = acc.value;
   });
   return clock;
 }
 
-function YardCanvasImpl({ width, height, map }: YardCanvasProps) {
+function YardCanvasImpl({ width, height, map, fx = [] }: YardCanvasProps) {
   const images = useYardImages();
   const clock = useSlowClock();
+  // 효과마다 시작 시각 (처음 본 때의 시계 값)
+  const fxStart = useRef(new Map<number, number>());
+  for (const f of fx) if (!fxStart.current.has(f.id)) fxStart.current.set(f.id, clock.value);
+  const { ox, oy } = origin(map.grid, map.W);
+  const P = (x: number, y: number): Pt => [ox + ((x - y) * map.W) / 2, oy + ((x + y) * map.W) / 4];
   const ready = Object.values(images).every(Boolean);
   const kit = useMemo<MapKit>(() => ({
     G: KG, Polygon: KPolygon, Line: KLine, Circle: KCircle, Ellipse: KEllipse, Rect: KRect, SvgText: KText,
@@ -324,6 +335,7 @@ function YardCanvasImpl({ width, height, map }: YardCanvasProps) {
     <Canvas style={{ width, height }} pointerEvents="none">
       <Fill color="#2487CC" />
       <GameMap {...map} kit={kit} layer="art" />
+      {fx.map((f) => <YardFx key={f.id} item={f} P={P} W={map.W} start={fxStart.current.get(f.id) ?? 0} clock={clock} />)}
     </Canvas>
   );
 }
@@ -339,4 +351,4 @@ function sig(m: YardCanvasProps["map"]) {
  * 그때마다 그림판까지 다시 그리면 끌던 지도가 한 번씩 떨린다.
  */
 export default memo(YardCanvasImpl, (a, b) =>
-  a.width === b.width && a.height === b.height && sig(a.map) === sig(b.map));
+  a.width === b.width && a.height === b.height && (a.fx ?? []).map((f) => f.id).join() === (b.fx ?? []).map((f) => f.id).join() && sig(a.map) === sig(b.map));
