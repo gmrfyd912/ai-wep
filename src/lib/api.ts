@@ -1731,6 +1731,9 @@ export type GameState = {
 const GAME_TIMEOUT = 90000;
 export const getGame = (lang: string) => request<GameState>(`/game/state?lang=${lang}`, {}, GAME_TIMEOUT);
 export const gameBuild = (type: GameBuildingType, x: number, y: number) => post<GameState>("/game/build", { type, x, y }, GAME_TIMEOUT);
+/** 방파 장벽 여러 칸 한 번에 (놓을 수 없는 칸은 건너뜀) */
+export const gameWallsBuild = (spots: number[][]) =>
+  post<GameState & { placed: number; skipped: number }>("/game/walls/build", { spots }, GAME_TIMEOUT);
 export const gameUpgrade = (id: string) => post<GameState>("/game/upgrade", { id }, GAME_TIMEOUT);
 export const gameMove = (id: string, x: number, y: number) => post<GameState>("/game/move", { id, x, y }, GAME_TIMEOUT);
 export const gameCollect = () => post<GameState>("/game/collect", {}, GAME_TIMEOUT);

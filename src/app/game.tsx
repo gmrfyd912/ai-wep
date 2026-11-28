@@ -12,6 +12,7 @@ import { StudyBuddy } from "@/components/StudyBuddy";
 import { AppButton, Body, Card } from "@/components/ui";
 import {
   gameBuild,
+  gameWallsBuild,
   gameCollect,
   gameExamStart,
   gamePirateAttack,
@@ -132,12 +133,50 @@ export default function GameScreen() {
   // 지도를 끄는 중이거나 막 끝낸 직후의 '톡'은 건물 고르기·자리 고르기로 보지 않음
   const moving = useRef({ on: false, at: 0 });
   const tapOk = () => !moving.current.on && Date.now() - moving.current.at > 250;
+  // 방파 장벽: 누른 칸은 화면에 바로 놓고, 손을 멈추면(0.8초) 모아서 한 번에 서버로 (칸마다 기다리지 않게)
+  const [wallQ, setWallQ] = useState<{ x: number; y: number }[]>([]);
+  const wallQRef = useRef<{ x: number; y: number }[]>([]);
+  const wallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wallSending = useRef(false);
+  const flushRef = useRef<() => void>(() => {});
 
   const apply = useCallback((d: GameState) => {
     fetchedAt.current = Date.now();
     setData(d);
     setError("");
   }, []);
+
+  const flushWalls = useCallback(async () => {
+    if (wallTimer.current) {
+      clearTimeout(wallTimer.current);
+      wallTimer.current = null;
+    }
+    const spots = wallQRef.current;
+    if (!spots.length) return;
+    if (wallSending.current) {
+      wallTimer.current = setTimeout(() => flushRef.current(), 300);
+      return;
+    }
+    wallSending.current = true;
+    try {
+      const d = await gameWallsBuild(spots.map((p) => [p.x, p.y]));
+      apply(d);
+      if (d.skipped) setMsg(t("gm_wallSkipped", { n: d.skipped }));
+    } catch (e) {
+      setMsg(gameError(t, e));
+    } finally {
+      const sent = new Set(spots.map((p) => `${p.x},${p.y}`));
+      wallQRef.current = wallQRef.current.filter((p) => !sent.has(`${p.x},${p.y}`));
+      setWallQ(wallQRef.current);
+      wallSending.current = false;
+      if (wallQRef.current.length && !wallTimer.current) wallTimer.current = setTimeout(() => flushRef.current(), 300);
+    }
+  }, [apply, t]);
+  flushRef.current = flushWalls;
+  // 장벽 놓기를 끝내면 남은 칸 바로 보내기
+  useEffect(() => {
+    if (mode !== "place") flushRef.current();
+  }, [mode]);
 
   const load = useCallback(() => {
     getGame(i18n.language)
@@ -244,7 +283,31 @@ export default function GameScreen() {
   const W = Math.max(8, fitW * zoom);
   const mapDim = mapSize(data.grid, W, sea);
   const sel = data.buildings.find((b) => b.id === selected) ?? null;
-  const res = data.resources;
+  const wallCat = data.catalog.find((k) => k.type === "wall");
+  // 아직 서버로 안 보낸 장벽 칸만큼 미리 빼서 보여 줌
+  const res = wallQ.length && wallCat
+    ? { ...data.resources, steel: data.resources.steel - wallCat.cost.steel * wallQ.length, rods: data.resources.rods - wallCat.cost.rods * wallQ.length }
+    : data.resources;
+  const mapBuildings: GameBuilding[] = wallQ.length
+    ? [...data.buildings, ...wallQ.map((p) => ({ id: `q${p.x}_${p.y}`, type: "wall" as const, level: 1, x: p.x, y: p.y, w: 1, h: 1, fixed: false,
+        busy_until: null, pending: 0, just_done: false, block: null, sea: true, instant: true }))]
+    : data.buildings;
+  const queueWall = (x: number, y: number) => {
+    const q = wallQRef.current;
+    if (q.some((p) => p.x === x && p.y === y)) return;
+    if (wallCat && (wallCat.have ?? 0) + q.length >= (wallCat.max ?? 0)) {
+      setMsg(t("gm_err_def_full", { n: wallCat.max ?? 0 }));
+      return;
+    }
+    if (wallCat && (res.steel < wallCat.cost.steel || res.rods < wallCat.cost.rods)) {
+      setMsg(t("gm_err_money"));
+      return;
+    }
+    wallQRef.current = [...q, { x, y }];
+    setWallQ(wallQRef.current);
+    if (wallTimer.current) clearTimeout(wallTimer.current);
+    wallTimer.current = setTimeout(() => flushRef.current(), 800);
+  };
   const tut = data.tutorial;
   const tutStep = !tut.done && tut.step !== null ? tut.steps[tut.step].id : null;
   const tips = data.tips;
@@ -560,7 +623,7 @@ export default function GameScreen() {
               reclaiming={rc?.left !== undefined}
               fleet={(data.fleet?.ships ?? []).map((f) => f.kind)}
               W={W}
-              buildings={data.buildings}
+              buildings={mapBuildings}
               selected={selected}
               labels={labels}
               place={placeSpec}
@@ -573,7 +636,7 @@ export default function GameScreen() {
               onPlace={(x, y) => {
                 if (!tapOk()) return;
                 // 방파 장벽: 칸을 누를 때마다 바로 한 칸씩 (작업 반장 없이)
-                if (placeType === "wall" && !moveId) run(() => gameBuild("wall", x, y));
+                if (placeType === "wall" && !moveId) queueWall(x, y);
                 else setPick({ x, y });
               }}
               now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
@@ -732,7 +795,7 @@ export default function GameScreen() {
                   const c = data.catalog.find((k) => k.type === "wall");
                   return c ? (
                     <View style={{ gap: 4 }}>
-                      <Text style={styles.text}>{t("gm_defCount", { n: c.have ?? 0, max: c.max ?? 0 })}</Text>
+                      <Text style={styles.text}>{t("gm_defCount", { n: (c.have ?? 0) + wallQ.length, max: c.max ?? 0 })}</Text>
                       <CostIcons cost={c.cost} instant res={data.resources} />
                     </View>
                   ) : null;

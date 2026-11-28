@@ -1691,6 +1691,7 @@ const vi: Translation = {
   gm_repairShort: "Sửa",
   gm_getShort: "Nhận",
   gm_maxGet: "Tối đa",
+  gm_wallSkipped: "Đã bỏ qua {{n}} ô không đặt được.",
   gm_err_students_only: "Xưởng đóng tàu của Weldy chỉ dành cho học viên.",
   gm_err_game_off: "Trò chơi đang tắt.",
   gm_err_money: "Không đủ tài nguyên",

@@ -1691,6 +1691,7 @@ const uz: Translation = {
   gm_repairShort: "Ta'mirlash",
   gm_getShort: "Olasiz",
   gm_maxGet: "Ko'pi bilan",
+  gm_wallSkipped: "Qo'yib bo'lmaydigan {{n}} ta katak o'tkazib yuborildi.",
   gm_err_students_only: "Weldyning kemasozlik zavodi faqat tinglovchilar uchun.",
   gm_err_game_off: "Hozir o'yin o'chirilgan.",
   gm_err_money: "Resurs yetarli emas",

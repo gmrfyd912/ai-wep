@@ -25,7 +25,9 @@ G2b-2(해적 연습 전투·태풍 대비 훈련)·G2c(공격)·G3(대항전)는
 """
 import math
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -221,8 +223,32 @@ def _lock(uid):
         return _locks.setdefault(uid, threading.Lock())
 
 
+_settings_cache = {"at": 0.0, "raw": None}
+SETTINGS_TTL = 15   # 초. 관리자가 저장하면 바로 지움
+
+
+# 서로 상관없는 Supabase 조회는 동시에 보내요 (하나씩 차례로 기다리면 왕복 시간이 개수만큼 쌓임).
+_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="game-db")
+
+
+def _par(**jobs):
+    """jobs 를 동시에 실행해 {이름: 결과}. 첫 번째 일은 지금 스레드에서 직접 (그 안에서 또 나눠 보낼 수 있게).
+    이미 조회 스레드 안이면 차례로 실행 (조회 스레드끼리 서로 기다리다 멈추는 일 막기)."""
+    items = list(jobs.items())
+    if threading.current_thread().name.startswith("game-db"):
+        return {k: f() for k, f in items}
+    futs = {k: _pool.submit(f) for k, f in items[1:]}
+    out = {items[0][0]: items[0][1]()}
+    out.update({k: f.result() for k, f in futs.items()})
+    return out
+
+
 def settings():
-    raw = store.get_setting("game") or {}
+    # 게임 설정은 자주 안 바뀌어서 15초 동안 다시 쓰기 (요청마다 Supabase를 부르지 않게)
+    c = _settings_cache
+    if c["raw"] is None or time.monotonic() - c["at"] > SETTINGS_TTL:
+        c["raw"], c["at"] = store.get_setting("game") or {}, time.monotonic()
+    raw = c["raw"]
     out = dict(DEFAULTS)
     for k, v in raw.items():
         if k in DEFAULTS and isinstance(v, type(DEFAULTS[k])):
@@ -306,10 +332,15 @@ def fleet_cap(buildings):
     return p["level"] + 1 if p and p["level"] >= 1 else 0
 
 
-def _fleet(uid):
-    """군항 부두에 있는 전투함 (진수 끝난 것), 오래된 것부터."""
-    rows = store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "not.is.null", "select": "*",
+def _delivered(uid):
+    """진수 끝난 배 모두 (상선·전투함), 오래된 것부터."""
+    return store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "not.is.null", "select": "*",
                                        "order": "created_at.asc", "limit": "500"})
+
+
+def _fleet(uid, rows=None):
+    """군항 부두에 있는 전투함 (진수 끝난 것), 오래된 것부터."""
+    rows = _delivered(uid) if rows is None else rows
     now = _now()
     out = []
     for r in rows:
@@ -342,8 +373,9 @@ def _finish_reclaim(uid, base, buildings, now):
 
 def _prep(uid, now):
     """조선소 불러오기 + 끝난 공사·간척 마무리 → (base, buildings)."""
-    base, _ = _base(uid)
-    buildings = _buildings(uid)
+    got = _par(base=lambda: _base(uid), buildings=lambda: _buildings(uid))   # 이미 있는 조선소라 동시에 받아도 됨
+    base, _ = got["base"]
+    buildings = got["buildings"]
     _finish_due(uid, buildings, None, now)
     _finish_reclaim(uid, base, buildings, now)
     return base, buildings
@@ -389,9 +421,11 @@ def _afford(bal, price):
 
 def daily_done_days(uid):
     """매일 문제를 다 푼 한국 날짜 모음."""
-    sets = store.select("daily_sets", {"user_id": f"eq.{uid}", "select": "day,question_ids"})
+    got = _par(sets=lambda: store.select("daily_sets", {"user_id": f"eq.{uid}", "select": "day,question_ids"}),
+               ans=lambda: store.select("daily_answers", {"user_id": f"eq.{uid}", "select": "day", "limit": "20000"}))
+    sets = got["sets"]
     cnt = {}
-    for r in store.select("daily_answers", {"user_id": f"eq.{uid}", "select": "day", "limit": "20000"}):
+    for r in got["ans"]:
         cnt[r["day"]] = cnt.get(r["day"], 0) + 1
     return {s["day"] for s in sets if s.get("question_ids") and cnt.get(s["day"], 0) >= len(s["question_ids"])}
 
@@ -402,13 +436,24 @@ def unit_progress(uid, st):
     if not book:
         return None, []
     units = daily.book_units(book)
-    seen = {r["page"] for r in store.select("textbook_progress", {"user_id": f"eq.{uid}", "book_id": f"eq.{book['id']}",
-                                                                   "select": "page", "limit": "5000"})}
+    flt = {"user_id": f"eq.{uid}", "book_id": f"eq.{book['id']}"}
+
+    def _answers(table):
+        try:
+            return store.select(table, {**flt, "select": "question_id,correct", "limit": "20000"})
+        except Exception as e:  # noqa: BLE001  (step9·13·17 SQL 전)
+            print("[game] 기록 못 읽음", table, str(e)[:120], flush=True)
+            return []
+    got = _par(seen=lambda: store.select("textbook_progress", {**flt, "select": "page", "limit": "5000"}),
+               daily=lambda: store.select("daily_answers", {**flt, "select": "question_id,score", "limit": "20000"}),
+               tutor_answers=lambda: _answers("tutor_answers"),
+               live_ox_answers=lambda: _answers("live_ox_answers"),
+               game_answers=lambda: _answers("game_answers"))
+    seen = {r["page"] for r in got["seen"]}
     right = {}
     qids = set()
     tries = []   # (문제 id, 맞음) — 장 정답률(방어 시설 힘)용, 푼 횟수 모두
-    for r in store.select("daily_answers", {"user_id": f"eq.{uid}", "book_id": f"eq.{book['id']}",
-                                            "select": "question_id,score", "limit": "20000"}):
+    for r in got["daily"]:
         if r.get("score") is None:
             continue
         ok = r["score"] >= daily.PASS_SCORE
@@ -416,20 +461,18 @@ def unit_progress(uid, st):
         if ok:
             qids.add(r["question_id"])
     for table in ("tutor_answers", "live_ox_answers", "game_answers"):
-        try:
-            for r in store.select(table, {"user_id": f"eq.{uid}", "book_id": f"eq.{book['id']}",
-                                          "select": "question_id,correct", "limit": "20000"}):
-                if not r.get("question_id") or r.get("correct") is None:
-                    continue
-                tries.append((r["question_id"], bool(r["correct"])))
-                if r.get("correct") and table != "game_answers":
-                    qids.add(r["question_id"])
-        except Exception as e:  # noqa: BLE001  (step9·13·17 SQL 전)
-            print("[game] 기록 못 읽음", table, str(e)[:120], flush=True)
+        for r in got[table]:
+            if not r.get("question_id") or r.get("correct") is None:
+                continue
+            tries.append((r["question_id"], bool(r["correct"])))
+            if r.get("correct") and table != "game_answers":
+                qids.add(r["question_id"])
     ids = sorted({q for q, _ in tries} | qids)
     unit_of = {}
-    for i in range(0, len(ids), 150):
-        for q in store.select("quiz_questions", {"id": f"in.({','.join(ids[i:i + 150])})", "select": "id,unit_key"}):
+    chunks = {f"c{i}": (lambda part=ids[i:i + 150]: store.select("quiz_questions", {"id": f"in.({','.join(part)})", "select": "id,unit_key"}))
+              for i in range(0, len(ids), 150)}
+    for part in (_par(**chunks).values() if chunks else []):
+        for q in part:
             unit_of[q["id"]] = q["unit_key"]
     for q in qids:
         if q in unit_of:
@@ -509,10 +552,23 @@ def study_rewards(uid, st, have):
     out = []
     if "welcome" not in have:
         out.append({"key": "welcome", "steel": st["welcome_steel"], "rods": st["welcome_rods"], "note": "welcome"})
-    for d in daily_done_days(uid):
+
+    def _opt(table, sel, label):
+        try:
+            return store.select(table, {"user_id": f"eq.{uid}", "select": sel, "limit": "20000"})
+        except Exception as e:  # noqa: BLE001
+            print(f"[game] {label} 못 읽음", str(e)[:120], flush=True)
+            return []
+    got = _par(prog=lambda: unit_progress(uid, st),
+               done=lambda: daily_done_days(uid),
+               rows=lambda: store.select("daily_answers", {"user_id": f"eq.{uid}", "select": "day,question_id,kind,score,created_at",
+                                                           "order": "created_at.asc", "limit": "20000"}),
+               live=lambda: _opt("live_ox_answers", "quiz_id,correct", "돌발 OX"),
+               tutor=lambda: _opt("tutor_answers", "question_id,correct", "웰디 문제"),
+               practice=lambda: _practice_rewards(uid, st))
+    for d in got["done"]:
         out.append({"key": f"daily_done:{d}", "steel": st["daily_done_steel"], "note": "daily_done"})
-    rows = store.select("daily_answers", {"user_id": f"eq.{uid}", "select": "day,question_id,kind,score,created_at",
-                                          "order": "created_at.asc", "limit": "20000"})
+    rows = got["rows"]
     wrong_before = set()
     first = set()
     for r in rows:
@@ -529,23 +585,17 @@ def study_rewards(uid, st, have):
             first.add(q)
         else:
             wrong_before.add(q)
-    try:
-        for r in store.select("live_ox_answers", {"user_id": f"eq.{uid}", "select": "quiz_id,correct", "limit": "20000"}):
-            if r.get("correct"):
-                out.append({"key": f"live:{r['quiz_id']}", "rods": st["live_ok_rods"], "note": "live_ok"})
-    except Exception as e:  # noqa: BLE001
-        print("[game] 돌발 OX 못 읽음", str(e)[:120], flush=True)
-    try:
-        for r in store.select("tutor_answers", {"user_id": f"eq.{uid}", "select": "question_id,correct", "limit": "20000"}):
-            if r.get("correct") and r.get("question_id"):
-                out.append({"key": f"tutor:{r['question_id']}", "tech": st["tutor_ok_tech"], "note": "tutor_ok"})
-    except Exception as e:  # noqa: BLE001
-        print("[game] 웰디 문제 못 읽음", str(e)[:120], flush=True)
-    book, units = unit_progress(uid, st)
+    for r in got["live"]:
+        if r.get("correct"):
+            out.append({"key": f"live:{r['quiz_id']}", "rods": st["live_ok_rods"], "note": "live_ok"})
+    for r in got["tutor"]:
+        if r.get("correct") and r.get("question_id"):
+            out.append({"key": f"tutor:{r['question_id']}", "tech": st["tutor_ok_tech"], "note": "tutor_ok"})
+    book, units = got["prog"]
     for u in units:
         if u["done"]:
             out.append({"key": f"unit:{book['id']}:{u['key']}", "tech": st["unit_done_tech"], "note": "unit_done"})
-    out += _practice_rewards(uid, st)
+    out += got["practice"]
     uniq = {}
     for r in out:
         if r["key"] not in have:
@@ -702,27 +752,33 @@ def load(user, sync=True):
     uid = user["id"]
     st = settings()
     with _lock(uid):
-        base, new = _base(uid)
         now = _now()
-        buildings = _buildings(uid)
+        got0 = _par(base=lambda: _base(uid), buildings=lambda: _buildings(uid))
+        base, new = got0["base"]
+        buildings = _buildings(uid) if new else got0["buildings"]   # 처음 만든 조선소면 새 건물까지 다시 받기
         _finish_due(uid, buildings, None, now)
         _finish_reclaim(uid, base, buildings, now)
-        rows = ledger(uid)
-        book, units = None, []
         new_rows = []
         waiting = {"steel": 0, "rods": 0}
+        # 장부·배·함대·공장 가동일·공부 기록을 한꺼번에 받기 (공부 보상은 장부와 비교해 나중에 거름)
+        got = _par(study=(lambda: study_rewards(uid, st, set())) if sync else (lambda: (None,) + unit_progress(uid, st)),
+                   rows=lambda: ledger(uid),
+                   ship=lambda: _ship(uid, now),
+                   dlv=lambda: _delivered(uid),
+                   run_days=lambda: _run_days(uid))
+        rows = got["rows"]
+        found, book, units = got["study"]
         if sync:
             have = {r["key"] for r in rows}
-            found, book, units = study_rewards(uid, st, have)
+            found = [r for r in found if r["key"] not in have]
             new_rows, waiting = fit_storage(found, balance(rows), caps(buildings))
             if new_rows:
                 _add(uid, [dict(r) for r in new_rows])
-                rows = ledger(uid)
-        else:
-            book, units = unit_progress(uid, st)
+                rows = rows + [{**r, "created_at": _iso(now)} for r in new_rows]
+        dlv = got["dlv"]
     return {"uid": uid, "st": st, "base": base, "new": new, "now": now, "buildings": buildings, "rows": rows,
-            "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": _ship(uid, now),
-            "fleet": _fleet(uid), "run_days": _run_days(uid)}
+            "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": got["ship"],
+            "fleet": _fleet(uid, dlv), "delivered_rows": dlv, "run_days": got["run_days"]}
 
 
 def fit_storage(found, bal, cap):
@@ -974,8 +1030,10 @@ def view(s, lang="ko"):
         catalog.append(item)
     ship = s["ship"]
     dock = _dock(buildings)
-    delivered = [d for d in store.select("game_ships", {"user_id": f"eq.{s['uid']}", "delivered_at": "not.is.null",
-                                                        "select": "kind", "limit": "500"}) if not is_war(d["kind"])]
+    dlv = s.get("delivered_rows")
+    if dlv is None:
+        dlv = _delivered(s["uid"])
+    delivered = [d for d in dlv if not is_war(d["kind"])]
     delivered_kinds = {d["kind"] for d in delivered}
     ships = []
     for k, sp in SHIPS.items():
@@ -1341,7 +1399,8 @@ def build(body: BuildBody, user=Depends(need_player)):
         _err(400, "bad_type")
     with _lock(uid):
         now = _now()
-        base, buildings = _prep(uid, now)
+        got = _par(prep=lambda: _prep(uid, now), rows=lambda: ledger(uid))
+        base, buildings = got["prep"]
         hq = _hq(buildings)
         hq_lv = hq["level"] if hq else 1
         have = sum(1 for b in buildings if b["type"] == body.type)
@@ -1359,7 +1418,7 @@ def build(body: BuildBody, user=Depends(need_player)):
         if not _free(buildings, body.type, body.x, body.y, grid=grid_of(base), sea=sea_of(base)):
             _err(400, "spot")
         price = cost(body.type, 1)
-        if not _afford(balance(ledger(uid)), price):
+        if not _afford(balance(got["rows"]), price):
             _err(400, "money")
         bid = str(uuid.uuid4())
         _spend(uid, f"build:{bid}", price, body.type)
@@ -1768,13 +1827,64 @@ def warship_fit(body: FitBody, user=Depends(need_player)):
     return _fresh(user)
 
 
+class WallSpotsBody(BaseModel):
+    spots: list[list[int]]
+
+
+@router.post("/game/walls/build")
+def walls_build(body: WallSpotsBody, user=Depends(need_player)):
+    """방파 장벽 여러 칸을 한 번에 쌓기 (앱이 화면에 먼저 놓고 모아서 보냄 → 칸마다 서버를 기다리지 않게).
+    놓을 수 없는 칸은 건너뛰고, 쌓은 칸 수만큼만 강판을 써요."""
+    uid = user["id"]
+    spec = BUILDINGS["wall"]
+    spots = [(int(p[0]), int(p[1])) for p in body.spots[:40] if len(p) == 2]
+    if not spots:
+        _err(400, "spot")
+    with _lock(uid):
+        now = _now()
+        got = _par(prep=lambda: _prep(uid, now), rows=lambda: ledger(uid))
+        base, buildings = got["prep"]
+        hq = _hq(buildings)
+        hq_lv = hq["level"] if hq else 1
+        if hq_lv < spec["unlock"]:
+            _err(400, "hq_level")
+        room = defense_max("wall", hq_lv) - sum(1 for b in buildings if b["type"] == "wall")
+        if room <= 0:
+            _err(400, "def_full", n=defense_max("wall", hq_lv))
+        price1 = cost("wall", 1)
+        bal = balance(got["rows"])
+        placed = []
+        trial = list(buildings)
+        for x, y in spots:
+            if len(placed) >= room:
+                break
+            need = {k: v * (len(placed) + 1) for k, v in price1.items()}
+            if not _afford(bal, need):
+                break
+            if not _free(trial, "wall", x, y, grid=grid_of(base), sea=sea_of(base)):
+                continue
+            row = {"id": str(uuid.uuid4()), "user_id": uid, "type": "wall", "level": 1, "x": x, "y": y, "collected_at": _iso(now)}
+            placed.append(row)
+            trial.append(row)
+        if not placed:
+            _err(400, "money" if not _afford(bal, price1) else "spot")
+        total = {k: v * len(placed) for k, v in price1.items()}
+        _spend(uid, f"walls:{placed[0]['id']}", total, f"wall x{len(placed)}")
+        store.insert_rows("game_buildings", placed, returning=False)
+    out = _fresh(user)
+    out["placed"] = len(placed)
+    out["skipped"] = len(spots) - len(placed)
+    return out
+
+
 @router.post("/game/walls/upgrade")
 def walls_upgrade(user=Depends(need_player)):
     """방파 장벽 중 레벨이 가장 낮은 것들을 한꺼번에 한 레벨씩 (바로 올라감)."""
     uid = user["id"]
     with _lock(uid):
         now = _now()
-        base, buildings = _prep(uid, now)
+        got = _par(prep=lambda: _prep(uid, now), rows=lambda: ledger(uid))
+        base, buildings = got["prep"]
         walls = [b for b in buildings if b["type"] == "wall"]
         if not walls:
             _err(404, "not_found")
@@ -1787,11 +1897,10 @@ def walls_upgrade(user=Depends(need_player)):
             _err(400, "hq_level")
         one = cost("wall", low + 1)
         price = {k: v * len(todo) for k, v in one.items()}
-        if not _afford(balance(ledger(uid)), price):
+        if not _afford(balance(got["rows"]), price):
             _err(400, "money")
         _spend(uid, f"walls:{low + 1}:{_iso(now)}", price, "walls")
-        for b in todo:
-            store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"level": low + 1, "finished_at": _iso(now)})
+        store.patch("game_buildings", {"id": f"in.({','.join(b['id'] for b in todo)})"}, {"level": low + 1, "finished_at": _iso(now)})
     return _fresh(user)
 
 
@@ -2141,6 +2250,7 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         if cur[f"link_{t}"] > 200:
             _err(400, "bad_value", key=f"link_{t}")
     _save_setting("game", cur)
+    _settings_cache["raw"] = None
     return {"settings": cur, "defaults": DEFAULTS}
 
 

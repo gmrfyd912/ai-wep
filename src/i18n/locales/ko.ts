@@ -1706,6 +1706,7 @@ const ko = {
   gm_repairShort: "수리하기",
   gm_getShort: "받는 것",
   gm_maxGet: "최대",
+  gm_wallSkipped: "놓을 수 없는 칸 {{n}}개는 건너뛰었어요.",
   gm_err_students_only: "웰디의 조선소는 교육생만 할 수 있어요.",
   gm_err_game_off: "지금은 게임이 꺼져 있어요.",
   gm_err_money: "자원이 모자라요",

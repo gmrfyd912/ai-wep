@@ -2,6 +2,13 @@
 import os
 
 import requests
+from requests.adapters import HTTPAdapter
+
+# 연결을 한 번 열면 계속 다시 써요 (요청마다 새로 TLS 연결을 맺으면 한 번에 0.2~0.5초씩 더 걸림).
+# 여러 조회를 동시에 보내도 되게 연결을 넉넉히 둡니다.
+_http = requests.Session()
+_http.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=24))
+_http.mount("http://", HTTPAdapter(pool_connections=4, pool_maxsize=24))
 
 TIMEOUT = 30
 
@@ -29,7 +36,7 @@ def _check(r):
 
 def upload(bucket, path, data, content_type="image/jpeg"):
     url, h = _base()
-    _check(requests.post(f"{url}/storage/v1/object/{bucket}/{path}", data=data, timeout=TIMEOUT,
+    _check(_http.post(f"{url}/storage/v1/object/{bucket}/{path}", data=data, timeout=TIMEOUT,
                          headers={**h, "Content-Type": content_type, "x-upsert": "true"}))
 
 
@@ -37,7 +44,7 @@ def signed_url(bucket, path, expires=3600):
     if not path:
         return None
     url, h = _base()
-    r = _check(requests.post(f"{url}/storage/v1/object/sign/{bucket}/{path}", json={"expiresIn": expires},
+    r = _check(_http.post(f"{url}/storage/v1/object/sign/{bucket}/{path}", json={"expiresIn": expires},
                              headers=h, timeout=TIMEOUT))
     rel = r.json().get("signedURL") or r.json().get("signedUrl")
     return f"{url}/storage/v1{rel}" if rel else None
@@ -45,7 +52,7 @@ def signed_url(bucket, path, expires=3600):
 
 def download(bucket, path):
     url, h = _base()
-    r = _check(requests.get(f"{url}/storage/v1/object/{bucket}/{path}", headers=h, timeout=TIMEOUT))
+    r = _check(_http.get(f"{url}/storage/v1/object/{bucket}/{path}", headers=h, timeout=TIMEOUT))
     return r.content
 
 
@@ -57,7 +64,7 @@ def signed_urls(bucket, paths, expires=3600):
     url, h = _base()
     out = {}
     for i in range(0, len(paths), 100):
-        r = _check(requests.post(f"{url}/storage/v1/object/sign/{bucket}", json={"expiresIn": expires, "paths": paths[i:i + 100]},
+        r = _check(_http.post(f"{url}/storage/v1/object/sign/{bucket}", json={"expiresIn": expires, "paths": paths[i:i + 100]},
                                  headers=h, timeout=TIMEOUT))
         for item in r.json():
             rel = item.get("signedURL") or item.get("signedUrl")
@@ -68,13 +75,13 @@ def signed_urls(bucket, paths, expires=3600):
 
 def insert(row):
     url, h = _base()
-    _check(requests.post(f"{url}/rest/v1/submissions", json=row, timeout=TIMEOUT,
+    _check(_http.post(f"{url}/rest/v1/submissions", json=row, timeout=TIMEOUT,
                          headers={**h, "Prefer": "return=minimal"}))
 
 
 def update(sid, fields):
     url, h = _base()
-    r = _check(requests.patch(f"{url}/rest/v1/submissions", params={"id": f"eq.{sid}"}, json=fields,
+    r = _check(_http.patch(f"{url}/rest/v1/submissions", params={"id": f"eq.{sid}"}, json=fields,
                               timeout=TIMEOUT, headers={**h, "Prefer": "return=representation"}))
     rows = r.json()
     return rows[0] if rows else {"id": sid, **fields}
@@ -82,7 +89,7 @@ def update(sid, fields):
 
 def get(sid):
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/submissions", params={"id": f"eq.{sid}", "select": "*"},
+    r = _check(_http.get(f"{url}/rest/v1/submissions", params={"id": f"eq.{sid}", "select": "*"},
                             headers=h, timeout=TIMEOUT))
     rows = r.json()
     return rows[0] if rows else None
@@ -103,7 +110,7 @@ LIST_SELECT = ("id,user_id,device_id,status,hidden,work_type,pipe_od_mm,process,
 
 def _list_submissions(col, value, limit):
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/submissions", headers=h, timeout=TIMEOUT, params={
+    r = _check(_http.get(f"{url}/rest/v1/submissions", headers=h, timeout=TIMEOUT, params={
         col: f"eq.{value}", "order": "created_at.desc", "limit": str(limit), "select": LIST_SELECT}))
     return r.json()
 
@@ -113,7 +120,7 @@ def _list_submissions(col, value, limit):
 def get_setting(key):
     """app_settings 표의 값(JSON). 없으면 None."""
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/app_settings", params={"key": f"eq.{key}", "select": "value"},
+    r = _check(_http.get(f"{url}/rest/v1/app_settings", params={"key": f"eq.{key}", "select": "value"},
                             headers=h, timeout=TIMEOUT))
     rows = r.json()
     return rows[0]["value"] if rows else None
@@ -121,7 +128,7 @@ def get_setting(key):
 
 def get_report(sid, lang):
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
+    r = _check(_http.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
         "submission_id": f"eq.{sid}", "lang": f"eq.{lang}", "select": "*", "limit": "1"}))
     rows = r.json()
     return rows[0] if rows else None
@@ -130,7 +137,7 @@ def get_report(sid, lang):
 def get_any_report(sid):
     """언어와 상관없이 가장 먼저 만든 리포트 (다른 사람이 볼 때)."""
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
+    r = _check(_http.get(f"{url}/rest/v1/reports", headers=h, timeout=TIMEOUT, params={
         "submission_id": f"eq.{sid}", "select": "*", "order": "created_at.asc", "limit": "1"}))
     rows = r.json()
     return rows[0] if rows else None
@@ -139,7 +146,7 @@ def get_any_report(sid):
 def insert_report(row):
     """같은 사진·같은 언어 리포트가 이미 있으면 그대로 둔다 (두 번 눌러도 1개만)."""
     url, h = _base()
-    _check(requests.post(f"{url}/rest/v1/reports", json=row, timeout=TIMEOUT,
+    _check(_http.post(f"{url}/rest/v1/reports", json=row, timeout=TIMEOUT,
                          params={"on_conflict": "submission_id,lang"},
                          headers={**h, "Prefer": "resolution=ignore-duplicates,return=minimal"}))
 
@@ -148,13 +155,13 @@ def update_report(rid, fields):
     """판정이 바뀐 리포트를 새 글로 바꾼다. created_at 은 그대로 (하루 한도에 다시 세지 않음)."""
     url, h = _base()
     fields = {k: v for k, v in fields.items() if k not in ("submission_id", "device_id", "lang")}
-    _check(requests.patch(f"{url}/rest/v1/reports", params={"id": f"eq.{rid}"}, json=fields,
+    _check(_http.patch(f"{url}/rest/v1/reports", params={"id": f"eq.{rid}"}, json=fields,
                           timeout=TIMEOUT, headers={**h, "Prefer": "return=minimal"}))
 
 
 def count_reports_since(device_id, since_iso):
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
+    r = _check(_http.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
         "device_id": f"eq.{device_id}", "created_at": f"gte.{since_iso}", "select": "id"},
         headers={**h, "Prefer": "count=exact", "Range": "0-0"}))
     rng = r.headers.get("Content-Range", "")  # 예: 0-0/3 또는 */0
@@ -169,14 +176,14 @@ def count_reports_since(device_id, since_iso):
 def select(table, params):
     """PostgREST 조회. params 예: {"login_key": "eq.abc", "select": "*"}"""
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/{table}", params=params, headers=h, timeout=TIMEOUT))
+    r = _check(_http.get(f"{url}/rest/v1/{table}", params=params, headers=h, timeout=TIMEOUT))
     return r.json()
 
 
 def insert_rows(table, rows, returning=True):
     url, h = _base()
     prefer = "return=representation" if returning else "return=minimal"
-    r = _check(requests.post(f"{url}/rest/v1/{table}", json=rows, timeout=TIMEOUT,
+    r = _check(_http.post(f"{url}/rest/v1/{table}", json=rows, timeout=TIMEOUT,
                              headers={**h, "Prefer": prefer}))
     return r.json() if returning else None
 
@@ -184,7 +191,7 @@ def insert_rows(table, rows, returning=True):
 def patch(table, filters, fields):
     """filters 예: {"id": "eq.xxx"}. 바뀐 행 목록을 돌려준다."""
     url, h = _base()
-    r = _check(requests.patch(f"{url}/rest/v1/{table}", params=filters, json=fields, timeout=TIMEOUT,
+    r = _check(_http.patch(f"{url}/rest/v1/{table}", params=filters, json=fields, timeout=TIMEOUT,
                               headers={**h, "Prefer": "return=representation"}))
     return r.json()
 
@@ -193,7 +200,7 @@ def upsert(table, rows, on_conflict, ignore=False):
     """같은 열쇠(on_conflict)가 있으면 ignore=True 는 그대로 두고, 아니면 새 값으로 바꾼다."""
     url, h = _base()
     res = "ignore-duplicates" if ignore else "merge-duplicates"
-    _check(requests.post(f"{url}/rest/v1/{table}", json=rows, params={"on_conflict": on_conflict}, timeout=TIMEOUT,
+    _check(_http.post(f"{url}/rest/v1/{table}", json=rows, params={"on_conflict": on_conflict}, timeout=TIMEOUT,
                          headers={**h, "Prefer": f"resolution={res},return=minimal"}))
 
 
@@ -201,7 +208,7 @@ def delete(table, filters):
     url, h = _base()
     if not filters:
         raise ValueError("delete without filter")
-    _check(requests.delete(f"{url}/rest/v1/{table}", params=filters, timeout=TIMEOUT,
+    _check(_http.delete(f"{url}/rest/v1/{table}", params=filters, timeout=TIMEOUT,
                            headers={**h, "Prefer": "return=minimal"}))
 
 
@@ -212,7 +219,7 @@ def remove_files(bucket, paths):
         return
     url, h = _base()
     for i in range(0, len(paths), 100):
-        _check(requests.delete(f"{url}/storage/v1/object/{bucket}", json={"prefixes": paths[i:i + 100]},
+        _check(_http.delete(f"{url}/storage/v1/object/{bucket}", json={"prefixes": paths[i:i + 100]},
                                headers=h, timeout=TIMEOUT))
 
 
@@ -224,7 +231,7 @@ def list_by_user(user_id, limit):
 def count_reports_since_user(user_id, since_iso):
     """이 사람이 만든 리포트 수 (예전 리포트는 만든 사람 기록이 없어서 주인 기준으로 셈)."""
     url, h = _base()
-    r = _check(requests.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
+    r = _check(_http.get(f"{url}/rest/v1/reports", timeout=TIMEOUT, params={
         "or": f"(created_by.eq.{user_id},and(created_by.is.null,user_id.eq.{user_id}))",
         "created_at": f"gte.{since_iso}", "select": "id"},
         headers={**h, "Prefer": "count=exact", "Range": "0-0"}))

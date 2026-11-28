@@ -1691,6 +1691,7 @@ const th: Translation = {
   gm_repairShort: "ซ่อม",
   gm_getShort: "ได้รับ",
   gm_maxGet: "สูงสุด",
+  gm_wallSkipped: "ข้าม {{n}} ช่องที่วางไม่ได้",
   gm_err_students_only: "อู่ต่อเรือของ Weldy สำหรับผู้เรียนเท่านั้น",
   gm_err_game_off: "ขณะนี้เกมปิดอยู่",
   gm_err_money: "ทรัพยากรไม่พอ",
