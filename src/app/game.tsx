@@ -72,7 +72,7 @@ import { SeaMap } from "@/components/SeaMap";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
-import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, GameMap, mapSize, RES_COLOR, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
+import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
 type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon";
@@ -151,6 +151,11 @@ export default function GameScreen() {
   const [shipTab, setShipTab] = useState<"merchant" | "war">("merchant");
   const [tipAt, setTipAt] = useState(0);
   const [rewards, setRewards] = useState<GameState["rewards"]>(null);
+  const [names, setNames] = useState(false);          // 모든 건물 이름표 보기 (기본: 고른 건물만)
+  const [detail, setDetail] = useState(false);        // 고른 건물 자세한 창 (기본: 아래 단추 줄만)
+  const [trayOpen, setTrayOpen] = useState(true);     // 아래 왼쪽 서랍
+  const [weldyBig, setWeldyBig] = useState(false);    // 웰디 말풍선 크게
+  const [focus, setFocus] = useState<{ x: number; y: number; n: number } | null>(null);
   const [, setTick] = useState(0);
   const fetchedAt = useRef(Date.now());
   const grabOff = useRef({ x: 0, y: 0 });   // 놓을 건물을 끌 때 잡은 곳과 건물 귀퉁이 거리
@@ -760,11 +765,26 @@ export default function GameScreen() {
     }
   };
   const action = tutStep ? tutAction() : tipAction(tip);
-  const panelOpen = mode !== "home" || !!sel;
+  const barOn = !!sel && mode === "home" && !detail;
+  const panelOpen = mode !== "home" || (!!sel && detail);
+  const idleBuilder = data.builders.busy < data.builders.total && !tutStep;
+  // 건물 고르기 (짓기 목록에서 고르면 화면도 그 건물로 옮김)
+  const pickBuilding = (b: GameBuilding, move = true) => {
+    setSelected(b.id);
+    setDetail(false);
+    setMode("home");
+    if (move) setFocus({ ...centerOf(b, data.grid, W), n: Date.now() });
+  };
+  const openCrew = () => {
+    const hall = data.buildings.find((b) => b.type === "trainhall" && b.level > 0);
+    if (hall) openTrain();
+    else setMsg(t("gm_crewNeedHall"));
+  };
   // 지도 빈 곳(바다·빈 땅)을 '톡' 눌렀을 때: 열린 오른쪽 창을 닫음 (끌기는 tapOk가 걸러서 안 닫힘)
   // 문제 푸는 창(승급 시험·자재 조달·태풍 훈련)은 적던 답이 사라지지 않게 X로만 닫음
   const tapEmpty = () => {
     setSelected(null);
+    setDetail(false);
     if (!STAY_OPEN_MODES.includes(mode)) setMode("home");
   };
   const sheetW = Math.min(380, Math.max(280, width * 0.42));
@@ -778,7 +798,8 @@ export default function GameScreen() {
         onMove={(on) => { moving.current = { on, at: Date.now() }; }}
         onTapEmpty={() => tapOk() && tapEmpty()}
         grab={placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
-        onGrab={onGrab}>
+        onGrab={onGrab}
+        focus={focus}>
             <GameMap
               grid={data.grid}
               sea={sea}
@@ -788,12 +809,15 @@ export default function GameScreen() {
               buildings={mapBuildings}
               selected={selected}
               labels={labels}
+              names={names || mode === "place"}
+              onCollect={doCollect}
               place={placeSpec}
               ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
               onSelect={(id) => {
                 if (!tapOk()) return;
                 if (!id) return tapEmpty();
                 setSelected(id);
+                setDetail(false);
                 setMode("home");
               }}
               onPlace={(x, y) => {
@@ -806,14 +830,40 @@ export default function GameScreen() {
             />
       </PanZoom>
 
-      {/* 왼쪽 위: 자원 현황 (작게) */}
+      {/* 왼쪽 위: 나가기 · 본관 레벨 · 도움말 */}
       <View style={[styles.hudTL, { top: 8 + insets.top, left: 8 + insets.left }]} pointerEvents="box-none">
         <View style={styles.resRow}>
           <Pressable onPress={() => router.back()} style={styles.roundSm} hitSlop={8} accessibilityLabel={t("common_back")}>
             <Ionicons name="arrow-back" size={18} color="#fff" />
           </Pressable>
+          <Pressable onPress={() => hqB && pickBuilding(hqB)} style={styles.lvBadge} accessibilityLabel={name("hq")}>
+            <Text style={styles.lvNum}>{hqB?.level ?? 1}</Text>
+          </Pressable>
+          <View>
+            <Text style={styles.lvName}>{t("gm_hudHq", { n: hqB?.level ?? 1 })}</Text>
+            <Text style={[styles.lvSub, { color: data.run_today ? "#7FD18F" : "#FFB066" }]}>{data.run_today ? t("gm_runOnShort") : t("gm_runOffShort")}</Text>
+          </View>
+        </View>
+        {/* 왼쪽 세로 작은 단추: 오늘 문제 · 교재 · 이름 보기 · 도움말 */}
+        {!panelOpen ? (
+          <View style={styles.sideCol}>
+            <SideBtn icon="create" label={t("gm_dailyShort")} badge={!data.run_today ? "!" : undefined} onPress={() => router.push("/daily")} />
+            <SideBtn
+              icon="book"
+              label={t("gm_bookShort")}
+              onPress={() => (data.book_id ? router.push(`/book?id=${data.book_id}&page=${data.units.next?.pdf_page ?? 1}`) : null)}
+            />
+            <SideBtn icon={names ? "pricetags" : "pricetags-outline"} label={t("gm_names")} on={names} onPress={() => setNames((v) => !v)} />
+            <SideBtn icon="help" label={t("gm_helpShort")} onPress={() => setMode("earn")} />
+          </View>
+        ) : null}
+      </View>
+
+      {/* 오른쪽 위: 자원 (세로로, 창고가 얼마나 찼는지 막대) */}
+      {!panelOpen ? (
+        <View style={[styles.hudTR, { top: 8 + insets.top, right: 8 + insets.right }]} pointerEvents="box-none">
           {(["steel", "rods", "tech", "passes", "fame"] as ResKey[]).map((k) => (
-            <ResChip
+            <ResBar
               key={k}
               color={RES_COLOR[k]}
               label={t(`gm_${k}`)}
@@ -823,56 +873,41 @@ export default function GameScreen() {
               onPress={() => setInfo((cur) => (cur === k ? null : k))}
             />
           ))}
-        </View>
-        <View style={styles.resRow}>
-          <Text style={[styles.badge, { backgroundColor: data.run_today ? "#2E9D5BE6" : "#0B2033CC" }]}>
-            {data.run_today ? t("gm_runOnShort") : t("gm_runOffShort")}
-          </Text>
-          <Text style={styles.badge}>{t("gm_builders", { busy: data.builders.busy, total: data.builders.total })}</Text>
-        </View>
-        {info ? (
-          <View style={styles.infoCard}>
-            <View style={styles.rowBetween}>
-              <View style={styles.rowStart}>
-                <View style={[styles.dot, { backgroundColor: RES_COLOR[info], width: 10, height: 10 }]} />
-                <Text style={styles.infoTitle}>
-                  {t(`gm_${info}`)} {res[info]}
-                </Text>
+          {info ? (
+            <View style={styles.infoCard}>
+              <View style={styles.rowBetween}>
+                <View style={styles.rowStart}>
+                  <View style={[styles.dot, { backgroundColor: RES_COLOR[info], width: 10, height: 10 }]} />
+                  <Text style={styles.infoTitle}>
+                    {t(`gm_${info}`)} {res[info]}
+                  </Text>
+                </View>
+                <Pressable onPress={() => setInfo(null)} hitSlop={10}>
+                  <Ionicons name="close" size={18} color="#fff" />
+                </Pressable>
               </View>
-              <Pressable onPress={() => setInfo(null)} hitSlop={10}>
-                <Ionicons name="close" size={18} color="#fff" />
-              </Pressable>
+              <Text style={styles.infoText}>{t(`gm_info_${info}`, { m: data.speed_rule.tech_minutes, h: data.speed_rule.pass_hours })}</Text>
+              {(info === "steel" || info === "rods") && res[info] >= data.caps[info] ? (
+                <Text style={[styles.infoSmall, { color: "#FFD166" }]}>{t("gm_infoFull", { cap: data.caps[info] })}</Text>
+              ) : null}
+              {(info === "steel" || info === "rods") && (data.waiting?.[info] ?? 0) > 0 ? (
+                <Text style={styles.infoSmall}>{t("gm_infoWaiting", { n: data.waiting![info] })}</Text>
+              ) : null}
+              {(info === "tech" || info === "passes") && !busyB && !shipBusy ? <Text style={styles.infoSmall}>{t("gm_infoNothingBusy")}</Text> : null}
+              {infoAction(info) ? (
+                <Pressable onPress={infoAction(info)!.onPress} style={styles.infoBtn}>
+                  <Text style={styles.actText}>{infoAction(info)!.label}</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#fff" />
+                </Pressable>
+              ) : null}
             </View>
-            <Text style={styles.infoText}>{t(`gm_info_${info}`, { m: data.speed_rule.tech_minutes, h: data.speed_rule.pass_hours })}</Text>
-            {(info === "steel" || info === "rods") && res[info] >= data.caps[info] ? (
-              <Text style={[styles.infoSmall, { color: "#FFD166" }]}>{t("gm_infoFull", { cap: data.caps[info] })}</Text>
-            ) : null}
-            {(info === "steel" || info === "rods") && (data.waiting?.[info] ?? 0) > 0 ? (
-              <Text style={styles.infoSmall}>{t("gm_infoWaiting", { n: data.waiting![info] })}</Text>
-            ) : null}
-            {(info === "tech" || info === "passes") && !busyB && !shipBusy ? <Text style={styles.infoSmall}>{t("gm_infoNothingBusy")}</Text> : null}
-            {infoAction(info) ? (
-              <Pressable onPress={infoAction(info)!.onPress} style={styles.infoBtn}>
-                <Text style={styles.actText}>{infoAction(info)!.label}</Text>
-                <Ionicons name="chevron-forward" size={14} color="#fff" />
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
-
-      {/* 오른쪽 위: 크게/작게, 자원 얻는 법 */}
-      {!panelOpen ? (
-        <View style={[styles.hudTR, { top: 8 + insets.top, right: 8 + insets.right }]}>
-          <Pressable onPress={() => setMode("earn")} style={styles.roundSm} hitSlop={6} accessibilityLabel={t("gm_earnTitle")}>
-            <Ionicons name="help" size={18} color="#fff" />
-          </Pressable>
+          ) : null}
         </View>
       ) : null}
 
       {/* 가운데 위: 알림 (몇 초 뒤 사라짐) */}
       {msg || rewards ? (
-        <View style={[styles.toastWrap, { top: 8 + insets.top, right: panelOpen ? sheetW + 16 : 96 }]} pointerEvents="box-none">
+        <View style={[styles.toastWrap, { top: 8 + insets.top, left: 200, right: panelOpen ? sheetW + 16 : 150 }]} pointerEvents="box-none">
           {rewards ? (
             <Pressable onPress={() => setRewards(null)} style={[styles.toast, { borderColor: colors.success }]}>
               <Text style={styles.toastTitle}>{t("gm_rewardsTitle")}</Text>
@@ -888,9 +923,28 @@ export default function GameScreen() {
         </View>
       ) : null}
 
-      {/* 아래 왼쪽: 웰디 안내 + 처음 따라 하기 (작게, 항상 다음 할 일) */}
-      {mode !== "place" ? (
-        <View style={[styles.hudBL, { bottom: 8 + insets.bottom, left: 8 + insets.left, right: panelOpen ? sheetW + 16 : 8 + insets.right + FAB_ROW }]}>
+      {/* 아래 왼쪽: 큰 [바다 지도] + 접는 서랍(배 건조·자재 조달·대원) */}
+      {!panelOpen && !barOn ? (
+        <View style={[styles.hudBL, { bottom: 8 + insets.bottom, left: 8 + insets.left }]} pointerEvents="box-none">
+          <BigBtn icon="map" label={t("gm_sea_short")} color="#1E88E5" shadow="#0D47A1" onPress={() => { setSelected(null); setInfo(null); setSeaOpen(true); }} />
+          <View style={styles.tray}>
+            {trayOpen ? (
+              <>
+                <Fab icon="boat" label={t("gm_ships")} onPress={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }} badge={data.ship?.ready ? "!" : undefined} />
+                <Fab icon="cart" label={t("gm_supplyShort")} onPress={() => openSupply()} />
+                <Fab icon="people" label={t("gm_crewShort")} onPress={openCrew} />
+              </>
+            ) : null}
+            <Pressable onPress={() => setTrayOpen((v) => !v)} style={styles.trayArrow} hitSlop={6} accessibilityLabel={t("gm_trayToggle")}>
+              <Ionicons name={trayOpen ? "chevron-back" : "chevron-forward"} size={20} color="#fff" />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {/* 아래 가운데: 웰디 (작게, 할 말이 있을 때만 짧은 말풍선 · 누르면 크게) */}
+      {mode !== "place" && !panelOpen && !barOn ? (
+        <View style={[styles.weldy, { bottom: 8 + insets.bottom, left: 8 + insets.left + BL_W, right: 8 + insets.right + BR_W }]} pointerEvents="box-none">
           {tutStep ? (
             <View style={styles.tutRow}>
               <Text style={styles.tutTitle}>{t("gm_tutTitle", { n: (tut.step ?? 0) + 1, total: tut.steps.length })}</Text>
@@ -899,51 +953,74 @@ export default function GameScreen() {
                   <View key={s.id} style={[styles.stepDot, { backgroundColor: s.ok ? colors.primary : i === tut.step ? "#FFD166" : "#FFFFFF33" }]} />
                 ))}
               </View>
-              <Text style={styles.tutNow} numberOfLines={1}>
-                {t(`gm_tutShort_${tutStep}`)}
-              </Text>
               <Pressable onPress={() => run(() => gameTutorial(true))} hitSlop={10}>
                 <Text style={styles.link}>{t("gm_tutSkip")}</Text>
               </Pressable>
             </View>
           ) : null}
-          <View style={[styles.buddyRow, width - (panelOpen ? sheetW : FAB_ROW) < 470 && styles.buddyCol]}>
-            <View style={{ flex: 1, alignSelf: "stretch" }}>
-              <StudyBuddy
-                compact
-                text={buddyLine}
-                size={46}
-                onPress={tutStep || tips.length < 2 ? undefined : () => setTipAt((n) => n + 1)}
-              />
+          {weldyBig || tutStep ? (
+            <View style={styles.buddyRow}>
+              <View style={{ flex: 1, alignSelf: "stretch" }}>
+                <StudyBuddy
+                  compact
+                  text={buddyLine}
+                  size={42}
+                  onPress={tutStep ? undefined : tips.length < 2 ? () => setWeldyBig(false) : () => setTipAt((n) => n + 1)}
+                />
+              </View>
+              {action ? (
+                <Pressable onPress={action.onPress} disabled={busy} style={({ pressed }) => [styles.actBtn, (pressed || busy) && { opacity: 0.6 }]}>
+                  <Text style={styles.actText} numberOfLines={2}>
+                    {action.label}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color="#fff" />
+                </Pressable>
+              ) : null}
+              {!tutStep ? (
+                <Pressable onPress={() => setWeldyBig(false)} hitSlop={10} style={styles.roundSm} accessibilityLabel={t("common_close")}>
+                  <Ionicons name="chevron-down" size={18} color="#fff" />
+                </Pressable>
+              ) : null}
             </View>
-            {action ? (
-              <Pressable onPress={action.onPress} disabled={busy} style={({ pressed }) => [styles.actBtn, (pressed || busy) && { opacity: 0.6 }]}>
-                <Text style={styles.actText} numberOfLines={2}>
-                  {action.label}
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color="#fff" />
-              </Pressable>
-            ) : null}
-          </View>
-          {!tutStep && tips.length > 1 ? <Text style={styles.hint}>{t("gm_tipNext")}</Text> : null}
+          ) : (
+            <Pressable onPress={() => setWeldyBig(true)} style={styles.weldySmall} accessibilityLabel={t("gm_weldyOpen")}>
+              <StudyBuddy compact text={buddyLine} size={36} lines={1} onPress={() => setWeldyBig(true)} />
+            </Pressable>
+          )}
+          {weldyBig && !tutStep && tips.length > 1 ? <Text style={styles.hint}>{t("gm_tipNext")}</Text> : null}
         </View>
       ) : null}
 
-      {/* 아래 오른쪽: 메뉴 단추 */}
-      {!panelOpen ? (
-        <View style={[styles.hudBR, { bottom: 8 + insets.bottom, right: 8 + insets.right }]}>
-          <Fab icon="hammer" label={t("gm_build")} onPress={() => setMode("build")} />
-          <Fab icon="boat" label={t("gm_ships")} onPress={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }} badge={data.ship?.ready ? "!" : undefined} />
-          <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
-          <Fab icon="cart" label={t("gm_supplyShort")} onPress={() => openSupply()} />
-          <Fab icon="map" label={t("gm_sea_short")} onPress={() => { setSelected(null); setInfo(null); setSeaOpen(true); }} />
-          <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
-          <Fab
-            icon="book"
-            label={t("gm_bookShort")}
-            onPress={() => (data.book_id ? router.push(`/book?id=${data.book_id}&page=${data.units.next?.pdf_page ?? 1}`) : null)}
-          />
+      {/* 아래 오른쪽: 큰 [짓기] + 작업 반장 (쉬는 반장이 있으면 깜빡) */}
+      {!panelOpen && !barOn ? (
+        <View style={[styles.hudBR, { bottom: 8 + insets.bottom, right: 8 + insets.right }]} pointerEvents="box-none">
+          <Text style={[styles.builderChip, idleBuilder && { borderColor: "#FFD166" }]}>
+            {t("gm_builders", { busy: data.builders.busy, total: data.builders.total })}
+          </Text>
+          <BigBtn icon="hammer" label={t("gm_build")} color={colors.primary} shadow="#B85A00" pulse={idleBuilder} onPress={() => setMode("build")} />
         </View>
+      ) : null}
+
+      {/* 건물을 누르면: 아래 가운데에 그 건물에서 할 수 있는 단추 */}
+      {barOn && sel ? (
+        <ActionBar
+          b={sel}
+          data={data}
+          left={leftOf(sel)}
+          busy={busy}
+          canPay={canPay}
+          bottom={8 + insets.bottom}
+          onInfo={() => setDetail(true)}
+          onUpgrade={() => run(() => gameUpgrade(sel.id))}
+          onExam={openExam}
+          onCollect={doCollect}
+          onMove={() => startMove(sel)}
+          onShips={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }}
+          onFleet={openWar}
+          onArms={() => { setSelected(null); setMode("arms"); }}
+          onTrain={openTrain}
+          onStudy={(unit) => openSupply(unit)}
+        />
       ) : null}
 
       {/* 오른쪽 패널: 건물·짓기·배·자원 얻는 법·자리 고르기 */}
@@ -993,12 +1070,18 @@ export default function GameScreen() {
                 onArms={() => { setSelected(null); setMode("arms"); }}
                 onWalls={() => run(gameWallsUpgrade)}
                 onTrain={openTrain}
-                onClose={() => setSelected(null)}
+                onClose={() => setDetail(false)}
               />
             ) : mode === "build" ? (
-              <Card style={{ gap: space.sm }}>
-                <PanelHead title={t("gm_build")} onClose={() => setMode("home")} />
-                {rc ? (
+              <BuildList
+                data={data}
+                canPay={canPay}
+                leftOf={leftOf}
+                onNew={startPlace}
+                onPick={(b) => pickBuilding(b)}
+                onExam={openExam}
+                onClose={() => setMode("home")}
+                top={rc ? (
                   <ReclaimCard
                     rc={rc}
                     data={data}
@@ -1009,56 +1092,7 @@ export default function GameScreen() {
                     onSpeed={(using) => run(() => gameSpeedup("reclaim", using))}
                   />
                 ) : null}
-                {data.catalog.filter((c) => !c.defense).length === 0 ? <Body muted>{t("gm_buildAllDone")}</Body> : null}
-                {data.catalog.filter((c) => !c.defense).map((c) => (
-                  <View key={c.type} style={[styles.item, c.locked && { opacity: 0.6 }]}>
-                    <View style={[styles.swatch, { backgroundColor: BUILDING_COLOR[c.type] }]} />
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <InfoTitle title={name(c.type)} value={c.locked ? `🔒 ${t("gm_needHq", { n: c.unlock })}` : undefined} valueWarn info={t(`gm_desc_${c.type}`)} />
-                      <CostIcons cost={c.cost} seconds={c.seconds} res={data.resources} />
-                    </View>
-                    <Pressable
-                      style={[styles.smallBtn, (c.locked || !canPay(c.cost) || data.builders.busy >= data.builders.total) && { opacity: 0.4 }]}
-                      disabled={c.locked || !canPay(c.cost) || data.builders.busy >= data.builders.total}
-                      onPress={() => startPlace(c.type)}
-                    >
-                      <Text style={styles.smallBtnText}>{t("gm_pick")}</Text>
-                    </Pressable>
-                  </View>
-                ))}
-                <View style={{ marginTop: space.xs }}>
-                  <InfoTitle big title={t("gm_defTitle")} info={t("gm_defIntro")} />
-                </View>
-                {data.catalog.filter((c) => c.defense).map((c) => {
-                  const noWorker = !c.instant && data.builders.busy >= data.builders.total;
-                  const off = c.locked || c.full || !canPay(c.cost) || noWorker;
-                  return (
-                    <View key={c.type} style={[styles.item, c.locked && { opacity: 0.6 }]}>
-                      <View style={[styles.swatch, { backgroundColor: BUILDING_COLOR[c.type] }]} />
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <InfoTitle
-                          title={name(c.type)}
-                          value={c.locked ? `🔒 ${t("gm_needHq", { n: c.unlock })}` : t("gm_defCount", { n: c.have ?? 0, max: c.max ?? 0 })}
-                          valueWarn={c.locked}
-                          info={`${t(`gm_desc_${c.type}`)}${c.full ? `\n${c.more_at ? t("gm_defFull", { n: c.more_at }) : t("gm_defFullMax")}` : ""}`}
-                        />
-                        <CostIcons
-                          zone={t(c.sea ? "gm_zoneSea" : c.coast ? "gm_zoneCoast" : "gm_zoneLand")}
-                          cost={c.cost}
-                          seconds={c.seconds}
-                          instant={c.instant}
-                          res={data.resources}
-                        />
-                        {c.full && c.more_at ? <Text style={styles.warnSm}>{t("gm_moreAtShort", { n: c.more_at })}</Text> : null}
-                      </View>
-                      <Pressable style={[styles.smallBtn, off && { opacity: 0.4 }]} disabled={off} onPress={() => startPlace(c.type)}>
-                        <Text style={styles.smallBtnText}>{t("gm_pick")}</Text>
-                      </Pressable>
-                    </View>
-                  );
-                })}
-                {data.builders.busy >= data.builders.total ? <Text style={styles.small}>{t("gm_err_builders")}</Text> : null}
-              </Card>
+              />
             ) : mode === "exam" ? (
               <ExamPanel
                 exam={exam}
@@ -1273,6 +1307,307 @@ export default function GameScreen() {
   );
 }
 
+/** 짓기 목록 한 줄 */
+type BuildRow = {
+  key: string;
+  type: GameBuildingType;
+  title: string;
+  /** 무엇이 좋아지는지 · 왜 못 하는지 (한 줄) */
+  note: string;
+  warn?: boolean;
+  level?: number;
+  cost?: GameCost;
+  seconds?: number;
+  instant?: boolean;
+  off: boolean;
+  onPress: () => void;
+};
+
+/**
+ * [짓기] 목록: 추천(지금 바로 할 수 있고 효과가 큰 것 3개) → 다른 건물 → 방어 시설 → 아직 못 짓는 것(조건).
+ * 맨 아래에 작업 반장이 무엇을 하는지.
+ */
+function BuildList({
+  data,
+  canPay,
+  leftOf,
+  top,
+  onNew,
+  onPick,
+  onExam,
+  onClose,
+}: {
+  data: GameState;
+  canPay: (c: GameCost) => boolean;
+  leftOf: (b: GameBuilding) => number | null;
+  top?: React.ReactNode;
+  onNew: (type: GameBuildingType) => void;
+  onPick: (b: GameBuilding) => void;
+  onExam: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const name = (k: string) => t(`gm_b_${k}`);
+  const free = data.builders.busy < data.builders.total;
+  const hq = data.buildings.find((b) => b.type === "hq");
+  const hqLv = hq?.level ?? 1;
+  const opensNext = data.catalog.filter((c) => c.unlock === hqLv + 1).map((c) => name(c.type));
+  const rows: (BuildRow & { score: number; def: boolean; locked: boolean })[] = [];
+  // 새로 지을 수 있는 건물·방어 시설
+  for (const c of data.catalog) {
+    if (c.locked) {
+      rows.push({ key: `n-${c.type}`, type: c.type, title: name(c.type), note: t("gm_bl_lockedAt", { n: c.unlock }), warn: true, off: true, onPress: () => null, score: 0, def: !!c.defense, locked: true });
+      continue;
+    }
+    if (c.full) continue;
+    const noWorker = !c.instant && !free;
+    const pay = canPay(c.cost);
+    const note = !pay ? t("gm_bl_noMoney") : noWorker ? t("gm_err_builders") : c.defense ? t("gm_bl_newDef", { n: c.have ?? 0, max: c.max ?? 0 }) : t("gm_bl_new");
+    rows.push({
+      key: `n-${c.type}`, type: c.type, title: name(c.type), note, warn: !pay || noWorker, cost: c.cost, seconds: c.seconds, instant: c.instant,
+      off: !pay || noWorker, onPress: () => onNew(c.type), score: c.defense ? 60 : 80, def: !!c.defense, locked: false,
+    });
+  }
+  // 올릴 수 있는 건물 (방파 장벽은 많아서 한 줄로: 장벽을 누르면 '모두 올리기')
+  const seenWall = { v: false };
+  for (const b of data.buildings) {
+    if (!b.next || b.level < 1 || leftOf(b) !== null) continue;
+    if (b.type === "wall") {
+      if (seenWall.v) continue;
+      seenWall.v = true;
+    }
+    const isHq = b.type === "hq";
+    const pay = canPay(b.next.cost);
+    const noWorker = !b.instant && !free;
+    const note =
+      b.block === "hq_level" ? t("gm_blockHq")
+      : b.block === "exam" ? t("gm_bl_exam")
+      : !pay ? t("gm_bl_noMoney")
+      : noWorker ? t("gm_err_builders")
+      : isHq && opensNext.length ? t("gm_bl_opens", { list: opensNext.slice(0, 3).join(", ") })
+      : t("gm_bl_up", { a: b.level, b: b.next.level });
+    const off = b.block === "hq_level" || !pay || noWorker;
+    rows.push({
+      key: `u-${b.id}`, type: b.type, title: `${name(b.type)} → ${t("gm_level", { n: b.next.level })}`, note,
+      warn: off || b.block === "exam", level: b.level, cost: b.next.cost, seconds: b.next.seconds, instant: b.instant,
+      off: off && b.block !== "exam",
+      onPress: () => (b.block === "exam" && !off ? onExam() : onPick(b)),
+      // 추천 순서: 본관 > 새 건물 > 생산·창고 > 그 밖 (레벨 낮을수록 먼저)
+      score: (isHq ? 100 : ["cutting", "welding", "yard", "rodstore"].includes(b.type) ? 50 : 40) - b.level,
+      def: !!b.defense, locked: false,
+    });
+  }
+  const can = rows.filter((r) => !r.off && !r.locked).sort((a, b) => b.score - a.score);
+  const rec = can.slice(0, 3);
+  const recKeys = new Set(rec.map((r) => r.key));
+  const other = rows.filter((r) => !recKeys.has(r.key) && !r.locked && !r.def);
+  const defs = rows.filter((r) => !recKeys.has(r.key) && !r.locked && r.def);
+  const locked = rows.filter((r) => r.locked);
+  const working = data.buildings.filter((b) => leftOf(b) !== null && b.busy_until);
+  const Row = ({ r }: { r: BuildRow }) => (
+    <Pressable onPress={r.onPress} disabled={r.off} style={({ pressed }) => [styles.blRow, r.off && { opacity: 0.5 }, pressed && { opacity: 0.7 }]}>
+      <View style={[styles.blIcon, { backgroundColor: BUILDING_COLOR[r.type] }]}>
+        {r.level ? <Text style={styles.blLv}>{r.level}</Text> : null}
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.textB} numberOfLines={1}>
+          {r.title}
+        </Text>
+        <Text style={[styles.small, { color: r.warn ? colors.warning : "#7FD18F" }]} numberOfLines={2}>
+          {r.note}
+        </Text>
+        {r.cost ? <CostIcons cost={r.cost} seconds={r.seconds} instant={r.instant} res={data.resources} /> : null}
+      </View>
+      {r.cost ? <Ionicons name="chevron-forward" size={16} color={colors.muted} /> : <Ionicons name="lock-closed" size={16} color={colors.muted} />}
+    </Pressable>
+  );
+  return (
+    <Card style={{ gap: space.sm }}>
+      <PanelHead title={t("gm_bl_title")} onClose={onClose} />
+      {top}
+      {rec.length ? (
+        <>
+          <Text style={styles.blSec}>{t("gm_bl_rec")}</Text>
+          {rec.map((r) => <Row key={r.key} r={r} />)}
+        </>
+      ) : null}
+      {other.length ? (
+        <>
+          <Text style={styles.blSec}>{t("gm_bl_other")}</Text>
+          {other.map((r) => <Row key={r.key} r={r} />)}
+        </>
+      ) : null}
+      {defs.length ? (
+        <>
+          <View style={{ marginTop: space.xs }}>
+            <InfoTitle big title={t("gm_defTitle")} info={t("gm_defIntro")} />
+          </View>
+          {defs.map((r) => <Row key={r.key} r={r} />)}
+        </>
+      ) : null}
+      {locked.length ? (
+        <>
+          <Text style={styles.blSec}>{t("gm_bl_locked")}</Text>
+          {locked.map((r) => <Row key={r.key} r={r} />)}
+        </>
+      ) : null}
+      {/* 작업 반장: 누가 쉬고 누가 무엇을 짓는지 */}
+      <View style={styles.blWorkers}>
+        {Array.from({ length: data.builders.total }).map((_, i) => {
+          const w = working[i];
+          const lf = w ? leftOf(w) : null;
+          return (
+            <View key={i} style={[styles.blWorker, !w && { borderColor: "#FFD166" }]}>
+              <Text style={styles.small} numberOfLines={1}>
+                {w ? t("gm_bl_working", { n: i + 1, name: name(w.type), time: clock(lf ?? 0) }) : t("gm_bl_idle", { n: i + 1 })}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </Card>
+  );
+}
+
+/** 건물을 눌렀을 때 아래 가운데 단추 줄: 정보 · 올리기 · 그 건물 전용 · 옮기기 */
+function ActionBar({
+  b,
+  data,
+  left,
+  busy,
+  canPay,
+  bottom,
+  onInfo,
+  onUpgrade,
+  onExam,
+  onCollect,
+  onMove,
+  onShips,
+  onFleet,
+  onArms,
+  onTrain,
+  onStudy,
+}: {
+  b: GameBuilding;
+  data: GameState;
+  left: number | null;
+  busy: boolean;
+  canPay: (c: GameCost) => boolean;
+  bottom: number;
+  onInfo: () => void;
+  onUpgrade: () => void;
+  onExam: () => void;
+  onCollect: () => void;
+  onMove: () => void;
+  onShips: () => void;
+  onFleet: () => void;
+  onArms: () => void;
+  onTrain: () => void;
+  onStudy: (unit: string) => void;
+}) {
+  const { t } = useTranslation();
+  const btns: { key: string; icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; sub?: string; off?: boolean; hot?: boolean; onPress: () => void }[] = [];
+  btns.push({ key: "info", icon: "information-circle", label: t("gm_ab_info"), onPress: onInfo });
+  const nx = b.next;
+  const workers = !b.instant && data.builders.busy >= data.builders.total;
+  if (left !== null) btns.push({ key: "speed", icon: "flash", label: t("gm_ab_speed"), sub: clock(left), onPress: onInfo });
+  else if (nx && b.block === "exam") btns.push({ key: "exam", icon: "school", label: t("gm_ab_exam"), hot: true, onPress: onExam });
+  else if (nx && b.type !== "wall")
+    btns.push({
+      key: "up", icon: "arrow-up-circle", label: t("gm_ab_up"),
+      sub: b.block === "hq_level" ? t("gm_ab_needHq") : workers ? t("gm_ab_noWorker") : costLine(t, nx.cost),
+      off: busy || !!b.block || workers || !canPay(nx.cost), hot: true, onPress: onUpgrade,
+    });
+  if ((b.type === "cutting" || b.type === "welding") && b.pending > 0) btns.push({ key: "collect", icon: "cube", label: t("gm_collectShort"), sub: `+${b.pending}`, hot: true, onPress: onCollect });
+  if (b.type === "dock") btns.push({ key: "ships", icon: "boat", label: t("gm_ships"), onPress: onShips });
+  if (b.type === "pier" && b.level > 0) btns.push({ key: "fleet", icon: "boat", label: t("gm_ab_fleet"), onPress: onFleet });
+  if (b.type === "academy" && b.level > 0) btns.push({ key: "arms", icon: "flask", label: t("gm_ab_arms"), onPress: onArms });
+  if (b.type === "trainhall" && b.level > 0) btns.push({ key: "train", icon: "people", label: t("gm_ab_train"), onPress: onTrain });
+  if (b.type === "wall") btns.push({ key: "walls", icon: "layers", label: t("gm_ab_walls"), onPress: onInfo });
+  if (b.defense?.unit) btns.push({ key: "study", icon: "create", label: t("gm_ab_study"), onPress: () => onStudy(b.defense!.unit!.key) });
+  if (!b.fixed && left === null) btns.push({ key: "move", icon: "move", label: t("gm_move"), onPress: onMove });
+  return (
+    <View style={[styles.abWrap, { bottom }]} pointerEvents="box-none">
+      <Text style={styles.abTitle}>{b.level === 0 ? t("gm_building", { name: t(`gm_b_${b.type}`) }) : `${t(`gm_b_${b.type}`)} · ${t("gm_level", { n: b.level })}`}</Text>
+      <View style={styles.abRow}>
+        {btns.map((x) => (
+          <Pressable key={x.key} onPress={x.onPress} disabled={x.off} style={({ pressed }) => [styles.abBtn, x.hot && !x.off && styles.abHot, x.off && { opacity: 0.45 }, pressed && { opacity: 0.7 }]}>
+            <Ionicons name={x.icon} size={22} color="#fff" />
+            <Text style={styles.abText} numberOfLines={1}>
+              {x.label}
+            </Text>
+            {x.sub ? (
+              <Text style={styles.abSub} numberOfLines={1}>
+                {x.sub}
+              </Text>
+            ) : null}
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** 오른쪽 위 자원 막대 (창고가 있는 자원은 얼마나 찼는지 색 막대) */
+function ResBar({ color, label, value, cap, on, onPress }: { color: string; label: string; value: number; cap?: number; on?: boolean; onPress: () => void }) {
+  const pct = cap ? Math.min(1, value / Math.max(1, cap)) : 0;
+  return (
+    <Pressable onPress={onPress} style={[styles.resBar, on && styles.resOn, !cap && { width: 130 }]} accessibilityLabel={label}>
+      {cap ? <View style={[styles.resFill, { width: `${pct * 100}%`, backgroundColor: color + (pct >= 1 ? "" : "AA") }]} /> : null}
+      <View style={[styles.dot, { backgroundColor: color, width: 10, height: 10 }]} />
+      <Text style={styles.resLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <View style={{ flex: 1 }} />
+      <Text style={[styles.resValue, !!cap && value >= cap && { color: "#FFD166" }]}>{value}</Text>
+      {cap ? <Text style={styles.resSub}>/{cap}</Text> : null}
+    </Pressable>
+  );
+}
+
+/** 왼쪽 세로 작은 단추 */
+function SideBtn({ icon, label, onPress, badge, on }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void; badge?: string; on?: boolean }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.side, on && { borderColor: "#FFD166" }]} accessibilityLabel={label}>
+      <Ionicons name={icon} size={20} color="#fff" />
+      <Text style={styles.fabText} numberOfLines={1}>
+        {label}
+      </Text>
+      {badge ? <Text style={styles.fabBadge}>{badge}</Text> : null}
+    </Pressable>
+  );
+}
+
+/** 모서리의 큰 단추 ([바다 지도]·[짓기]). pulse 면 살짝 커졌다 작아짐 (쉬는 작업 반장이 있을 때) */
+function BigBtn({ icon, label, color, shadow, onPress, pulse }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; color: string; shadow: string; onPress: () => void; pulse?: boolean }) {
+  const k = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!pulse) {
+      k.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(k, { toValue: 1.08, duration: 600, useNativeDriver: true }),
+        Animated.timing(k, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.delay(900),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse, k]);
+  return (
+    <Animated.View style={{ transform: [{ scale: k }] }}>
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.big, { backgroundColor: color, borderBottomColor: shadow }, pressed && { opacity: 0.8 }]} accessibilityLabel={label}>
+        <Ionicons name={icon} size={34} color="#fff" />
+        <Text style={styles.bigText} numberOfLines={1}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 /** 진수식 축하 화면: 색종이 + 웰디 + 받은 것 */
 function LaunchParty({ info, onClose }: { info: NonNullable<GameState["delivered_now"]>; onClose: () => void }) {
   const { t } = useTranslation();
@@ -1447,18 +1782,6 @@ function InfoTitle({ title, value, valueWarn, info, big, color }: { title: strin
       </View>
       {open && info ? <Text style={styles.infoBox}>{info}</Text> : null}
     </View>
-  );
-}
-
-function ResChip({ color, label, value, cap, on, onPress }: { color: string; label: string; value: number; cap?: number; on?: boolean; onPress: () => void }) {
-  const full = cap !== undefined && value >= cap;
-  return (
-    <Pressable onPress={onPress} hitSlop={4} style={({ pressed }) => [styles.res, on && styles.resOn, pressed && { opacity: 0.7 }]} accessibilityLabel={`${label} ${value}`}>
-      <View style={[styles.dot, { backgroundColor: color }]} />
-      <Text style={styles.resLabel}>{label}</Text>
-      <Text style={[styles.resValue, full && { color: "#FFD166" }]}>{value}</Text>
-      {cap !== undefined ? <Text style={styles.resSub}>/{cap}</Text> : null}
-    </Pressable>
   );
 }
 
@@ -2397,15 +2720,44 @@ function SupplyPanel({
 }
 
 const HUD = "#0B2033D9";
-const FAB_ROW = 7 * 64 + 8;   // 아래 오른쪽 메뉴 단추 7개 자리
+const BL_W = 96 + 8 + 3 * 62 + 34 + 16;   // 아래 왼쪽 [바다 지도] + 서랍 자리
+const BR_W = 96 + 16;                      // 아래 오른쪽 [짓기] 자리
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#1F6FA8" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   trainCard: { backgroundColor: "#0F2236", borderRadius: radius.md, borderWidth: 1, borderColor: "#FFFFFF22", padding: space.sm, gap: space.sm, width: 520, maxWidth: "100%" },
   hudTL: { position: "absolute", gap: 4 },
-  hudTR: { position: "absolute", flexDirection: "row", gap: 6 },
-  hudBL: { position: "absolute", gap: 4, maxWidth: 560 },
-  hudBR: { position: "absolute", flexDirection: "row", gap: 6, alignItems: "flex-end" },
+  hudTR: { position: "absolute", gap: 4, alignItems: "flex-end" },
+  hudBL: { position: "absolute", flexDirection: "row", gap: 8, alignItems: "flex-end" },
+  hudBR: { position: "absolute", gap: 6, alignItems: "flex-end" },
+  lvBadge: { width: 40, height: 40, borderRadius: 10, backgroundColor: "#2F5F9E", borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
+  lvNum: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  lvName: { color: "#fff", fontSize: 13, fontWeight: "700", textShadowColor: "#000", textShadowRadius: 3 },
+  lvSub: { fontSize: 11, fontWeight: "700", textShadowColor: "#000", textShadowRadius: 3 },
+  sideCol: { gap: 6, marginTop: 4 },
+  side: { width: 52, height: 52, borderRadius: 12, backgroundColor: HUD, alignItems: "center", justifyContent: "center", gap: 1, borderWidth: 1, borderColor: "#FFFFFF22" },
+  resBar: { width: 190, height: 28, borderRadius: 14, backgroundColor: HUD, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, overflow: "hidden" },
+  resFill: { position: "absolute", left: 0, top: 0, bottom: 0, opacity: 0.55 },
+  tray: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 16, padding: 4 },
+  trayArrow: { width: 26, height: 58, alignItems: "center", justifyContent: "center" },
+  weldy: { position: "absolute", gap: 4, alignItems: "stretch" },
+  weldySmall: { maxWidth: "100%", alignSelf: "flex-start" },
+  builderChip: { color: "#fff", fontSize: 12, fontWeight: "700", backgroundColor: HUD, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, overflow: "hidden", borderWidth: 1, borderColor: "transparent" },
+  big: { width: 96, height: 96, borderRadius: 20, alignItems: "center", justifyContent: "center", gap: 2, borderBottomWidth: 5 },
+  bigText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  abWrap: { position: "absolute", left: 0, right: 0, alignItems: "center", gap: 6 },
+  abTitle: { color: "#fff", fontSize: 14, fontWeight: "800", backgroundColor: HUD, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4, overflow: "hidden" },
+  abRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 8 },
+  abBtn: { width: 84, height: 72, borderRadius: 16, backgroundColor: "#0B2033EE", alignItems: "center", justifyContent: "center", gap: 1, borderWidth: 1, borderColor: "#FFFFFF33" },
+  abHot: { backgroundColor: "#E07B1FEE", borderColor: "#FFD166" },
+  abText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  abSub: { color: "#FFE7C2", fontSize: 10 },
+  blSec: { color: "#C9D6EE", fontSize: 12, fontWeight: "700", textAlign: "center", backgroundColor: "#26324A", borderRadius: 8, paddingVertical: 4, overflow: "hidden", marginTop: 4 },
+  blRow: { flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: "#1C2A42", borderRadius: 12, padding: 8 },
+  blIcon: { width: 38, height: 38, borderRadius: 8, justifyContent: "flex-end" },
+  blLv: { position: "absolute", left: -4, bottom: -4, color: "#fff", backgroundColor: "#111", borderRadius: 6, paddingHorizontal: 4, fontSize: 11, overflow: "hidden" },
+  blWorkers: { flexDirection: "row", gap: 6, marginTop: 4 },
+  blWorker: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 6 },
   resRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
   res: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: HUD, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 8 },
   resValue: { color: "#fff", fontSize: 13, fontWeight: "700" },
