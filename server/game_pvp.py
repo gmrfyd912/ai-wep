@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 import daily
+import accounts
 import game
 import game_raid
 import manage
@@ -130,7 +131,7 @@ def _my_raids_today(uid):
 
 
 def block_reason(me_id, target_id, st, target_base, same, today_rows=None, daily_done=None, now=None,
-                 my_hq=None, target_hq=None, newbie_off=None):
+                 my_hq=None, target_hq=None, newbie_off=None, grad=None):
     """친구 조선소를 지금 공격할 수 없는 이유 (code, 덧붙일 값) — 없으면 (None, {}).
     my_hq·target_hq·newbie_off 를 안 주면 여기서 읽음."""
     if target_id == me_id:
@@ -143,10 +144,13 @@ def block_reason(me_id, target_id, st, target_base, same, today_rows=None, daily
     if why:
         return "time_lock", {"why": why, "class_from": st["raid_class_from"], "class_to": st["raid_class_to"],
                              "night_from": st["raid_night_from"], "night_to": st["raid_night_to"]}
-    nb = newbie_left(target_base, st, now, newbie_off)
+    # 수료생 조선소는 수료한 때 모습으로 유지 (신입·쉬는 중 보호 없이 공격받을 수 있고, 잃는 것은 없음)
+    if grad is None:
+        grad = accounts.is_graduated(target_id)
+    nb = 0 if grad else newbie_left(target_base, st, now, newbie_off)
     if nb:
         return "newbie", {"left": nb, "d": nb // 86400, "h": (nb % 86400) // 3600}
-    if resting(target_base, st, now):
+    if not grad and resting(target_base, st, now):
         return "resting", {"days": int(st["raid_rest_days"])}
     left = shield_left(target_base, now)
     if left:
@@ -219,19 +223,19 @@ def _target(me, target_id, st):
                     blds=lambda: game._buildings(target_id), rows=lambda: game.ledger(target_id),
                     mine=lambda: game._buildings(me["id"]),
                     mc=lambda: manage.course_ids_of(me["id"]), tc=lambda: manage.course_ids_of(target_id),
-                    prog=lambda: game.unit_progress(target_id, st))
+                    prog=lambda: game.unit_progress(target_id, st), grad=lambda: accounts.is_graduated(target_id))
     if not got["base"]:
         _err(404, "not_found")
     return {"user": rows[0], "base": got["base"][0], "blds": got["blds"], "rows": got["rows"], "mine": got["mine"],
             "same": bool(got["mc"] & got["tc"]), "units": got["prog"][1],
             "hq": _hq_lv(got["blds"]), "my_hq": _hq_lv(got["mine"]),
-            "newbie_off": any(r.get("key") == NEWBIE_KEY for r in got["rows"])}
+            "newbie_off": any(r.get("key") == NEWBIE_KEY for r in got["rows"]), "grad": bool(got["grad"])}
 
 
 def target_block(me_id, target_id, st, tg, **kw):
     """_target 로 받은 정보로 block_reason (다시 읽지 않게)."""
     return block_reason(me_id, target_id, st, tg["base"], tg["same"], my_hq=tg["my_hq"], target_hq=tg["hq"],
-                        newbie_off=tg["newbie_off"], **kw)
+                        newbie_off=tg["newbie_off"], grad=tg["grad"], **kw)
 
 
 def need_sql19():
@@ -359,8 +363,9 @@ def apply_raid(user, target, res, morale, revenge):
 def apply_raid_locked(user, target, tg, base, buildings, have, tcrews, res, morale, revenge, st, now):
     """공격 결과 반영 (두 조선소 잠근 채): 방어 대원 부상, 내 대원·배, 약탈, 막아 냄 보상, 보호막, 기록."""
     uid = user["id"]
+    grad = bool(tg.get("grad"))   # 수료생: 부서진 것·대원·창고를 수료한 때 모습으로 유지 (박사 요청 2026-11-28)
 
-    if any(res["guard_lost"].values()):   # 방어하다 쓰러진 대원은 부상 → 정한 시간 뒤 돌아옴
+    if any(res["guard_lost"].values()) and not grad:   # 방어하다 쓰러진 대원은 부상 → 정한 시간 뒤 돌아옴
         game_raid.add_hurt(tcrews, res["guard_lost"], int(st["crew_hurt_minutes"]), now)
         game_raid._save_crews(target, tcrews)
     for s in res["ships"]:        # 보여 줄 공격력은 원래 값으로
@@ -383,11 +388,11 @@ def apply_raid_locked(user, target, tg, base, buildings, have, tcrews, res, mora
     got = {"steel": take["steel"], "rods": take["rods"], "tech": 0, "fame": ATTACK_FAME * res["stars"]}
     if any(got.values()):
         game._add(uid, [{"key": f"raid:{bid}", **got, "note": "raid"}])
-    if take["steel"] or take["rods"]:
+    if (take["steel"] or take["rods"]) and not grad:
         game._add(target, [{"key": f"raided:{bid}", "steel": -take["steel"], "rods": -take["rods"], "note": "raided"}])
     # 막아 냄 보상 (상대 별 0~1개)
     defend = {"rods": 0, "fame": 0}
-    if res["stars"] <= 1:
+    if res["stars"] <= 1 and not grad:
         tcap = game.caps(tg["blds"])
         tbal = game.balance(tg["rows"])
         tbal = {**tbal, "steel": tbal["steel"] - take["steel"], "rods": tbal["rods"] - take["rods"]}
@@ -399,7 +404,8 @@ def apply_raid_locked(user, target, tg, base, buildings, have, tcrews, res, mora
     if st["raid_shield_hours"]:
         game._sql17(lambda: store.patch("game_bases", {"user_id": f"eq.{target}"}, {"shield_until": _iso(shield_until)}),
                     code="need_sql19")
-    res.update({"id": bid, "kind": "raid", "got": got, "lost": {"steel": take["steel"], "rods": take["rods"]},
+    res.update({"id": bid, "kind": "raid", "got": got, "grad": grad,
+                "lost": {"steel": 0, "rods": 0} if grad else {"steel": take["steel"], "rods": take["rods"]},
                 "defend": defend, "loot_half": half, "first_stars": 0, "hurt_minutes": int(st["crew_hurt_minutes"]),
                 "morale": morale,
                 "attacker": {"id": uid, "name": user.get("name") or ""},

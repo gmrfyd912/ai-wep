@@ -19,6 +19,7 @@ import time
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+import accounts
 import game
 import game_battle
 import game_pvp
@@ -100,7 +101,7 @@ def layout(bays, members, today=None):
         # 만 이름은 바깥쪽(지도 가장자리 쪽)에 — 안쪽 가장자리에는 해적 섬이 옴
         lx = min(MAP_W - 60, max(60, x + math.cos(a) * (BAY_R + 16)))
         ly = min(MAP_H - 8, max(18, y + math.sin(a) * (BAY_R + 16)))
-        out_bays.append({"id": b["id"], "name": b["name"], "x": round(x), "y": round(y), "r": BAY_R, "angle": a,
+        out_bays.append({"id": b["id"], "name": b["name"], "done": bool(b.get("done")), "x": round(x), "y": round(y), "r": BAY_R, "angle": a,
                          "lx": round(lx), "ly": round(ly)})
         for k, uid in enumerate(ids):
             dx, dy = _slot(k)
@@ -156,8 +157,9 @@ def _world():
 
 def _world_fetch():
     got = game._par(
-        users=lambda: store.select("users", {"role": "eq.student", "status": "eq.active", "select": "id,name"}),
-        courses=lambda: store.select("courses", {"active": "eq.true", "select": "id,name,sort", "order": "sort.asc,name.asc"}),
+        users=lambda: store.select("users", {"role": "eq.student", "status": "in.(active,graduated)", "select": "id,name"}),
+        # 끝난 과정도 받음: 수료생은 그 과정 무리 안에 수료한 때 모습으로 남음 (박사 요청 2026-11-28)
+        courses=lambda: store.select("courses", {"select": "id,name,sort,active", "order": "sort.asc,name.asc"}),
         links=lambda: store.select("user_courses", {"select": "user_id,course_id"}),
         bases=_bases,
         newbie_off=lambda: {r["user_id"] for r in store.select("game_ledger", {"key": f"eq.{game_pvp.NEWBIE_KEY}", "select": "user_id"})},
@@ -183,24 +185,29 @@ def sea_view(user):
     names.setdefault(uid, user.get("name") or "")
     has_base = {b["user_id"] for b in w["bases"]}
     shields = {b["user_id"]: game_pvp.shield_left(b) for b in w["bases"]}
-    # 신입 보호·쉬는 중 (G3 공정한 공격): 보호막처럼 표시하고 공격 못 함
+    # 과정 순서 (진행 중인 과정 먼저, 끝난 과정은 뒤에) · 수료생 = 과정이 있고 모두 끝남
+    courses = sorted(w["courses"], key=lambda c: (c.get("active") is False, c.get("sort") or 0, c.get("name") or ""))
+    order = {c["id"]: i for i, c in enumerate(courses)}
+    live_c = {c["id"] for c in courses if c.get("active") is not False}
+    cids: dict[str, set] = {}
+    for l in w["links"]:
+        cids.setdefault(l["user_id"], set()).add(l["course_id"])
+    grads = {p for p, cs in cids.items() if cs and not (cs & live_c)}
+    # 신입 보호·쉬는 중 (G3 공정한 공격): 보호막처럼 표시하고 공격 못 함 (수료생은 보호 없이 유지 상태)
     protect = {}
     for b in w["bases"]:
+        if b["user_id"] in grads:
+            continue
         nb = game_pvp.newbie_left(b, st, off=b["user_id"] in w["newbie_off"])
         if nb:
             protect[b["user_id"]] = "newbie"
             shields[b["user_id"]] = max(shields.get(b["user_id"], 0), nb)
         elif game_pvp.resting(b, st):
             protect[b["user_id"]] = "resting"
-    order = {c["id"]: i for i, c in enumerate(w["courses"])}
-    cids: dict[str, set] = {}
-    for l in w["links"]:
-        cids.setdefault(l["user_id"], set()).add(l["course_id"])
-    # 수료한 교육생(들어 있던 과정이 모두 끝남)은 지도에서 숨김
-    players = [i for i in names if (i in has_base or i == uid)
-               and (i == uid or not cids.get(i) or _course_of(cids[i], order) is not None)]
+    players = [i for i in names if i in has_base or i == uid]
     course = {p: _course_of(cids.get(p, set()), order) or NO_COURSE for p in players}
-    bays = [{"id": c["id"], "name": c["name"]} for c in w["courses"] if any(course[p] == c["id"] for p in players)]
+    bays = [{"id": c["id"], "name": c["name"], "done": c.get("active") is False} for c in courses
+            if any(course[p] == c["id"] for p in players)]
     if any(course[p] == NO_COURSE for p in players):
         bays.append({"id": NO_COURSE, "name": ""})
     members: dict[str, list] = {}
@@ -225,7 +232,8 @@ def sea_view(user):
         islands.append({"id": p, "name": names.get(p, ""), "course": course[p], "x": spots[p][0], "y": spots[p][1],
                         "hq": hq, "score": sc, "tier": tier(sc, my_score), "me": p == uid, "same": same,
                         "attackable": p != uid and (same_ok or not same) and p not in protect and not (gap and my_hq - hq >= gap),
-                        "shield": shields.get(p, 0), "protect": protect.get(p), "gap": bool(gap and my_hq - hq >= gap)})
+                        "shield": shields.get(p, 0), "protect": protect.get(p), "gap": bool(gap and my_hq - hq >= gap),
+                        "grad": p in grads})
     rows = game.ledger(uid)
     best = game_battle._stage_best(rows)
     pirates = []
@@ -363,7 +371,7 @@ def scout_user(me, target, st):
             "grid": {"w": game.grid_of(base), "h": game.grid_of(base), "sea": game.sea_of(base)},
             "buildings": items, "counts": _counts(blds), "loot": loot, "loot_half": half, "same": same,
             "attackable": bool(attackable), "raid_open": bool(st["raid_pvp"]), "block": block, "block_info": block_info,
-            "shield": game_pvp.shield_left(base),
+            "shield": game_pvp.shield_left(base), "grad": accounts.is_graduated(target),
             "guards": {k: v for k, v in game_raid.available(game_raid.get_crews(base)).items() if v},
             "tip": "user_weak" if half else "user_hard" if tr == "hard" else "user_easy" if tr == "easy" else "user_even"}
 

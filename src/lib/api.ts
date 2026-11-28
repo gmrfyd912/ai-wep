@@ -541,7 +541,7 @@ export type Member = {
   login_id: string;
   name: string;
   role: Exclude<Role, "admin">;
-  status: "active" | "pending" | "disabled";
+  status: "active" | "pending" | "disabled" | "graduated";
   email: string | null;
   permissions: { manage_courses: boolean; manage_members: boolean };
   courses: (Course & { course_role: CourseRole | null })[];
@@ -565,7 +565,7 @@ export type StudentCard = {
   id: string;
   name: string;
   login_id: string;
-  status: "active" | "pending" | "disabled";
+  status: "active" | "pending" | "disabled" | "graduated";
   total: number;
   week_count: number;
   last_score: number | null;
@@ -1896,10 +1896,13 @@ export const gameLiveEnd = (id: string, t?: number) =>
 export type SeaTier = "easy" | "even" | "hard";
 export type GameSea = {
   size: { w: number; h: number };
-  bays: { id: string; name: string; x: number; y: number; r: number; lx: number; ly: number }[];
+  /** done = 끝난 과정 (수료생 무리) */
+  bays: { id: string; name: string; done?: boolean; x: number; y: number; r: number; lx: number; ly: number }[];
   islands: { id: string; name: string; course: string; x: number; y: number; hq: number; score: number; tier: SeaTier; me: boolean; same: boolean; attackable: boolean; shield?: number;
     /** 신입 보호·쉬는 중, 본관 레벨 차이로 공격 못 함 */
-    protect?: "newbie" | "resting" | null; gap?: boolean }[];
+    protect?: "newbie" | "resting" | null; gap?: boolean;
+    /** 수료생: 수료한 때 모습으로 유지 (공격받아도 잃는 것 없음) */
+    grad?: boolean }[];
   pirates: { stage: number; x: number; y: number; stars: number; open: boolean; score: number; tier: SeaTier }[];
   me: { id: string; course: string; score: number };
   scouts: { used: number; max: number };
@@ -1910,6 +1913,7 @@ export type GameSea = {
 /** 정찰 결과 (정답률 배수는 안 옴) */
 export type GameScout = {
   kind: "pirate" | "user";
+  grad?: boolean;
   id: string;
   name?: string;
   stage?: number;

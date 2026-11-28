@@ -302,11 +302,55 @@ def main():
     assert b2["shield_until"] is None
     assert c.get(f"/game/raid/target/{ids['s2']}", headers=hd["s1"]).json()["block"] not in ("newbie", "shield")
     assert adm["id"]
-    # 수료(과정이 모두 끝남)한 교육생은 바다 지도에서 숨김
-    next(x for x in db.TABLES["courses"] if x["id"] == ca)["active"] = False
+    # ---- 수료생 (박사 요청 2026-11-28): 과정 무리 안에 수료한 때 모습으로 유지, 2주 접속 없으면 로그인 막음 ----
+    next(x for x in db.TABLES["courses"] if x["id"] == ca)["active"] = False      # s1·s2 과정이 끝남
     gs.forget_world()
-    isl = {i["id"] for i in c.get("/game/sea", headers=hd["s3"]).json()["islands"]}
-    assert ids["s1"] not in isl and ids["s2"] not in isl and ids["s3"] in isl, isl
+    sea = c.get("/game/sea", headers=hd["s3"]).json()
+    isl = {i["id"]: i for i in sea["islands"]}
+    assert ids["s1"] in isl and isl[ids["s1"]]["grad"] and not isl[ids["s3"]]["grad"], isl
+    assert any(b["id"] == ca and b["done"] for b in sea["bays"]) and isl[ids["s1"]]["course"] == ca
+    # 수료생은 오래 안 들어와도 쉬는 중 보호가 없고, 공격받아도 잃는 것이 없음
+    b2["last_seen_at"] = (NOW[0] - timedelta(days=30)).isoformat()
+    b2["shield_until"] = None
+    assert not isl[ids["s2"]]["protect"]
+    for b in db.TABLES["game_bases"]:
+        b["crews"] = {"welder": 12, "fitter": 0, "forklift": 0, "transporter": 0, "pts": 0}
+    for s_ in db.TABLES["game_ships"]:
+        s_["damage"] = 0
+    NOW[0] = NOW[0] + timedelta(days=1)
+    for b in db.TABLES["game_bases"]:
+        b["last_seen_at"] = NOW[0].isoformat() if b["user_id"] != ids["s2"] else b["last_seen_at"]
+    s2_bal = game.balance(game.ledger(ids["s2"]))
+    s2_crews = dict(next(b for b in db.TABLES["game_bases"] if b["user_id"] == ids["s2"])["crews"])
+    db.SETTINGS["game"]["raid_need_daily"] = False
+    game._settings_cache["raw"] = None
+    q = c.post("/game/raid/morale/start", headers=hd["s3"], json={"lang": "ko"}).json()
+    s3_ship = next(x["id"] for x in db.TABLES["game_ships"] if x["user_id"] == ids["s3"])
+    r = live_raid("s3", {"target": ids["s2"], "ships": [s3_ship], "morale_id": q["id"], "answers": ans(q)})
+    assert r.status_code == 200, r.text
+    gb_ = r.json()["battle"]
+    assert gb_["grad"] and gb_["lost"] == {"steel": 0, "rods": 0}, gb_.get("lost")
+    assert game.balance(game.ledger(ids["s2"])) == s2_bal
+    after = next(b for b in db.TABLES["game_bases"] if b["user_id"] == ids["s2"])["crews"]
+    assert after == s2_crews, (after, s2_crews)   # 방어 대원도 다치지 않음
+    # 2주(예시) 넘게 안 들어온 수료생은 로그인 막힘 → 관리자가 다시 열면 됨
+    from datetime import datetime as _dt, timezone as _tz
+    u1 = next(u for u in db.TABLES["users"] if u["id"] == ids["s1"])
+    u1["last_login_at"] = (_dt.now(_tz.utc) - timedelta(days=20)).isoformat()
+    r = c.post("/auth/login", json={"login_id": "s1", "password": "p"})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "graduated" and u1["status"] == "graduated", r.text
+    # 자동 로그인 중이던 수료생도 오래 지나면 끊김
+    u3 = next(u for u in db.TABLES["users"] if u["id"] == ids["s3"])
+    assert c.get("/game/state", headers=hd["s3"]).status_code == 200      # s3 은 수료생 아님
+    # 3주 안 쓴 세션
+    for x in db.TABLES["sessions"]:
+        if x["user_id"] == ids["s2"]:
+            x["last_seen_at"] = (_dt.now(_tz.utc) - timedelta(days=21)).isoformat()
+    assert c.get("/game/state", headers=hd["s2"]).status_code == 401
+    assert not any(x["user_id"] == ids["s2"] for x in db.TABLES["sessions"]) and u3["status"] == "active"
+    r = c.patch(f"/manage/members/{ids['s1']}", headers=ha, json={"status": "active"})
+    assert r.status_code == 200, r.text
+    assert u1["status"] == "active" and c.post("/auth/login", json={"login_id": "s1", "password": "p"}).status_code == 200
     print("pvp_check OK", {"stars": bt["stars"], "lost": bt["lost"]})
 
 

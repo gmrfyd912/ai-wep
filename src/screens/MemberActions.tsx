@@ -61,7 +61,7 @@ export function StatusBadge({ status }: { status: Member["status"] }) {
   const pending = status === "pending";
   return (
     <Text style={{ color: pending ? colors.warning : colors.danger, fontSize: 13, fontWeight: "700" }}>
-      {pending ? t("admin_memberPending") : t("manage_statusDisabled")}
+      {pending ? t("admin_memberPending") : status === "graduated" ? t("manage_statusGraduated") : t("manage_statusDisabled")}
     </Text>
   );
 }

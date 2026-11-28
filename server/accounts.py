@@ -131,6 +131,42 @@ def _bearer(authorization):
     return tok or None
 
 
+GRAD_LOCK_DAYS = 14     # 수료생이 이만큼 접속하지 않으면 로그인 막음 (박사 요청 2026-11-28, 예시)
+
+
+def is_graduated(uid):
+    """수료생: 들어 있던 과정이 있고, 그 과정이 모두 끝남(비활성)."""
+    cids = [r["course_id"] for r in store.select("user_courses", {"user_id": f"eq.{uid}", "select": "course_id"})]
+    if not cids:
+        return False
+    live = store.select("courses", {"id": f"in.({','.join(cids)})", "active": "eq.true", "select": "id"})
+    return not live
+
+
+def _grad_lock(u, last, kick=False):
+    """수료생이 GRAD_LOCK_DAYS 일 넘게 접속하지 않았으면 '수료' 상태로 바꾸고 막음 (관리자가 다시 열 수 있음).
+    kick: 자동 로그인 중이면 로그인을 끊어 로그인 화면으로 (거기서 로그인하면 '관리자에게 문의' 안내)."""
+    if u.get("role") != "student" or not last or _now() - last <= timedelta(days=GRAD_LOCK_DAYS):
+        return
+    if not is_graduated(u["id"]):
+        return
+    try:
+        store.patch("users", {"id": f"eq.{u['id']}"}, {"status": "graduated"})
+    except Exception as e:  # noqa: BLE001  (step21 SQL 전이면 상태는 못 바꿔도 막기는 함)
+        print("[auth] 수료 상태 저장 실패", str(e)[:120], flush=True)
+    if kick:
+        store.delete("sessions", {"user_id": f"eq.{u['id']}"})
+        _err(401, "login_required")
+    _err(403, "graduated")
+
+
+def _when(v):
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")) if v else None
+    except ValueError:
+        return None
+
+
 def current_user(authorization: str | None = Header(None)):
     """로그인한 사용자 (없으면 401). 다른 API 에서 Depends(current_user) 로 쓴다."""
     tok = _bearer(authorization)
@@ -143,6 +179,7 @@ def current_user(authorization: str | None = Header(None)):
     u = rows[0]["users"]
     if u.get("status") != "active":
         _err(403, u.get("status") or "disabled")
+    _grad_lock(u, _when(rows[0].get("last_seen_at")), kick=True)
     try:  # 하루에 한 번쯤만 마지막 사용 시각을 고친다
         seen = datetime.fromisoformat(rows[0]["last_seen_at"].replace("Z", "+00:00"))
         if _now() - seen > timedelta(hours=12):
@@ -266,6 +303,7 @@ def login(body: LoginBody):
         _err(401, "bad_login")
     if u.get("status") != "active":
         _err(403, u.get("status") or "disabled")
+    _grad_lock(u, _when(u.get("last_login_at") or u.get("created_at")))
     return _new_session(u, body.device_id)
 
 
