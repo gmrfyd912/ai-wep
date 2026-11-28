@@ -1588,7 +1588,7 @@ export const getLiveHistory = (courseId: string) =>
 
 // ---- G1 게임: 웰디의 조선소 ----
 
-export type GameBuildingType = "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock";
+export type GameBuildingType = "hq" | "yard" | "rodstore" | "cutting" | "welding" | "academy" | "dock" | "pier";
 export type GameCost = { steel: number; rods: number };
 export type GameRes = { steel: number; rods: number; tech: number; passes: number; fame: number };
 export type GameBlock = "busy" | "max" | "exam" | "hq_level" | null;
@@ -1604,6 +1604,8 @@ export type GameBuilding = {
   w: number;
   h: number;
   fixed: boolean;
+  /** 해안(땅 오른쪽 끝)에만 놓는 건물 (군항 부두) */
+  coast?: boolean;
   busy_until: string | null;
   /** 공사 남은 초 (공사 중일 때만) */
   left?: number;
@@ -1614,6 +1616,23 @@ export type GameBuilding = {
   next?: { level: number; cost: GameCost; seconds: number; exam?: GameExamSpec };
   rate?: number;
   cap?: number;
+  /** 군항 부두: 함대에 둘 수 있는 전투함 수 */
+  fleet_cap?: number;
+};
+/** 전투함 (G2a는 고속정·호위함만 만들 수 있음) */
+export type GameWarKind = "patrol" | "frigate" | "destroyer" | "submarine" | "landing";
+export type GameWarLock = "soon" | "hq" | "dock" | "pier" | "fleet_full" | null;
+export type GameReclaim = {
+  stage: number;
+  max: number;
+  /** 지금 열린 마지막 단계 */
+  open: number;
+  grid: number;
+  sea: number;
+  next: { stage: number; grid: number; sea: number; hq: number; cost: GameCost; seconds: number } | null;
+  block: "busy" | "max" | "soon" | "hq_level" | "builders" | null;
+  left?: number;
+  speed?: { tech: number; passes: number };
 };
 export type GameShipKind = "barge" | "bulk" | "container" | "lng" | "offshore";
 export type GameTip = { id: string; [k: string]: string | number };
@@ -1629,11 +1648,16 @@ export type GameState = {
   run_today: boolean;
   hq_level: number;
   grid: number;
+  /** 바다 줄 수 (간척하면 늘어남) */
+  sea?: number;
   buildings: GameBuilding[];
-  catalog: { type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number }[];
+  catalog: { type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number; coast?: boolean }[];
   ships: { kind: GameShipKind; cost: GameCost; fame: number; pay: { steel: number; rods: number; tech: number }; first_bonus: number; dock: number; units: number; lock: "dock" | "units" | null; seconds: number }[];
-  ship: { id: string; kind: GameShipKind; stage: number; left: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
+  ship: { id: string; kind: GameShipKind | GameWarKind; war?: boolean; stage: number; left: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
   delivered: GameShipKind[];
+  warships?: { kind: GameWarKind; cost: GameCost; hp: number; power: number; slots: number; dock: number; hq: number; lock: GameWarLock; seconds: number }[];
+  fleet?: { cap: number; building: number; ships: { id: string; kind: GameWarKind; no: number; hp: number; power: number; slots: number }[] };
+  reclaim?: GameReclaim;
   units: {
     done: number;
     total: number;
@@ -1652,6 +1676,8 @@ export type GameState = {
   collect_gift?: boolean;
   /** 방금 진수식(인도)한 배: 받은 것 전부 */
   delivered_now?: { kind: GameShipKind; fame: number; first: boolean; count: number; got: { fame: number; steel: number; rods: number; tech: number; passes?: number } };
+  /** 방금 군항 부두에 들어온 전투함 */
+  commissioned_now?: { kind: GameWarKind; no: number; count: number; cap: number };
 };
 const GAME_TIMEOUT = 90000;
 export const getGame = (lang: string) => request<GameState>(`/game/state?lang=${lang}`, {}, GAME_TIMEOUT);
@@ -1660,7 +1686,8 @@ export const gameUpgrade = (id: string) => post<GameState>("/game/upgrade", { id
 export const gameMove = (id: string, x: number, y: number) => post<GameState>("/game/move", { id, x, y }, GAME_TIMEOUT);
 export const gameCollect = () => post<GameState>("/game/collect", {}, GAME_TIMEOUT);
 export const gameSpeedup = (target: string, using: "tech" | "pass") => post<GameState>("/game/speedup", { target, using }, GAME_TIMEOUT);
-export const gameShipStart = (kind: GameShipKind) => post<GameState>("/game/ship/start", { kind }, GAME_TIMEOUT);
+export const gameReclaim = () => post<GameState>("/game/reclaim", {}, GAME_TIMEOUT);
+export const gameShipStart = (kind: GameShipKind | GameWarKind) => post<GameState>("/game/ship/start", { kind }, GAME_TIMEOUT);
 export const gameShipNext = () => post<GameState>("/game/ship/next", {}, GAME_TIMEOUT);
 export const gameTutorial = (done: boolean) => post<GameState>("/game/tutorial", { done }, GAME_TIMEOUT);
 

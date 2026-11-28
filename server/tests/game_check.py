@@ -376,6 +376,78 @@ def main():
     assert swap_round[2] is True and "mc" in swap_round[1], swap_round   # OX 가 바닥난 판은 객관식으로 채움
     last, prev = rounds[-1][0], rounds[-2][0]
     assert not (set(last) & set(prev)), "다시 낼 때도 방금 판 문제가 연달아 나오면 안 됨"
+
+    # G2a: 군항 부두·전투함·간척
+    s8, S8 = user("s8", "student")
+    d = c.get("/game/state", headers=S8).json()
+    db.insert_rows("game_ledger", {"user_id": s8, "key": "test_gift", "steel": 30000, "rods": 15000, "tech": 0, "passes": 1,
+                                   "fame": 0, "note": ""})
+    assert d["grid"] == 14 and d["sea"] == 2 and d["fleet"]["cap"] == 0, (d["grid"], d["fleet"])
+    wl = {w["kind"]: w["lock"] for w in d["warships"]}
+    assert wl == {"patrol": "pier", "frigate": "hq", "destroyer": "soon", "submarine": "soon", "landing": "soon"}, wl
+    assert d["reclaim"]["next"]["grid"] == 16 and d["reclaim"]["block"] == "hq_level", d["reclaim"]
+    assert any(t["id"] == "pier" for t in d["tips"]), d["tips"]
+    e = c.post("/game/ship/start", headers=S8, json={"kind": "patrol"}).json()["detail"]
+    assert e["code"] == "pier", e
+    # 부두는 해안(오른쪽 끝)에만
+    assert c.post("/game/build", headers=S8, json={"type": "pier", "x": 3, "y": 10}).json()["detail"]["code"] == "spot"
+    r = c.post("/game/build", headers=S8, json={"type": "pier", "x": 12, "y": 8})
+    assert r.status_code == 200, r.text
+    tick(61)
+    d = c.get("/game/state", headers=S8).json()
+    assert d["fleet"]["cap"] == 2 and {w["kind"]: w["lock"] for w in d["warships"]}["patrol"] is None, d["fleet"]
+    fame0 = d["resources"]["fame"]
+
+    def make(kind):
+        r = c.post("/game/ship/start", headers=S8, json={"kind": kind})
+        assert r.status_code == 200, r.text
+        assert r.json()["ship"]["war"] is True
+        for _ in range(5):
+            tick(2000)
+            r = c.post("/game/ship/next", headers=S8)
+            assert r.status_code == 200, r.text
+        return r.json()
+
+    d = make("patrol")
+    assert d["commissioned_now"] == {"kind": "patrol", "no": 1, "count": 1, "cap": 2}, d.get("commissioned_now")
+    assert d["ship"] is None and d["delivered"] == [] and d["resources"]["fame"] == fame0 and "delivered_now" not in d
+    d = make("patrol")
+    assert d["commissioned_now"]["no"] == 2 and len(d["fleet"]["ships"]) == 2
+    assert {w["kind"]: w["lock"] for w in d["warships"]}["patrol"] == "fleet_full"
+    assert c.post("/game/ship/start", headers=S8, json={"kind": "patrol"}).json()["detail"]["code"] == "fleet_full"
+    # 상선은 함대가 가득 차도 그대로 만들 수 있음
+    assert c.post("/game/ship/start", headers=S8, json={"kind": "barge"}).status_code == 200
+    # 본관 2 → 간척 1
+    db.insert_rows("game_ledger", {"user_id": s8, "key": "hq_exam:2", "steel": 0, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
+    hq8 = next(b for b in d["buildings"] if b["type"] == "hq")
+    assert c.post("/game/upgrade", headers=S8, json={"id": hq8["id"]}).status_code == 200
+    tick(601)
+    d = c.get("/game/state", headers=S8).json()
+    assert d["hq_level"] == 2 and d["reclaim"]["block"] is None, d["reclaim"]
+    assert any(t["id"] == "reclaim" for t in d["tips"])
+    steel0 = d["resources"]["steel"]
+    d = c.post("/game/reclaim", headers=S8).json()
+    assert d["builders"]["busy"] == 1 and d["reclaim"]["left"] == 3600 and d["resources"]["steel"] == steel0 - 1500, d["reclaim"]
+    assert c.post("/game/reclaim", headers=S8).json()["detail"]["code"] == "busy"
+    tick(3601)
+    d = c.get("/game/state", headers=S8).json()
+    pos = {b["type"]: b["x"] for b in d["buildings"]}
+    assert d["grid"] == 16 and d["sea"] == 3 and pos["dock"] == 14 and pos["pier"] == 14 and pos["hq"] == 6, (d["grid"], pos)
+    assert d["builders"]["busy"] == 0 and d["reclaim"]["stage"] == 1 and d["reclaim"]["block"] == "hq_level"
+    # 넓어진 땅에 지을 수 있음
+    assert c.post("/game/build", headers=S8, json={"type": "yard", "x": 12, "y": 14}).status_code == 200
+    # 본관 3 → 간척 2 를 즉시 완료권으로 끝냄 → 간척 3 은 다음 단계
+    tick(61)
+    db.insert_rows("game_ledger", {"user_id": s8, "key": "hq_exam:3", "steel": 0, "rods": 0, "tech": 0, "passes": 0, "fame": 0, "note": ""})
+    assert c.post("/game/upgrade", headers=S8, json={"id": hq8["id"]}).status_code == 200
+    tick(1801)
+    r = c.post("/game/reclaim", headers=S8)
+    assert r.status_code == 200, r.text
+    d = c.post("/game/speedup", headers=S8, json={"target": "reclaim", "using": "pass"}).json()
+    d = c.get("/game/state", headers=S8).json()
+    assert d["grid"] == 18 and d["reclaim"]["stage"] == 2 and d["reclaim"]["block"] == "soon", d["reclaim"]
+    assert c.post("/game/reclaim", headers=S8).json()["detail"]["code"] == "reclaim_soon"
+    assert {w["kind"]: w["lock"] for w in d["warships"]}["frigate"] == "dock"
     print("game_check OK")
 
 

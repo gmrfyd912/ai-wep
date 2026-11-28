@@ -11,7 +11,11 @@
 - 공사·배 건조는 '끝나는 시각'만 저장하고, 화면을 열 때 계산한다 (무료 서버가 자고 있어도 됨).
 - 교육생만 (관리자는 시험용으로 들어갈 수 있음). 학습 보드 점수와는 따로.
 - 모든 숫자는 예시이며 관리자 '게임 설정'에서 바꾼다 (보상·장 완료 기준·게임 켜기).
-G2(공격·방어)·G3(대항전)는 다음 단계.
+G2a(박사 승인 2026-11-28, 계획안 https://claude.ai/artifact/Uz22bbfiiBVUkzEffRMnV3):
+- 배는 두 갈래. 상선은 지금처럼 인도(판매)해서 대금·명성, 전투함은 진수 뒤 '군항 부두'에 정박해 함대가 된다.
+- 군항 부두(새 건물, 해안에만): 함대에 둘 수 있는 전투함 수 = 부두 레벨 + 1 (1레벨 2척 → 5레벨 6척).
+- 간척: 땅 14×14 → 16 → 18 (G2a는 2단계까지, 최대 22×22). 작업 반장 1명이 맡고, 끝나면 도크·부두는 새 해안선으로 옮겨진다.
+G2b(방어·해적 연습 전투)·G2c(공격)·G3(대항전)는 다음 단계.
 """
 import math
 import threading
@@ -54,7 +58,10 @@ BUILDINGS = {
     "welding":  {"size": (2, 2), "steel": 250, "rods": 0, "unlock": 2, "max": 8},
     "academy":  {"size": (2, 2), "steel": 300, "rods": 100, "unlock": 2, "max": 8},
     "dock":     {"size": (2, 5), "steel": 300, "rods": 100, "unlock": 1, "max": 5, "fixed": True},
+    # 군항 부두: 해안(땅 오른쪽 끝)에만 놓음. 전투함이 옆 바다에 정박
+    "pier":     {"size": (2, 3), "steel": 400, "rods": 150, "unlock": 1, "max": 5, "coast": True},
 }
+COAST_TYPES = ("dock", "pier")   # 해안에 붙는 건물 (간척하면 새 해안선으로 옮김)
 START = [("hq", 6, 6, 1), ("cutting", 2, 2, 1), ("dock", 12, 1, 1)]
 # 배: 도크 레벨·장 완료 수·비용·공정 5개 시간 배수·인도 명성
 # 진수식(인도) 보상 "pay": 선주가 주는 대금 = 강판·용접봉·기술 포인트 (만든 비용보다 많이). 숫자는 예시.
@@ -70,6 +77,24 @@ SHIPS = {
     "offshore":  {"dock": 5, "units": 7, "steel": 8000, "rods": 4500, "mult": 50, "fame": 150,
                   "pay": {"steel": 12500, "rods": 7000, "tech": 100}},
 }
+# 전투함 (G2a): 도크 레벨·본관 레벨·비용·공정 시간 배수·체력·공격력·무기 칸. 숫자는 예시.
+# soon = 다음 단계에서 열림 (G2a는 고속정·호위함만)
+WARSHIPS = {
+    "patrol":    {"dock": 1, "hq": 1, "steel": 300, "rods": 150, "mult": 2, "hp": 100, "power": 20, "slots": 1},
+    "frigate":   {"dock": 2, "hq": 2, "steel": 900, "rods": 500, "mult": 6, "hp": 260, "power": 45, "slots": 2},
+    "destroyer": {"dock": 3, "hq": 3, "steel": 2200, "rods": 1200, "mult": 15, "hp": 480, "power": 90, "slots": 3, "soon": True},
+    "submarine": {"dock": 3, "hq": 4, "steel": 2600, "rods": 1500, "mult": 18, "hp": 300, "power": 110, "slots": 2, "soon": True},
+    "landing":   {"dock": 4, "hq": 5, "steel": 3500, "rods": 2000, "mult": 22, "hp": 600, "power": 70, "slots": 2, "soon": True},
+}
+# 간척 단계: (땅 크기, 바다 줄 수, 본관 레벨, 강판, 용접봉, 공사 초). 숫자는 예시.
+RECLAIM = [
+    (14, 2, 0, 0, 0, 0),
+    (16, 3, 2, 1500, 0, 3600),
+    (18, 3, 3, 4000, 1500, 3 * 3600),
+    (20, 4, 4, 9000, 4000, 6 * 3600),
+    (22, 4, 5, 18000, 8000, 12 * 3600),
+]
+RECLAIM_OPEN = 2             # G2a: 간척 2단계(18×18)까지
 FIRST_SHIP_PASSES = 1        # 그 종류 배를 처음 인도하면 즉시 완료권 1장 (종류마다 한 번)
 TUTORIAL_COLLECT = {"steel": 100, "rods": 50}   # 처음 따라 하기 '생산분 받기'에 받을 게 없으면 첫 생산분 선물
 STAGE_SECONDS = [60, 120, 180, 120, 60]          # 블록 제작 → 대조립 → 도크 탑재 → 진수 → 인도
@@ -190,8 +215,81 @@ def caps(buildings):
     return out
 
 
+def ship_spec(kind):
+    return SHIPS.get(kind) or WARSHIPS[kind]
+
+
 def ship_stage_seconds(kind, stage):
-    return STAGE_SECONDS[stage] * SHIPS[kind]["mult"]
+    return STAGE_SECONDS[stage] * ship_spec(kind)["mult"]
+
+
+def is_war(kind):
+    return kind in WARSHIPS
+
+
+# ---- 간척·땅 크기·함대 ----
+
+def reclaim_stage(base):
+    return int((base or {}).get("reclaim") or 0)
+
+
+def grid_of(base):
+    return RECLAIM[min(reclaim_stage(base), len(RECLAIM) - 1)][0]
+
+
+def sea_of(base):
+    return RECLAIM[min(reclaim_stage(base), len(RECLAIM) - 1)][1]
+
+
+def reclaim_busy(base):
+    return bool((base or {}).get("reclaim_until"))
+
+
+def busy_count(buildings, base):
+    """일하는 작업 반장 수 = 공사 중 건물 + 간척 중이면 1."""
+    return sum(1 for b in buildings if b.get("busy_until")) + (1 if reclaim_busy(base) else 0)
+
+
+def _pier(buildings):
+    return next((b for b in buildings if b["type"] == "pier"), None)
+
+
+def fleet_cap(buildings):
+    p = _pier(buildings)
+    return p["level"] + 1 if p and p["level"] >= 1 else 0
+
+
+def _fleet(uid):
+    """군항 부두에 있는 전투함 (진수 끝난 것), 오래된 것부터."""
+    rows = store.select("game_ships", {"user_id": f"eq.{uid}", "delivered_at": "not.is.null", "select": "id,kind,delivered_at,created_at",
+                                       "order": "created_at.asc", "limit": "500"})
+    return [r for r in rows if is_war(r["kind"])]
+
+
+def _finish_reclaim(uid, base, buildings, now):
+    """간척 공사가 끝났으면 단계 +1, 해안 건물(도크·부두)을 새 해안선으로 옮긴다."""
+    end = _dt((base or {}).get("reclaim_until"))
+    if not end or end > now:
+        return
+    old = grid_of(base)
+    stage = reclaim_stage(base) + 1
+    new = RECLAIM[stage][0]
+    store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"reclaim": stage, "reclaim_until": None})
+    base["reclaim"], base["reclaim_until"] = stage, None
+    for b in buildings:
+        w = BUILDINGS[b["type"]]["size"][0]
+        if b["type"] in COAST_TYPES and b["x"] + w == old:
+            b["x"] += new - old
+            store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": b["x"]})
+
+
+def _prep(uid, now):
+    """조선소 불러오기 + 끝난 공사·간척 마무리 → (base, buildings)."""
+    base, _ = _base(uid)
+    buildings = _buildings(uid)
+    _finish_due(uid, buildings, None, now)
+    _finish_reclaim(uid, base, buildings, now)
+    return base, buildings
 
 
 # ---- 장부 ----
@@ -442,10 +540,12 @@ def _rect(b):
     return b["x"], b["y"], w, h
 
 
-def _free(buildings, btype, x, y, skip_id=None):
+def _free(buildings, btype, x, y, skip_id=None, grid=GRID):
     w, h = BUILDINGS[btype]["size"]
-    if x < 0 or y < 0 or x + w > GRID or y + h > GRID:
+    if x < 0 or y < 0 or x + w > grid or y + h > grid:
         return False
+    if BUILDINGS[btype].get("coast") and x + w != grid:
+        return False  # 군항 부두는 해안(땅 오른쪽 끝)에만
     for o in buildings:
         if o["id"] == skip_id:
             continue
@@ -455,12 +555,12 @@ def _free(buildings, btype, x, y, skip_id=None):
     return True
 
 
-def free_spot(buildings, btype):
+def free_spot(buildings, btype, grid=GRID):
     """처음 따라 하기 등에서 쓸 빈 자리 하나 (가운데에 가까운 곳)."""
     best = None
-    for y in range(GRID):
-        for x in range(GRID):
-            if _free(buildings, btype, x, y):
+    for y in range(grid):
+        for x in range(grid):
+            if _free(buildings, btype, x, y, grid=grid):
                 d = (x - 6) ** 2 + (y - 6) ** 2
                 if best is None or d < best[0]:
                     best = (d, x, y)
@@ -477,6 +577,7 @@ def load(user, sync=True):
         now = _now()
         buildings = _buildings(uid)
         _finish_due(uid, buildings, None, now)
+        _finish_reclaim(uid, base, buildings, now)
         rows = ledger(uid)
         book, units = None, []
         new_rows = []
@@ -492,7 +593,7 @@ def load(user, sync=True):
             book, units = unit_progress(uid, st)
     return {"uid": uid, "st": st, "base": base, "new": new, "now": now, "buildings": buildings, "rows": rows,
             "book": book, "units": units, "new_rows": new_rows, "waiting": waiting, "ship": _ship(uid),
-            "run_days": _run_days(uid)}
+            "fleet": _fleet(uid), "run_days": _run_days(uid)}
 
 
 def fit_storage(found, bal, cap):
@@ -576,7 +677,8 @@ def view(s, lang="ko"):
     cap = caps(buildings)
     hq = _hq(buildings)
     hq_lv = hq["level"] if hq else 1
-    busy = [b for b in buildings if b.get("busy_until")]
+    base = s["base"]
+    busy_n = busy_count(buildings, base)
     run_today = daily.today(now).isoformat() in s["run_days"]
     units = s["units"]
     done_n = units_done(units)
@@ -593,7 +695,7 @@ def view(s, lang="ko"):
         spec = BUILDINGS[b["type"]]
         item = {"id": b["id"], "type": b["type"], "level": b["level"], "x": b["x"], "y": b["y"],
                 "w": spec["size"][0], "h": spec["size"][1], "fixed": bool(spec.get("fixed")),
-                "busy_until": b.get("busy_until"), "pending": p,
+                "coast": bool(spec.get("coast")), "busy_until": b.get("busy_until"), "pending": p,
                 "just_done": bool(b.get("finished_at") and last_seen and _dt(b["finished_at"]) > last_seen),
                 "block": upgrade_block(b, buildings, s["rows"])}
         if nxt <= spec["max"]:
@@ -610,6 +712,8 @@ def view(s, lang="ko"):
             item["cap"] = CAP_TABLE[max(b["level"], 1)]
         if b["type"] == "rodstore":
             item["cap"] = int(CAP_TABLE[max(b["level"], 1)] * 0.6)
+        if b["type"] == "pier":
+            item["fleet_cap"] = max(b["level"], 1) + 1
         out_b.append(item)
     catalog = []
     for t, spec in BUILDINGS.items():
@@ -619,11 +723,12 @@ def view(s, lang="ko"):
         if have:
             continue
         catalog.append({"type": t, "cost": cost(t, 1), "seconds": build_seconds(1), "unlock": spec["unlock"],
-                        "locked": hq_lv < spec["unlock"], "w": spec["size"][0], "h": spec["size"][1]})
+                        "locked": hq_lv < spec["unlock"], "w": spec["size"][0], "h": spec["size"][1],
+                        "coast": bool(spec.get("coast"))})
     ship = s["ship"]
     dock = _dock(buildings)
-    delivered = store.select("game_ships", {"user_id": f"eq.{s['uid']}", "delivered_at": "not.is.null",
-                                            "select": "kind", "limit": "500"})
+    delivered = [d for d in store.select("game_ships", {"user_id": f"eq.{s['uid']}", "delivered_at": "not.is.null",
+                                                        "select": "kind", "limit": "500"}) if not is_war(d["kind"])]
     delivered_kinds = {d["kind"] for d in delivered}
     ships = []
     for k, sp in SHIPS.items():
@@ -638,17 +743,36 @@ def view(s, lang="ko"):
     if ship:
         until = _dt(ship.get("stage_until"))
         left = max(0, int((until - now).total_seconds())) if until else 0
-        ship_out = {"id": ship["id"], "kind": ship["kind"], "stage": ship["stage"], "left": left, "ready": left == 0,
+        ship_out = {"id": ship["id"], "kind": ship["kind"], "war": is_war(ship["kind"]), "stage": ship["stage"],
+                    "left": left, "ready": left == 0,
                     "stage_seconds": ship_stage_seconds(ship["kind"], ship["stage"]),
                     "speed": {"tech": math.ceil(left / TECH_SECONDS), "passes": 1}}
+    fleet = s.get("fleet") or []
+    fcap = fleet_cap(buildings)
+    building_war = 1 if ship and is_war(ship["kind"]) else 0
+    warships = []
+    for k, sp in WARSHIPS.items():
+        warships.append({"kind": k, "cost": {"steel": sp["steel"], "rods": sp["rods"]}, "hp": sp["hp"], "power": sp["power"],
+                         "slots": sp["slots"], "dock": sp["dock"], "hq": sp["hq"],
+                         "lock": warship_block(k, buildings, hq_lv, len(fleet) + building_war, fcap),
+                         "seconds": sum(ship_stage_seconds(k, i) for i in range(len(STAGES)))})
+    count = {}
+    fleet_out = []
+    for f in fleet:
+        count[f["kind"]] = count.get(f["kind"], 0) + 1
+        sp = WARSHIPS[f["kind"]]
+        fleet_out.append({"id": f["id"], "kind": f["kind"], "no": count[f["kind"]], "hp": sp["hp"], "power": sp["power"],
+                          "slots": sp["slots"]})
     rewards = summarize(s["new_rows"])
     tut = tutorial(s, buildings, ship, delivered)
     data = {
         "enabled": st["enabled"], "now": _iso(now), "resources": bal, "caps": cap, "pending": pending,
         "waiting": s.get("waiting") or {"steel": 0, "rods": 0},
-        "builders": {"total": BUILDERS, "busy": len(busy)}, "run_today": run_today,
-        "hq_level": hq_lv, "grid": GRID, "buildings": out_b, "catalog": catalog,
+        "builders": {"total": BUILDERS, "busy": busy_n}, "run_today": run_today,
+        "hq_level": hq_lv, "grid": grid_of(base), "sea": sea_of(base), "buildings": out_b, "catalog": catalog,
         "ships": ships, "ship": ship_out, "delivered": [d["kind"] for d in delivered],
+        "warships": warships, "fleet": {"cap": fcap, "ships": fleet_out, "building": building_war},
+        "reclaim": reclaim_view(base, hq_lv, busy_n, now),
         "units": {"done": done_n, "total": len(units),
                   "next": next(({"key": u["key"], "title": u["title"], "pdf_page": u["pdf_page"], "seen": u["seen"],
                                  "pages": u["pages"], "correct": u["correct"]} for u in units if not u["done"]), None),
@@ -663,6 +787,55 @@ def view(s, lang="ko"):
     }
     data["tips"] = tips(data, s)
     return data
+
+
+def warship_block(kind, buildings, hq_lv, used, cap):
+    """전투함을 만들 수 없는 이유 (없으면 None). used = 함대 + 지금 도크에서 만드는 전투함."""
+    sp = WARSHIPS[kind]
+    if sp.get("soon"):
+        return "soon"
+    dock = _dock(buildings)
+    if hq_lv < sp["hq"]:
+        return "hq"
+    if not dock or dock["level"] < sp["dock"]:
+        return "dock"
+    if cap <= 0:
+        return "pier"
+    if used >= cap:
+        return "fleet_full"
+    return None
+
+
+def reclaim_view(base, hq_lv, busy_n, now):
+    stage = reclaim_stage(base)
+    out = {"stage": stage, "max": len(RECLAIM) - 1, "open": RECLAIM_OPEN, "grid": grid_of(base), "sea": sea_of(base),
+           "next": None, "block": None}
+    end = _dt(base.get("reclaim_until"))
+    if end:
+        left = max(0, int((end - now).total_seconds()))
+        out["left"] = left
+        out["speed"] = {"tech": math.ceil(left / TECH_SECONDS), "passes": 1}
+    if stage + 1 < len(RECLAIM):
+        g, sea, hq, steel, rods, secs = RECLAIM[stage + 1]
+        out["next"] = {"stage": stage + 1, "grid": g, "sea": sea, "hq": hq, "cost": {"steel": steel, "rods": rods},
+                       "seconds": secs}
+        out["block"] = reclaim_block(base, hq_lv, busy_n)
+    return out
+
+
+def reclaim_block(base, hq_lv, busy_n):
+    stage = reclaim_stage(base)
+    if reclaim_busy(base):
+        return "busy"
+    if stage + 1 >= len(RECLAIM):
+        return "max"
+    if stage + 1 > RECLAIM_OPEN:
+        return "soon"
+    if hq_lv < RECLAIM[stage + 1][2]:
+        return "hq_level"
+    if busy_n >= BUILDERS:
+        return "builders"
+    return None
 
 
 def summarize(rows):
@@ -687,14 +860,14 @@ def tutorial(s, buildings, ship, delivered):
         ("daily", "daily_done" in keys),
         ("yard", any(b["type"] == "yard" for b in buildings)),
         ("collect", "collect" in keys),
-        ("ship", bool(ship) or bool(delivered)),
+        ("ship", bool(ship) or bool(delivered) or bool(s.get("fleet"))),
         ("hq", bool(hq and hq["level"] >= 2) or bool(hq and hq.get("busy_until"))),  # 승급 시험 → 올리기
     ]
     cur = next((i for i, (_, ok) in enumerate(steps) if not ok), None)
     done = bool(s["base"].get("tutorial_done")) or cur is None
     spot = None
     if not done and steps[cur][0] == "yard":
-        spot = free_spot(buildings, "yard")
+        spot = free_spot(buildings, "yard", grid_of(s["base"]))
     return {"done": done, "step": cur, "steps": [{"id": k, "ok": ok} for k, ok in steps],
             "spot": {"x": spot[0], "y": spot[1]} if spot else None}
 
@@ -730,7 +903,17 @@ def tips(d, s):
         free = [x for x in d["ships"] if not x["lock"]]
         if free:
             out.append({"id": "ship_idle", "kind": free[-1]["kind"]})
-    if d["resources"]["passes"] > 0 and any(b.get("busy_until") for b in d["buildings"]):
+    fl = d["fleet"]
+    if fl["cap"] == 0 and any(c["type"] == "pier" and not c["locked"] for c in d["catalog"]):
+        out.append({"id": "pier", "n": 2})
+    elif fl["cap"] > len(fl["ships"]) + fl["building"] and not d["ship"]:
+        free = [x for x in d["warships"] if not x["lock"]]
+        if free:
+            out.append({"id": "warship", "kind": free[-1]["kind"], "n": len(fl["ships"]), "cap": fl["cap"]})
+    rc = d["reclaim"]
+    if rc["next"] and not rc["block"] and _afford(d["resources"], rc["next"]["cost"]):
+        out.append({"id": "reclaim", "grid": rc["next"]["grid"]})
+    if d["resources"]["passes"] > 0 and (any(b.get("busy_until") for b in d["buildings"]) or "left" in rc):
         out.append({"id": "pass", "n": d["resources"]["passes"]})
     if d["builders"]["busy"] < d["builders"]["total"] and not any(t["id"] in ("idle", "exam", "collect") for t in out):
         # 지을 것도 만들 배도 못 고를 만큼 자원이 모자람 → 자재 조달 문제로 벌기
@@ -814,16 +997,15 @@ def build(body: BuildBody, user=Depends(need_player)):
         _err(400, "bad_type")
     with _lock(uid):
         now = _now()
-        buildings = _buildings(uid)
-        _finish_due(uid, buildings, None, now)
+        base, buildings = _prep(uid, now)
         if any(b["type"] == body.type for b in buildings):
             _err(400, "already")
         hq = _hq(buildings)
         if (hq["level"] if hq else 1) < spec["unlock"]:
             _err(400, "hq_level")
-        if sum(1 for b in buildings if b.get("busy_until")) >= BUILDERS:
+        if busy_count(buildings, base) >= BUILDERS:
             _err(400, "builders")
-        if not _free(buildings, body.type, body.x, body.y):
+        if not _free(buildings, body.type, body.x, body.y, grid=grid_of(base)):
             _err(400, "spot")
         price = cost(body.type, 1)
         if not _afford(balance(ledger(uid)), price):
@@ -857,15 +1039,14 @@ def upgrade(body: IdBody, user=Depends(need_player)):
     st = settings()
     with _lock(uid):
         now = _now()
-        buildings = _buildings(uid)
-        _finish_due(uid, buildings, None, now)
+        base, buildings = _prep(uid, now)
         b = next((x for x in buildings if x["id"] == body.id), None)
         if not b:
             _err(404, "not_found")
         why = upgrade_block(b, buildings, ledger(uid))
         if why:
             _err(400, why)
-        if sum(1 for x in buildings if x.get("busy_until")) >= BUILDERS:
+        if busy_count(buildings, base) >= BUILDERS:
             _err(400, "builders")
         nxt = b["level"] + 1
         price = cost(b["type"], nxt)
@@ -889,13 +1070,13 @@ class MoveBody(BaseModel):
 def move(body: MoveBody, user=Depends(need_player)):
     uid = user["id"]
     with _lock(uid):
-        buildings = _buildings(uid)
+        base, buildings = _prep(uid, _now())
         b = next((x for x in buildings if x["id"] == body.id), None)
         if not b:
             _err(404, "not_found")
         if BUILDINGS[b["type"]].get("fixed"):
             _err(400, "fixed")
-        if not _free(buildings, b["type"], body.x, body.y, skip_id=b["id"]):
+        if not _free(buildings, b["type"], body.x, body.y, skip_id=b["id"], grid=grid_of(base)):
             _err(400, "spot")
         store.patch("game_buildings", {"id": f"eq.{b['id']}"}, {"x": body.x, "y": body.y})
     return _fresh(user)
@@ -968,6 +1149,10 @@ def speedup(body: SpeedBody, user=Depends(need_player)):
                 _err(404, "not_found")
             until = _dt(ship.get("stage_until"))
             table, row_id, col = "game_ships", ship["id"], "stage_until"
+        elif body.target == "reclaim":
+            base, _ = _base(uid)
+            until = _dt(base.get("reclaim_until"))
+            table, row_id, col = "game_bases", uid, "reclaim_until"
         else:
             b = _get_building(uid, body.target)
             until = _dt(b.get("busy_until"))
@@ -986,7 +1171,8 @@ def speedup(body: SpeedBody, user=Depends(need_player)):
                 _err(400, "money")
             price, cut = {"passes": 1}, min(left, PASS_SECONDS)
         _spend(uid, f"speed:{row_id}:{_iso(now)}", price, body.using)
-        store.patch(table, {"id": f"eq.{row_id}"}, {col: _iso(until - timedelta(seconds=cut))})
+        store.patch(table, {"user_id" if table == "game_bases" else "id": f"eq.{row_id}"},
+                    {col: _iso(until - timedelta(seconds=cut))})
     return view(load(user, sync=False))
 
 
@@ -997,14 +1183,18 @@ class ShipBody(BaseModel):
 @router.post("/game/ship/start")
 def ship_start(body: ShipBody, user=Depends(need_player)):
     uid = user["id"]
-    sp = SHIPS.get(body.kind)
+    sp = SHIPS.get(body.kind) or WARSHIPS.get(body.kind)
     if not sp:
         _err(400, "bad_kind")
-    st = settings()
     with _lock(uid):
         if _ship(uid):
             _err(400, "busy")
-        buildings = _buildings(uid)
+        base, buildings = _prep(uid, _now())
+        if is_war(body.kind):
+            hq = _hq(buildings)
+            why = warship_block(body.kind, buildings, hq["level"] if hq else 1, len(_fleet(uid)), fleet_cap(buildings))
+            if why:
+                _err(400, why)
         dock = _dock(buildings)
         if not dock or dock["level"] < sp["dock"]:
             _err(400, "dock")
@@ -1033,7 +1223,12 @@ def ship_next(user=Depends(need_player)):
         if until and until > now:
             _err(400, "not_ready")
         stage = ship["stage"] + 1
-        if stage >= len(STAGES):
+        war = is_war(ship["kind"])
+        if stage >= len(STAGES) and war:
+            # 전투함: 대금 대신 군항 부두로 (함대에 들어감)
+            store.patch("game_ships", {"id": f"eq.{ship['id']}"}, {"delivered_at": _iso(now), "stage_until": None})
+            delivered = False
+        elif stage >= len(STAGES):
             store.patch("game_ships", {"id": f"eq.{ship['id']}"}, {"delivered_at": _iso(now), "stage_until": None})
             sp = SHIPS[ship["kind"]]
             keys = {r["key"] for r in ledger(uid)}
@@ -1052,10 +1247,41 @@ def ship_next(user=Depends(need_player)):
     if delivered:
         _announce(user, ship["kind"], ship["id"])
     out = _fresh(user)
+    if war and stage >= len(STAGES):
+        mine = [f for f in out["fleet"]["ships"] if f["id"] == ship["id"]]
+        out["commissioned_now"] = {"kind": ship["kind"], "no": mine[0]["no"] if mine else 1,
+                                   "count": len(out["fleet"]["ships"]), "cap": out["fleet"]["cap"]}
     if delivered:
         out["delivered_now"] = {"kind": ship["kind"], "fame": got["fame"], "first": first, "got": got,
                                 "count": len(out["delivered"])}
     return out
+
+
+# ---- 간척 ----
+
+@router.post("/game/reclaim")
+def reclaim(user=Depends(need_player)):
+    """다음 간척 단계 공사 시작 (작업 반장 1명, 끝나면 땅이 넓어짐)."""
+    uid = user["id"]
+    with _lock(uid):
+        now = _now()
+        base, buildings = _prep(uid, now)
+        hq = _hq(buildings)
+        why = reclaim_block(base, hq["level"] if hq else 1, busy_count(buildings, base))
+        if why:
+            _err(400, "reclaim_" + why if why in ("soon", "max") else why)
+        stage = reclaim_stage(base) + 1
+        _, _, _, steel, rods, secs = RECLAIM[stage]
+        price = {"steel": steel, "rods": rods}
+        if not _afford(balance(ledger(uid)), price):
+            _err(400, "money")
+        try:
+            store.patch("game_bases", {"user_id": f"eq.{uid}"}, {"reclaim_until": _iso(now + timedelta(seconds=secs))})
+        except RuntimeError as e:
+            print("[game] 간척 저장 실패", str(e)[:200], flush=True)
+            _err(503, "need_sql16")  # step16-game-fleet.sql 을 아직 안 돌림
+        _spend(uid, f"reclaim:{stage}", price, "reclaim")
+    return _fresh(user)
 
 
 # ---- 본관 승급 시험 ----

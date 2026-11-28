@@ -18,6 +18,7 @@ import {
   gameSupplySubmit,
   gameExamSubmit,
   gameMove,
+  gameReclaim,
   gameShipNext,
   gameShipStart,
   gameSpeedup,
@@ -34,16 +35,20 @@ import {
   type GameSupply,
   type GameSupplyResult,
   type GameShipKind,
+  type GameWarKind,
   type GameState,
   type GameTip,
 } from "@/lib/api";
-import { BUILDING_COLOR, GameMap, RES_COLOR } from "@/screens/GameMap";
+import { BUILDING_COLOR, GameMap, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
 type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply";
 type ResKey = "steel" | "rods" | "tech" | "passes" | "fame";
-const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock"];
+const TYPES: GameBuildingType[] = ["hq", "yard", "rodstore", "cutting", "welding", "academy", "dock", "pier"];
 const STAGES = 5;
+const WAR_KINDS = ["patrol", "frigate", "destroyer", "submarine", "landing"];
+/** 공정 이름 (전투함은 마지막 공정이 '인도' 대신 '취역') */
+const stageKey = (i: number, war?: boolean) => (war && i === STAGES - 1 ? "gm_stage_4w" : `gm_stage_${i}`);
 
 /** 남은 초 → "1:05:03" / "4:09" */
 export function clock(sec: number) {
@@ -92,6 +97,7 @@ export default function GameScreen() {
   const [moveId, setMoveId] = useState<string | null>(null);
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
   const [zoom, setZoom] = useState(false);
+  const [shipTab, setShipTab] = useState<"merchant" | "war">("merchant");
   const [tipAt, setTipAt] = useState(0);
   const [rewards, setRewards] = useState<GameState["rewards"]>(null);
   const [, setTick] = useState(0);
@@ -151,7 +157,9 @@ export default function GameScreen() {
       if (!data || reloading.current) return;
       const gone = (Date.now() - fetchedAt.current) / 1000;
       const due =
-        data.buildings.some((b) => b.left !== undefined && b.left - gone <= 0) || (data.ship && !data.ship.ready && data.ship.left - gone <= 0);
+        data.buildings.some((b) => b.left !== undefined && b.left - gone <= 0) ||
+        (data.ship && !data.ship.ready && data.ship.left - gone <= 0) ||
+        (data.reclaim?.left !== undefined && data.reclaim.left - gone <= 0);
       if (due) {
         reloading.current = true;
         load();
@@ -202,7 +210,8 @@ export default function GameScreen() {
     );
   }
 
-  const fitW = Math.floor(Math.min(width / (data.grid + 2.6), height / (data.grid / 2 + 3.6)));
+  const sea = data.sea ?? 2;
+  const fitW = Math.floor(Math.min(width / (data.grid + sea + 0.6), height / (data.grid / 2 + 3.6)));
   const W = Math.max(18, Math.floor(fitW * (zoom ? 1.7 : 1)));
   const sel = data.buildings.find((b) => b.id === selected) ?? null;
   const res = data.resources;
@@ -231,7 +240,8 @@ export default function GameScreen() {
     const cat = data.catalog.find((c) => c.type === placeType);
     const w = mv?.w ?? cat?.w ?? 2;
     const h = mv?.h ?? cat?.h ?? 2;
-    return { w, h, skipId: moveId ?? undefined, hint: !moveId && tutStep === "yard" ? tut.spot : null, pick, color: BUILDING_COLOR[placeType] };
+    const coast = !!(mv?.coast ?? cat?.coast);
+    return { w, h, coast, skipId: moveId ?? undefined, hint: !moveId && tutStep === "yard" ? tut.spot : null, pick, color: BUILDING_COLOR[placeType] };
   })();
 
   const confirmPlace = () => {
@@ -255,7 +265,15 @@ export default function GameScreen() {
   const shipNext = () =>
     run(gameShipNext, (d) => {
       if (d.delivered_now) setParty(d.delivered_now);
+      const c = d.commissioned_now;
+      if (c) setMsg(t("gm_commissioned", { ship: t(`gm_ship_${c.kind}`), no: c.no, n: c.count, cap: c.cap }));
     });
+  const openWar = () => {
+    setSelected(null);
+    setShipTab("war");
+    setMode("ship");
+  };
+  const rc = data.reclaim;
 
   // 본관 승급 시험
   const hqB = data.buildings.find((b) => b.type === "hq") ?? null;
@@ -335,6 +353,7 @@ export default function GameScreen() {
     if (k === "tech" || k === "passes") {
       if (busyB) return { label: t("gm_infoUseOn", { name: name(busyB.type) }), onPress: () => { setInfo(null); setMode("home"); setSelected(busyB.id); } };
       if (shipBusy) return { label: t("gm_infoUseOn", { name: t(`gm_ship_${shipBusy.kind}`) }), onPress: () => { setInfo(null); setSelected(null); setMode("ship"); } };
+      if (rc?.left !== undefined) return { label: t("gm_infoUseOn", { name: t("gm_reclaim") }), onPress: () => { setInfo(null); setSelected(null); setMode("build"); } };
       return null;
     }
     if (k === "steel" || k === "rods") return { label: t("gm_supplyGo"), onPress: openSupply };
@@ -346,7 +365,7 @@ export default function GameScreen() {
     const p: Record<string, string | number> = { ...x };
     if (typeof x.type === "string") p.name = name(x.type);
     if (typeof x.kind === "string") p.ship = t(`gm_ship_${x.kind}`);
-    if (typeof x.stage === "number") p.stage = t(`gm_stage_${x.stage}`);
+    if (typeof x.stage === "number") p.stage = t(stageKey(x.stage, typeof x.kind === "string" && WAR_KINDS.includes(x.kind)));
     return t(`gm_tip_${x.id}`, p);
   };
   const buddyLine = tutStep ? t(`gm_tut_${tutStep}`, { steel: data.earn.daily_done_steel }) : tip ? tipText(tip) : "";
@@ -380,9 +399,16 @@ export default function GameScreen() {
           : { label: t("gm_build"), onPress: () => setMode("build") };
       }
       case "ship_idle":
-        return { label: t("gm_ships"), onPress: () => setMode("ship") };
+        return { label: t("gm_ships"), onPress: () => { setShipTab("merchant"); setMode("ship"); } };
+      case "pier":
+        return { label: t("gm_buildPier"), onPress: () => startPlace("pier") };
+      case "warship":
+        return { label: t("gm_warTab"), onPress: openWar };
+      case "reclaim":
+        return { label: t("gm_reclaim"), onPress: () => { setSelected(null); setMode("build"); } };
       case "pass": {
         const b = data.buildings.find((k) => k.busy_until);
+        if (!b && rc?.left !== undefined) return { label: t("gm_reclaim"), onPress: () => { setSelected(null); setMode("build"); } };
         return b ? { label: t("gm_seeBuilding", { name: name(b.type) }), onPress: () => { setSelected(b.id); setMode("home"); } } : null;
       }
       default:
@@ -425,12 +451,15 @@ export default function GameScreen() {
           <View style={{ minWidth: width, minHeight: height, alignItems: "center", justifyContent: "center" }}>
             <GameMap
               grid={data.grid}
+              sea={sea}
+              reclaiming={rc?.left !== undefined}
+              fleet={(data.fleet?.ships ?? []).map((f) => f.kind)}
               W={W}
               buildings={data.buildings}
               selected={selected}
               labels={labels}
               place={placeSpec}
-              ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage } : null}
+              ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
               onSelect={(id) => {
                 setSelected(id);
                 if (id) setMode("home");
@@ -572,7 +601,7 @@ export default function GameScreen() {
       {!panelOpen ? (
         <View style={[styles.hudBR, { bottom: 8 + insets.bottom, right: 8 + insets.right }]}>
           <Fab icon="hammer" label={t("gm_build")} onPress={() => setMode("build")} />
-          <Fab icon="boat" label={t("gm_ships")} onPress={() => setMode("ship")} badge={data.ship?.ready ? "!" : undefined} />
+          <Fab icon="boat" label={t("gm_ships")} onPress={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }} badge={data.ship?.ready ? "!" : undefined} />
           <Fab icon="cube" label={t("gm_collectShort")} onPress={doCollect} badge={pendingN > 0 ? `${pendingN}` : undefined} />
           <Fab icon="cart" label={t("gm_supplyShort")} onPress={openSupply} />
           <Fab icon="create" label={t("gm_dailyShort")} onPress={() => router.push("/daily")} badge={!data.run_today ? "!" : undefined} />
@@ -607,13 +636,25 @@ export default function GameScreen() {
                 onSpeed={(using) => run(() => gameSpeedup(sel.id, using))}
                 onCollect={doCollect}
                 onMove={() => startMove(sel)}
-                onShips={() => setMode("ship")}
+                onShips={() => { setShipTab(data.ship?.war ? "war" : "merchant"); setMode("ship"); }}
+                onFleet={openWar}
                 onExam={openExam}
                 onClose={() => setSelected(null)}
               />
             ) : mode === "build" ? (
               <Card style={{ gap: space.sm }}>
                 <PanelHead title={t("gm_build")} onClose={() => setMode("home")} />
+                {rc ? (
+                  <ReclaimCard
+                    rc={rc}
+                    data={data}
+                    left={rc.left !== undefined ? Math.max(0, rc.left - gone()) : null}
+                    busy={busy}
+                    canPay={canPay}
+                    onStart={() => run(gameReclaim, () => setMsg(t("gm_reclaimStarted")))}
+                    onSpeed={(using) => run(() => gameSpeedup("reclaim", using))}
+                  />
+                ) : null}
                 {data.catalog.length === 0 ? <Body muted>{t("gm_buildAllDone")}</Body> : null}
                 {data.catalog.map((c) => (
                   <View key={c.type} style={styles.item}>
@@ -666,7 +707,8 @@ export default function GameScreen() {
                 onClose={() => { setMode("home"); setSupply(null); setSupplyRes(null); }}
               />
             ) : mode === "ship" ? (
-              <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} onClose={() => setMode("home")} onStart={(k) => run(() => gameShipStart(k))}
+              <ShipPanel data={data} busy={busy} canPay={canPay} gone={gone()} tab={shipTab} setTab={setShipTab} onClose={() => setMode("home")}
+                onStart={(k) => run(() => gameShipStart(k))} onBuildPier={() => startPlace("pier")}
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
             ) : mode === "earn" ? (
               <>
@@ -850,6 +892,7 @@ function BuildingPanel({
   onCollect,
   onMove,
   onShips,
+  onFleet,
   onExam,
   onClose,
 }: {
@@ -863,6 +906,7 @@ function BuildingPanel({
   onCollect: () => void;
   onMove: () => void;
   onShips: () => void;
+  onFleet: () => void;
   onExam: () => void;
   onClose: () => void;
 }) {
@@ -872,6 +916,8 @@ function BuildingPanel({
   if (b.rate) lines.push(t("gm_rate", { n: b.rate, res: t(b.type === "cutting" ? "gm_steel" : "gm_rods") }));
   if (b.cap) lines.push(t("gm_cap", { n: b.cap, res: t(b.type === "yard" ? "gm_steel" : "gm_rods") }));
   if (b.pending > 0) lines.push(t("gm_pendingLine", { n: b.pending }));
+  if (b.type === "pier" && b.level > 0) lines.push(t("gm_fleetLine", { n: data.fleet?.ships.length ?? 0, cap: data.fleet?.cap ?? 0 }));
+  if (b.type === "pier" && b.next && b.level > 0) lines.push(t("gm_pierNext", { n: b.next.level + 1 }));
   const speedTech = left !== null ? Math.ceil(left / (data.speed_rule.tech_minutes * 60)) : 0;
   const nx = b.next;
   const block = b.block;
@@ -905,6 +951,7 @@ function BuildingPanel({
         </>
       ) : null}
       {b.type === "dock" ? <AppButton label={t("gm_ships")} icon="boat-outline" onPress={onShips} /> : null}
+      {b.type === "pier" && b.level > 0 ? <AppButton label={t("gm_fleetSee")} icon="boat-outline" onPress={onFleet} /> : null}
       {(b.type === "cutting" || b.type === "welding") && b.pending > 0 ? <AppButton label={t("gm_collectAll")} icon="cube-outline" onPress={onCollect} disabled={busy} /> : null}
       {b.type === "academy" ? <Text style={styles.small}>{t("gm_academyLater")}</Text> : null}
       {nx && left === null ? (
@@ -943,8 +990,11 @@ function ShipPanel({
   busy,
   canPay,
   gone,
+  tab,
+  setTab,
   onClose,
   onStart,
+  onBuildPier,
   onNext,
   onSpeed,
 }: {
@@ -952,31 +1002,56 @@ function ShipPanel({
   busy: boolean;
   canPay: (c: GameCost) => boolean;
   gone: number;
+  tab: "merchant" | "war";
+  setTab: (t: "merchant" | "war") => void;
   onClose: () => void;
-  onStart: (k: GameShipKind) => void;
+  onStart: (k: GameShipKind | GameWarKind) => void;
+  onBuildPier: () => void;
   onNext: () => void;
   onSpeed: (using: "tech" | "pass") => void;
 }) {
   const { t } = useTranslation();
   const s = data.ship;
+  const fleet = data.fleet;
+  const fleetBox = fleet ? (
+    <View style={styles.next}>
+      <Text style={styles.text}>{t("gm_fleetTitle", { n: fleet.ships.length, cap: fleet.cap })}</Text>
+      {fleet.cap === 0 ? <Text style={styles.small}>{t("gm_fleetNoPier")}</Text> : null}
+      {fleet.ships.length === 0 && fleet.cap > 0 ? <Text style={styles.small}>{t("gm_fleetEmpty")}</Text> : null}
+      {fleet.ships.map((f) => (
+        <View key={f.id} style={styles.rowStart}>
+          <Ionicons name="boat" size={16} color={WAR_COLOR} />
+          <Text style={styles.small}>
+            {t("gm_fleetShip", { ship: t(`gm_ship_${f.kind}`), no: f.no })} · {t("gm_warStats", { hp: f.hp, power: f.power, slots: f.slots })}
+          </Text>
+        </View>
+      ))}
+      {fleet.ships.length ? <Text style={styles.small}>{t("gm_fleetLater")}</Text> : null}
+    </View>
+  ) : null;
   if (s) {
     const left = Math.max(0, s.left - gone);
     const ready = s.ready || left <= 0;
     const tech = Math.ceil(left / (data.speed_rule.tech_minutes * 60));
     return (
       <Card style={{ gap: space.sm }}>
-        <PanelHead title={t("gm_shipBuilding", { ship: t(`gm_ship_${s.kind}`) })} onClose={onClose} />
+        <PanelHead title={t(s.war ? "gm_warBuilding" : "gm_shipBuilding", { ship: t(`gm_ship_${s.kind}`) })} onClose={onClose} />
         <View style={styles.steps}>
           {Array.from({ length: STAGES }, (_, i) => (
             <View key={i} style={[styles.stepBar, { backgroundColor: i < s.stage || (i === s.stage && ready) ? colors.primary : i === s.stage ? "#FFD166" : colors.border }]} />
           ))}
         </View>
-        <Text style={styles.small}>{Array.from({ length: STAGES }, (_, i) => t(`gm_stage_${i}`)).join(" → ")}</Text>
+        <Text style={styles.small}>{Array.from({ length: STAGES }, (_, i) => t(stageKey(i, s.war))).join(" → ")}</Text>
         <Text style={styles.text}>
-          {t("gm_stageNow", { stage: t(`gm_stage_${s.stage}`) })} · {ready ? t("gm_stageReady") : t("gm_leftLine", { time: clock(left) })}
+          {t("gm_stageNow", { stage: t(stageKey(s.stage, s.war)) })} · {ready ? t("gm_stageReady") : t("gm_leftLine", { time: clock(left) })}
         </Text>
         {ready ? (
-          <AppButton label={s.stage >= STAGES - 1 ? t("gm_shipDeliver") : t("gm_shipNext")} icon="arrow-forward-circle-outline" disabled={busy} onPress={onNext} />
+          <AppButton
+            label={s.stage >= STAGES - 1 ? t(s.war ? "gm_warCommission" : "gm_shipDeliver") : t("gm_shipNext")}
+            icon="arrow-forward-circle-outline"
+            disabled={busy}
+            onPress={onNext}
+          />
         ) : (
           <View style={styles.row2}>
             <View style={{ flex: 1 }}>
@@ -987,12 +1062,58 @@ function ShipPanel({
             </View>
           </View>
         )}
+        {s.war ? fleetBox : null}
+      </Card>
+    );
+  }
+  const tabs = (
+    <View style={styles.row2}>
+      {(["merchant", "war"] as const).map((k) => (
+        <Pressable key={k} onPress={() => setTab(k)} style={[styles.tab, tab === k && styles.tabOn]}>
+          <Text style={[styles.tabText, tab === k && styles.tabTextOn]}>{t(k === "war" ? "gm_warTab" : "gm_merchantTab")}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+  if (tab === "war") {
+    const lockText = (x: NonNullable<GameState["warships"]>[number]) =>
+      x.lock === "soon" ? t("gm_warLockSoon") : x.lock === "hq" ? t("gm_needHq", { n: x.hq }) : x.lock === "dock" ? t("gm_shipLockDock", { n: x.dock })
+        : x.lock === "pier" ? t("gm_warLockPier") : x.lock === "fleet_full" ? t("gm_warLockFull") : "";
+    return (
+      <Card style={{ gap: space.sm }}>
+        <PanelHead title={t("gm_ships")} onClose={onClose} />
+        {tabs}
+        <Text style={styles.small}>{t("gm_warIntro")}</Text>
+        {fleetBox}
+        {fleet?.cap === 0 ? <AppButton label={t("gm_buildPier")} icon="hammer-outline" onPress={onBuildPier} /> : null}
+        {(data.warships ?? []).map((x) => {
+          const lock = lockText(x);
+          const ok = !x.lock && canPay(x.cost);
+          return (
+            <View key={x.kind} style={[styles.item, x.lock === "soon" && { opacity: 0.55 }]}>
+              <Ionicons name="boat" size={22} color={x.lock ? colors.faint : WAR_COLOR} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.text}>{t(`gm_ship_${x.kind}`)}</Text>
+                <Text style={styles.small}>{t(`gm_warRole_${x.kind}`)}</Text>
+                <Text style={styles.small}>{t("gm_warStats", { hp: x.hp, power: x.power, slots: x.slots })}</Text>
+                <Text style={styles.small}>
+                  {costLine(t, x.cost)} · {clock(x.seconds)}
+                </Text>
+                {lock ? <Text style={styles.warn}>{lock}</Text> : null}
+              </View>
+              <Pressable style={[styles.smallBtn, !ok && { opacity: 0.4 }]} disabled={!ok || busy} onPress={() => onStart(x.kind)}>
+                <Text style={styles.smallBtnText}>{t("gm_shipStart")}</Text>
+              </Pressable>
+            </View>
+          );
+        })}
       </Card>
     );
   }
   return (
     <Card style={{ gap: space.sm }}>
       <PanelHead title={t("gm_ships")} onClose={onClose} />
+      {tabs}
       <Text style={styles.small}>{t("gm_shipIntro")}</Text>
       {data.ships.map((x) => {
         const lock = x.lock === "dock" ? t("gm_shipLockDock", { n: x.dock }) : x.lock === "units" ? t("gm_shipLockUnits", { n: x.units }) : "";
@@ -1021,6 +1142,70 @@ function ShipPanel({
       })}
       {data.delivered.length ? <Text style={styles.small}>{t("gm_deliveredCount", { n: data.delivered.length })}</Text> : null}
     </Card>
+  );
+}
+
+/** 간척(땅 넓히기): 지금 크기·다음 단계 조건·공사 중이면 남은 시간과 당기기 */
+function ReclaimCard({
+  rc,
+  data,
+  left,
+  busy,
+  canPay,
+  onStart,
+  onSpeed,
+}: {
+  rc: NonNullable<GameState["reclaim"]>;
+  data: GameState;
+  left: number | null;
+  busy: boolean;
+  canPay: (c: GameCost) => boolean;
+  onStart: () => void;
+  onSpeed: (using: "tech" | "pass") => void;
+}) {
+  const { t } = useTranslation();
+  const nx = rc.next;
+  const tech = left !== null ? Math.ceil(left / (data.speed_rule.tech_minutes * 60)) : 0;
+  const why =
+    rc.block === "hq_level" && nx ? t("gm_needHq", { n: nx.hq }) : rc.block === "soon" ? t("gm_reclaimSoon") : rc.block === "builders" ? t("gm_err_builders") : "";
+  return (
+    <View style={[styles.next, { borderTopWidth: 0, paddingTop: 0 }]}>
+      <View style={styles.rowStart}>
+        <View style={[styles.swatch, { backgroundColor: "#D9C08A" }]} />
+        <Text style={styles.text}>{t("gm_reclaimTitle", { g: rc.grid })}</Text>
+      </View>
+      <Text style={styles.small}>{t("gm_reclaimDesc")}</Text>
+      {left !== null && nx ? (
+        <>
+          <Text style={styles.text}>
+            {t("gm_reclaimNow", { g: nx.grid })} · {t("gm_leftLine", { time: clock(left) })}
+          </Text>
+          <View style={styles.row2}>
+            <View style={{ flex: 1 }}>
+              <AppButton label={t("gm_speedTech", { n: tech })} variant="secondary" disabled={busy || data.resources.tech < tech} onPress={() => onSpeed("tech")} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <AppButton label={t("gm_speedPass")} variant="secondary" disabled={busy || data.resources.passes < 1} onPress={() => onSpeed("pass")} />
+            </View>
+          </View>
+        </>
+      ) : nx ? (
+        <>
+          <Text style={styles.small}>
+            {t("gm_reclaimNext", { g: nx.grid, sea: nx.sea })} · {costLine(t, nx.cost)} · {clock(nx.seconds)}
+          </Text>
+          {why ? <Text style={styles.warn}>{why}</Text> : null}
+          <AppButton
+            label={!rc.block && !canPay(nx.cost) ? t("gm_err_money") : t("gm_reclaimStart", { g: nx.grid })}
+            icon="expand-outline"
+            disabled={busy || !!rc.block || !canPay(nx.cost)}
+            onPress={onStart}
+          />
+        </>
+      ) : (
+        <Text style={styles.small}>{t("gm_reclaimMax")}</Text>
+      )}
+    </View>
   );
 }
 
@@ -1337,6 +1522,10 @@ const styles = StyleSheet.create({
   legendDot: { width: 10, height: 10 },
   item: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
   swatch: { width: 18, height: 18, borderRadius: 4 },
+  tab: { flex: 1, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: "center" },
+  tabOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  tabText: { color: colors.text, fontSize: 13, fontWeight: "600" },
+  tabTextOn: { color: "#fff" },
   smallBtn: { backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8 },
   smallBtnText: { color: colors.text, fontWeight: "700", fontSize: 13 },
   next: { gap: space.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
