@@ -453,40 +453,15 @@ export function CrewTrain({
         </Pressable>
       </View>
       <Text style={styles.small}>{t("gm_ct_rule", { n: crews.quiz })}</Text>
-      <View style={styles.rowBetween}>
-        <Text style={styles.textB}>{t("gm_ct_pts", { n: crews.pts })}</Text>
+      {/* 훈련 점수: 크게·노란색, 지금 몇 명 뽑을 수 있는지 바로 보이게 (박사 요청 2026-11-28) */}
+      <View style={styles.ptsBox}>
+        <Text style={styles.ptsBig}>{t("gm_ct_ptsBig", { n: crews.pts })}</Text>
+        <Text style={styles.ptsSub}>{t("gm_ct_ptsCan", { n: Math.floor(crews.pts / (crews.specs.welder?.cost || 1)) })}</Text>
         <Text style={styles.small}>
           {t("gm_ct_homes", { d: crews.homes?.dorm.used ?? 0, dc: crews.homes?.dorm.cap ?? 0, g: crews.homes?.garage.used ?? 0, gc: crews.homes?.garage.cap ?? 0 })}
         </Text>
       </View>
-      {hall < 1 ? <Text style={styles.warnSm}>{t("gm_ct_needHall")}</Text> : null}
-      {CREW_KINDS.map((k) => {
-        const sp = crews.specs[k];
-        const locked = hall < sp.unlock;
-        const noHome = (crews.homes?.[sp.home].cap ?? 0) < 1;
-        const off = busy || locked || homeFull(k) || crews.pts < sp.cost;
-        return (
-          <View key={k} style={[styles.crewRow, locked && { opacity: 0.55 }]}>
-            <CrewFigure kind={k} size={26} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.textB}>
-                {t(`gm_crew_${k}`)} <Text style={styles.small}>×{crews.have[k] ?? 0}{crews.hurt?.[k] ? ` · ${t("gm_ct_hurtN", { n: crews.hurt[k] })}` : ""}</Text>
-              </Text>
-              <Text style={styles.small} numberOfLines={2}>
-                {locked
-                  ? t("gm_ct_locked", { n: sp.unlock })
-                  : noHome
-                    ? t(`gm_ct_need_${sp.home}`)
-                    : `${t(`gm_ct_home_${sp.home}`)} · ${t(`gm_crew_${k}_role`)}`}
-              </Text>
-            </View>
-            <Pressable disabled={off} onPress={() => hire(k)} style={[styles.hire, off && styles.dim]}>
-              <Text style={styles.chipText}>+1 · {t("gm_ct_cost", { n: sp.cost })}</Text>
-            </Pressable>
-          </View>
-        );
-      })}
-      {err ? <Text style={styles.warn}>{err}</Text> : null}
+      {result ? <Text style={[styles.textB, { color: "#FFD166" }]}>{t("gm_ct_got", { n: result.right, total: result.total })}</Text> : null}
       {!quiz || result ? (
         <AppButton label={t(result ? "gm_ct_again" : "gm_ct_start")} icon="school-outline" disabled={busy || hall < 1} onPress={start} />
       ) : null}
@@ -500,13 +475,44 @@ export function CrewTrain({
           onPress={submit}
         />
       ) : null}
-      {result ? <Text style={[styles.textB, { color: "#7FD18F" }]}>{t("gm_ct_got", { n: result.right, total: result.total })}</Text> : null}
+      <Text style={styles.textB}>{t("gm_ct_listTitle")}</Text>
+      {hall < 1 ? <Text style={styles.warnSm}>{t("gm_ct_needHall")}</Text> : null}
+      {CREW_KINDS.map((k) => {
+        const sp = crews.specs[k];
+        const locked = hall < sp.unlock;
+        const noHome = (crews.homes?.[sp.home].cap ?? 0) < 1;
+        const off = busy || locked || homeFull(k) || crews.pts < sp.cost;
+        return (
+          <View key={k} style={[styles.crewRow, locked && { opacity: 0.55 }]}>
+            <CrewFigure kind={k} size={26} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.textB}>
+                {t(`gm_crew_${k}`)} <Text style={styles.small}>{t("gm_ct_have", { n: crews.have[k] ?? 0 })}{crews.hurt?.[k] ? ` · ${t("gm_ct_hurtN", { n: crews.hurt[k] })}` : ""}</Text>
+              </Text>
+              <Text style={styles.small} numberOfLines={2}>
+                {locked
+                  ? t("gm_ct_locked", { n: sp.unlock })
+                  : noHome
+                    ? t(`gm_ct_need_${sp.home}`)
+                    : `${t(`gm_ct_home_${sp.home}`)} · ${t(`gm_crew_${k}_role`)}`}
+              </Text>
+            </View>
+            <Pressable disabled={off} onPress={() => hire(k)} style={[styles.hire, off && styles.dim]}>
+              <Text style={styles.chipText}>{t("gm_ct_hireBtn", { n: sp.cost })}</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+      {err ? <Text style={styles.warn}>{err}</Text> : null}
     </>
   );
 }
 
 const HUD = "#0B2033D9";
 const styles = StyleSheet.create({
+  ptsBox: { backgroundColor: "#FFD16622", borderColor: "#FFD166", borderWidth: 1.5, borderRadius: radius.md, padding: space.sm, gap: 2, alignItems: "center" },
+  ptsBig: { color: "#FFD166", fontSize: 26, fontWeight: "900" },
+  ptsSub: { color: "#fff", fontSize: 14, fontWeight: "700" },
   bg: { backgroundColor: "#0B1A2A", zIndex: 55 },
   top: { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 6 },
   round: { width: 34, height: 34, borderRadius: 17, backgroundColor: HUD, alignItems: "center", justifyContent: "center" },

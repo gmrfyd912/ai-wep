@@ -44,6 +44,7 @@ CAPACITY = {"patrol": 2, "frigate": 4, "destroyer": 6, "submarine": 0, "landing"
 CREW_QUIZ = {"ox": 2, "mc": 1}          # 대원 훈련 1번 = 문제 3개, 맞힌 수 = 훈련 점수
 RAID_TICKS = 240                        # 상륙 전투 최대 120초
 MAX_ORDER = 3
+ENGAGE = 2.5                            # 방어 대원이 이만큼(칸) 안에 오면 공격 순서보다 먼저 맞서 싸움 (예시)
 REACH = 0.6                             # 대원이 건물 가장자리에서 이만큼 안이면 부수기 시작
 # 해적 기지 방어 선원 (3단계부터, 연습용)
 PIRATE_CREWS = {3: {"welder": 2}, 4: {"welder": 3, "forklift": 1}, 5: {"welder": 4, "fitter": 2, "forklift": 1},
@@ -321,10 +322,14 @@ def simulate_raid(base, ships, lane, landing, order, crews, map_w, map_h, land_w
                         step_to(c, a["x"], a["y"], land_w - 0.2)
                 heal(team, c)
                 continue
-            g = near_foe(c, guards, REACH + 0.2) if guards else None
-            if g is not None and c["dmg"] > 0:   # 바로 앞의 방어 대원과 먼저 싸움
-                g["hp"] = max(0, g["hp"] - c["dmg"])
-                shots.append(["cg", ci, guards.index(g)])
+            # 공격 순서대로 가다가도 방어 대원이 가까이 오면(ENGAGE 칸 안) 먼저 맞서 싸움 (박사 요청 2026-11-28)
+            g = near_foe(c, guards, ENGAGE) if guards and c["dmg"] > 0 else None
+            if g is not None:
+                if _dist((c["x"], c["y"]), (g["x"], g["y"])) <= REACH + 0.2:
+                    g["hp"] = max(0, g["hp"] - c["dmg"])
+                    shots.append(["cg", ci, guards.index(g)])
+                else:
+                    step_to(c, g["x"], g["y"], land_w - 0.2)
                 continue
             if c["tgt"] is None or not alive(base[c["tgt"]]):
                 t = crew_target(c)

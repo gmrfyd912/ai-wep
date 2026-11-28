@@ -380,9 +380,12 @@ export function GameMap({
       {fill}
       {hint}
       {wall}
-      {items}
+      {/* 놓기 모드: 건물을 흐리게, 누르기는 아래 땅 칸으로 (건물 그림에 가려진 칸에 잘못 놓이지 않게) */}
+      <G opacity={place ? 0.28 : 1} pointerEvents={place ? "none" : "auto"}>
+        {items}
+      </G>
       {ghost}
-      {tags}
+      {place ? null : tags}
     </Svg>
   );
 }
