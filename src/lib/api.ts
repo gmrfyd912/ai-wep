@@ -1653,7 +1653,7 @@ export type GameState = {
   buildings: GameBuilding[];
   catalog: { type: GameBuildingType; cost: GameCost; seconds: number; unlock: number; locked: boolean; w: number; h: number; coast?: boolean }[];
   ships: { kind: GameShipKind; cost: GameCost; fame: number; pay: { steel: number; rods: number; tech: number }; first_bonus: number; dock: number; units: number; lock: "dock" | "units" | null; seconds: number }[];
-  ship: { id: string; kind: GameShipKind | GameWarKind; war?: boolean; stage: number; left: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
+  ship: { id: string; kind: GameShipKind | GameWarKind; war?: boolean; stage: number; left: number; stage_left?: number; ready: boolean; stage_seconds: number; speed: { tech: number; passes: number } } | null;
   delivered: GameShipKind[];
   warships?: { kind: GameWarKind; cost: GameCost; hp: number; power: number; slots: number; dock: number; hq: number; lock: GameWarLock; seconds: number }[];
   fleet?: { cap: number; building: number; ships: { id: string; kind: GameWarKind; no: number; hp: number; power: number; slots: number }[] };

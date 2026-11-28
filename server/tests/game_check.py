@@ -198,13 +198,20 @@ def main():
     assert c.post("/game/ship/start", headers=S1, json={"kind": "barge"}).json()["detail"]["code"] == "money"
     db.insert_rows("game_ledger", {"user_id": s1, "key": "test_gift", "steel": 5000, "rods": 3000})  # 시험용 자원
     out = c.post("/game/ship/start", headers=S1, json={"kind": "barge"}).json()
-    assert out["ship"]["stage"] == 0 and out["ship"]["left"] == 60
+    assert out["ship"]["stage"] == 0 and out["ship"]["left"] == sum(game.STAGE_SECONDS) and out["ship"]["stage_left"] == 60
     bal1 = game.balance(game.ledger(s1))   # 시험용 자원을 다 빼서 진수 대금이 창고에 다 들어가게
     db.insert_rows("game_ledger", {"user_id": s1, "key": "test_trim", "steel": -bal1["steel"], "rods": -bal1["rods"]})
     assert c.post("/game/ship/next", headers=S1).json()["detail"]["code"] == "not_ready"
-    for sec in game.STAGE_SECONDS:
-        tick(sec)
-        out = c.post("/game/ship/next", headers=S1).json()
+    # 공정은 누르지 않아도 저절로 이어짐: 첫 공정 + 반쯤 지나면 대조립 중
+    tick(game.STAGE_SECONDS[0] + 30)
+    mid = c.get("/game/state", headers=S1).json()["ship"]
+    assert mid["stage"] == 1 and mid["stage_left"] == game.STAGE_SECONDS[1] - 30 and not mid["ready"], mid
+    assert mid["left"] == sum(game.STAGE_SECONDS) - game.STAGE_SECONDS[0] - 30
+    assert c.post("/game/ship/next", headers=S1).json()["detail"]["code"] == "not_ready"
+    tick(sum(game.STAGE_SECONDS) - game.STAGE_SECONDS[0] - 30)
+    st_done = c.get("/game/state", headers=S1).json()
+    assert st_done["ship"]["ready"] and st_done["ship"]["stage"] == 4 and any(t["id"] == "ship_ready" for t in st_done["tips"])
+    out = c.post("/game/ship/next", headers=S1).json()
     dn = out["delivered_now"]
     assert dn["kind"] == "barge" and dn["fame"] == 10 and dn["first"] is True and dn["count"] == 1, dn
     assert dn["got"] == {"fame": 10, "steel": 350, "rods": 180, "tech": 5, "passes": 1}, dn
@@ -218,12 +225,17 @@ def main():
     passes_before = out["resources"]["passes"]
     # 두 번째 바지선: 대금은 또 받지만 첫 인도 완료권은 없음
     c.post("/game/ship/start", headers=S1, json={"kind": "barge"})
-    for sec in game.STAGE_SECONDS:
-        tick(sec)
-        out = c.post("/game/ship/next", headers=S1).json()
+    tick(10 * sum(game.STAGE_SECONDS))   # 오래 안 들어와도 다 끝나 있음
+    out = c.post("/game/ship/next", headers=S1).json()
     dn = out["delivered_now"]
     assert dn["first"] is False and "passes" not in dn["got"] and dn["count"] == 2, dn
     assert out["resources"]["passes"] == passes_before
+    # 즉시 완료권은 남은 공정 전체를 끝냄
+    db.insert_rows("game_ledger", {"user_id": s1, "key": "test_pass", "passes": 1, "steel": 300, "rods": 100})
+    c.post("/game/ship/start", headers=S1, json={"kind": "barge"})
+    sp = c.post("/game/speedup", headers=S1, json={"target": "ship", "using": "pass"}).json()
+    assert sp["ship"]["ready"] and sp["ship"]["stage"] == 4, sp["ship"]
+    assert "delivered_now" in c.post("/game/ship/next", headers=S1).json()
 
     # 실습: 92점(높은 점수·첫 합격) → 완료권 하루 최대 2장 + 강판 200
     def sub(score_parts, when, pos="1G", width=8.0):
@@ -402,10 +414,9 @@ def main():
         r = c.post("/game/ship/start", headers=S8, json={"kind": kind})
         assert r.status_code == 200, r.text
         assert r.json()["ship"]["war"] is True
-        for _ in range(5):
-            tick(2000)
-            r = c.post("/game/ship/next", headers=S8)
-            assert r.status_code == 200, r.text
+        tick(5 * 2000)
+        r = c.post("/game/ship/next", headers=S8)
+        assert r.status_code == 200, r.text
         return r.json()
 
     d = make("patrol")
