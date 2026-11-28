@@ -2009,6 +2009,8 @@ const en: Translation = {
   gm_err_live_gone: "This battle has already ended.",
   gm_lv_title: "Prepare · Pirate base {{n}}",
   gm_lv_notSent: "Not sent (unharmed)",
+  gm_lv_prepHintUser: "Pick ships and crews, then [Solve questions before launch]. During battle, tap the sea to send ships one by one.",
+  gm_err_raid_busy: "Another trainee is attacking this shipyard right now. Try again a little later.",
   gm_err_students_only: "Weldy's Shipyard is for trainees only.",
   gm_err_game_off: "The game is turned off right now.",
   gm_err_money: "Not enough resources",

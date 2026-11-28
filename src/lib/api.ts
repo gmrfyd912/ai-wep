@@ -1897,6 +1897,8 @@ export const gamePirateAttack = (body: RaidPlan) =>
 export type LiveLoads = Record<string, Partial<Record<CrewKind, number>>>;
 export const gameLivePirateStart = (stage: number, ships: string[], loads: LiveLoads) =>
   post<{ id: string; battle: GameBattle }>("/game/live/pirate/start", { stage, ships, loads }, GAME_TIMEOUT);
+export const gameLiveRaidStart = (body: { target: string; ships: string[]; loads: LiveLoads; morale_id: string; answers: Record<string, string | number>; revenge: string | null }) =>
+  post<{ id: string; battle: GameBattle }>("/game/live/raid/start", body, GAME_TIMEOUT);
 export const gameLiveDeploy = (id: string, t: number, ship: number, y: number) =>
   post<{ id: string; battle: GameBattle }>("/game/live/deploy", { id, t, ship, y }, GAME_TIMEOUT);
 export const gameLiveEnd = (id: string, t?: number) =>

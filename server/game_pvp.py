@@ -248,6 +248,34 @@ class RaidBody(BaseModel):
     revenge: str | None = None       # 복수: 내가 방어한 전투 id
 
 
+def grade_morale(uid, morale_id, answers):
+    """출동 전 3문제 채점 (틀려도 문제는 푼 것으로 기록) → (결과, 맞힌 수, 사기 배수)."""
+    with _lock(uid):
+        mo = _morale.get(uid)
+        if not mo or mo["id"] != morale_id:
+            _err(400, "exam_gone")
+        _morale.pop(uid, None)
+    results, right, _ = game._grade_all(mo["qids"], answers, mo["lang"])
+    game._record_answers(uid, mo.get("book_id"), results, "morale")
+    opened = game._supply_open.get(uid, {})
+    for q in mo["qids"]:
+        opened.pop(q, None)
+    return results, right, morale_mult(right, len(results))
+
+
+def revenge_of(uid, target, rid):
+    """복수하기: 내가 방어한 그 상대 전투이고 아직 복수 안 했는지."""
+    if not rid:
+        return None
+    try:
+        rv = store.select("game_battles", {"id": f"eq.{rid}", "select": "id,user_id,defender_id,revenge_used"})
+    except Exception:  # noqa: BLE001
+        rv = []
+    if not rv or rv[0].get("defender_id") != uid or rv[0]["user_id"] != target or rv[0].get("revenge_used"):
+        _err(400, "revenge_used")
+    return rv[0]["id"]
+
+
 def _pair_locks(a, b):
     first, second = sorted([a, b])
     return _lock(first), _lock(second)
@@ -269,28 +297,9 @@ def raid_attack(body: RaidBody, user=Depends(need_player)):
     code, extra = block_reason(uid, body.target, st, tg0["base"], tg0["same"])
     if code:
         _err(400, "raid_" + code, **extra)
-    # 출동 전 3문제 채점 (틀려도 문제는 푼 것으로 기록)
-    with _lock(uid):
-        mo = _morale.get(uid)
-        if not mo or mo["id"] != body.morale_id:
-            _err(400, "exam_gone")
-        _morale.pop(uid, None)
-    results, right, _ = game._grade_all(mo["qids"], body.answers, mo["lang"])
-    game._record_answers(uid, mo.get("book_id"), results, "morale")
-    opened = game._supply_open.get(uid, {})
-    for q in mo["qids"]:
-        opened.pop(q, None)
-    mult = morale_mult(right, len(results))
+    results, right, mult = grade_morale(uid, body.morale_id, body.answers)
     game.mark_todo(uid, "battle")
-    revenge = None
-    if body.revenge:
-        try:
-            rv = store.select("game_battles", {"id": f"eq.{body.revenge}", "select": "id,user_id,defender_id,revenge_used"})
-        except Exception:  # noqa: BLE001
-            rv = []
-        if not rv or rv[0].get("defender_id") != uid or rv[0]["user_id"] != body.target or rv[0].get("revenge_used"):
-            _err(400, "revenge_used")
-        revenge = rv[0]["id"]
+    revenge = revenge_of(uid, body.target, body.revenge)
     la, lb = _pair_locks(uid, body.target)
     with la, lb:
         now = game._now()
@@ -325,59 +334,82 @@ def raid_attack(body: RaidBody, user=Depends(need_player)):
         guards = game_raid.available(tcrews)
         res = game_raid.simulate_raid(tbase, ships, body.lane, body.landing, body.order, send, mp["w"], mp["h"], mp["land"],
                                       mp["lanes"], {"stage": 0}, crew_mult=mult, defenders=guards)
-        if any(res["guard_lost"].values()):   # 방어하다 쓰러진 대원은 부상 → 정한 시간 뒤 돌아옴
-            game_raid.add_hurt(tcrews, res["guard_lost"], int(st["crew_hurt_minutes"]), now)
-            game_raid._save_crews(body.target, tcrews)
-        for s in res["ships"]:        # 보여 줄 공격력은 원래 값으로
-            s.pop("attack", None)
         res["note"] = game_raid.raid_note(res)
-        if any(res["crew_lost"].values()):
-            for k, v in res["crew_lost"].items():
-                have[k] = max(0, have[k] - v)
-            game_raid._save_crews(uid, have)
-        for s in res["ships"]:
-            dmg = s["max_hp"] - s["hp"]
-            if dmg > 0:
-                game._sql17(lambda s=s, dmg=dmg: store.patch("game_ships", {"id": f"eq.{s['id']}"}, {"damage": dmg}))
-        # 약탈: 별 비율만큼, 내 창고 자리만큼 (상대는 내가 가져온 만큼만 잃음)
-        full, half = loot_full(tg)
-        share = STAR_LOOT[res["stars"]]
-        want = {k: int(full[k] * share * (1 + ((res.get("loot_bonus") or 0) if res["stars"] else 0))) for k in full}
-        mine_bal = game.balance(game.ledger(uid))
-        take = game.clip_storage(want, mine_bal, game.caps(buildings))
-        bid = str(uuid.uuid4())
-        got = {"steel": take["steel"], "rods": take["rods"], "tech": 0, "fame": ATTACK_FAME * res["stars"]}
-        if any(got.values()):
-            game._add(uid, [{"key": f"raid:{bid}", **got, "note": "raid"}])
-        if take["steel"] or take["rods"]:
-            game._add(body.target, [{"key": f"raided:{bid}", "steel": -take["steel"], "rods": -take["rods"], "note": "raided"}])
-        # 막아 냄 보상 (상대 별 0~1개)
-        defend = {"rods": 0, "fame": 0}
-        if res["stars"] <= 1:
-            tcap = game.caps(tg["blds"])
-            tbal = game.balance(tg["rows"])
-            tbal = {**tbal, "steel": tbal["steel"] - take["steel"], "rods": tbal["rods"] - take["rods"]}
-            room = game.clip_storage({"rods": int(st["raid_defend_rods"])}, tbal, tcap)
-            defend = {"rods": room.get("rods", 0), "fame": DEFEND_FAME}
-            game._add(body.target, [{"key": f"defend:{bid}", **defend, "note": "defend"}])
-        # 보호막
-        shield_until = now + timedelta(hours=int(st["raid_shield_hours"]))
-        if st["raid_shield_hours"]:
-            game._sql17(lambda: store.patch("game_bases", {"user_id": f"eq.{body.target}"}, {"shield_until": _iso(shield_until)}),
-                        code="need_sql19")
-        res.update({"id": bid, "kind": "raid", "got": got, "lost": {"steel": take["steel"], "rods": take["rods"]},
-                    "defend": defend, "loot_half": half, "first_stars": 0, "hurt_minutes": int(st["crew_hurt_minutes"]),
-                    "morale": {"right": right, "total": len(results), "mult": mult},
-                    "attacker": {"id": uid, "name": user.get("name") or ""},
-                    "defender": {"id": body.target, "name": tg["user"].get("name") or ""}, "revenge": bool(revenge)})
-        game._sql17(lambda: store.insert_rows("game_battles", [{"id": bid, "user_id": uid, "kind": "raid", "stage": 0,
-                                                                 "stars": res["stars"], "result": res, "defender_id": body.target,
-                                                                 "defender_seen": False, "revenge_used": False,
-                                                                 "created_at": _iso(now)}],
-                                               returning=False), code="need_sql19")
-        if revenge:
-            game._sql17(lambda: store.patch("game_battles", {"id": f"eq.{revenge}"}, {"revenge_used": True}), code="need_sql19")
+        apply_raid_locked(user, body.target, tg, base, buildings, have, tcrews, res,
+                          {"right": right, "total": len(results), "mult": mult}, revenge, st, now)
     return {"battle": res, "results": results, "state": game._fresh(user)}
+
+
+def apply_raid(user, target, res, morale, revenge):
+    """시간차 출동 전투가 끝났을 때: 두 조선소를 잠그고 결과 반영."""
+    uid = user["id"]
+    st = game.settings()
+    la, lb = _pair_locks(uid, target)
+    with la, lb:
+        now = game._now()
+        tg = _target(user, target, st)
+        base, buildings = game._prep(uid, now)
+        have = game_raid.get_crews(base)
+        tcrews = game_raid.get_crews(tg["base"], now)
+        apply_raid_locked(user, target, tg, base, buildings, have, tcrews, res, morale, revenge, st, now)
+    return {"battle": res, "state": game._fresh(user)}
+
+
+def apply_raid_locked(user, target, tg, base, buildings, have, tcrews, res, morale, revenge, st, now):
+    """공격 결과 반영 (두 조선소 잠근 채): 방어 대원 부상, 내 대원·배, 약탈, 막아 냄 보상, 보호막, 기록."""
+    uid = user["id"]
+
+    if any(res["guard_lost"].values()):   # 방어하다 쓰러진 대원은 부상 → 정한 시간 뒤 돌아옴
+        game_raid.add_hurt(tcrews, res["guard_lost"], int(st["crew_hurt_minutes"]), now)
+        game_raid._save_crews(target, tcrews)
+    for s in res["ships"]:        # 보여 줄 공격력은 원래 값으로
+        s.pop("attack", None)
+    if any(res["crew_lost"].values()):
+        for k, v in res["crew_lost"].items():
+            have[k] = max(0, have[k] - v)
+        game_raid._save_crews(uid, have)
+    for s in res["ships"]:
+        dmg = s["max_hp"] - s["hp"]
+        if dmg > 0:
+            game._sql17(lambda s=s, dmg=dmg: store.patch("game_ships", {"id": f"eq.{s['id']}"}, {"damage": dmg}))
+    # 약탈: 별 비율만큼, 내 창고 자리만큼 (상대는 내가 가져온 만큼만 잃음)
+    full, half = loot_full(tg)
+    share = STAR_LOOT[res["stars"]]
+    want = {k: int(full[k] * share * (1 + ((res.get("loot_bonus") or 0) if res["stars"] else 0))) for k in full}
+    mine_bal = game.balance(game.ledger(uid))
+    take = game.clip_storage(want, mine_bal, game.caps(buildings))
+    bid = str(uuid.uuid4())
+    got = {"steel": take["steel"], "rods": take["rods"], "tech": 0, "fame": ATTACK_FAME * res["stars"]}
+    if any(got.values()):
+        game._add(uid, [{"key": f"raid:{bid}", **got, "note": "raid"}])
+    if take["steel"] or take["rods"]:
+        game._add(target, [{"key": f"raided:{bid}", "steel": -take["steel"], "rods": -take["rods"], "note": "raided"}])
+    # 막아 냄 보상 (상대 별 0~1개)
+    defend = {"rods": 0, "fame": 0}
+    if res["stars"] <= 1:
+        tcap = game.caps(tg["blds"])
+        tbal = game.balance(tg["rows"])
+        tbal = {**tbal, "steel": tbal["steel"] - take["steel"], "rods": tbal["rods"] - take["rods"]}
+        room = game.clip_storage({"rods": int(st["raid_defend_rods"])}, tbal, tcap)
+        defend = {"rods": room.get("rods", 0), "fame": DEFEND_FAME}
+        game._add(target, [{"key": f"defend:{bid}", **defend, "note": "defend"}])
+    # 보호막
+    shield_until = now + timedelta(hours=int(st["raid_shield_hours"]))
+    if st["raid_shield_hours"]:
+        game._sql17(lambda: store.patch("game_bases", {"user_id": f"eq.{target}"}, {"shield_until": _iso(shield_until)}),
+                    code="need_sql19")
+    res.update({"id": bid, "kind": "raid", "got": got, "lost": {"steel": take["steel"], "rods": take["rods"]},
+                "defend": defend, "loot_half": half, "first_stars": 0, "hurt_minutes": int(st["crew_hurt_minutes"]),
+                "morale": morale,
+                "attacker": {"id": uid, "name": user.get("name") or ""},
+                "defender": {"id": target, "name": tg["user"].get("name") or ""}, "revenge": bool(revenge)})
+    game._sql17(lambda: store.insert_rows("game_battles", [{"id": bid, "user_id": uid, "kind": "raid", "stage": 0,
+                                                             "stars": res["stars"], "result": res, "defender_id": target,
+                                                             "defender_seen": False, "revenge_used": False,
+                                                             "created_at": _iso(now)}],
+                                           returning=False), code="need_sql19")
+    if revenge:
+        game._sql17(lambda: store.patch("game_battles", {"id": f"eq.{revenge}"}, {"revenge_used": True}), code="need_sql19")
 
 
 # ---- 방어 기록 ----

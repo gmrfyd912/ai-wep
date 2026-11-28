@@ -2009,6 +2009,8 @@ const id: Translation = {
   gm_err_live_gone: "Pertempuran ini sudah selesai.",
   gm_lv_title: "Persiapan · Markas bajak laut {{n}}",
   gm_lv_notSent: "Tidak dikirim (tidak rusak)",
+  gm_lv_prepHintUser: "Pilih kapal dan kru, lalu [Kuis sebelum berangkat]. Saat bertempur, ketuk laut untuk mengirim kapal satu per satu.",
+  gm_err_raid_busy: "Peserta lain sedang menyerang galangan ini. Coba lagi nanti.",
   gm_err_students_only: "Galangan Kapal Weldy hanya untuk peserta pelatihan.",
   gm_err_game_off: "Game sedang dimatikan.",
   gm_err_money: "Sumber daya tidak cukup",

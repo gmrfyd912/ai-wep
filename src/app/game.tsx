@@ -20,6 +20,7 @@ import {
   gameLiveDeploy,
   gameLiveEnd,
   gameLivePirateStart,
+  gameLiveRaidStart,
   gameRepair,
   gameTyphoonStart,
   gameTyphoonSubmit,
@@ -806,6 +807,22 @@ export default function GameScreen() {
     if (busy || !raid || !p.morale_id) return;
     setBusy(true);
     setExamErr("");
+    if (p.loads) {
+      // 시간차 출동 전투: 3문제 채점 → 배는 바다 밖에서 기다림 → 전투 화면에서 하나씩 보냄
+      try {
+        const r = await gameLiveRaidStart({ target: raid.target.id, ships: p.ships, loads: p.loads, morale_id: p.morale_id,
+          answers: p.answers ?? {}, revenge: raid.revenge ?? null });
+        setBattleDef(false);
+        setLiveId(r.id);
+        setBattle(r.battle);
+        closeRaid();
+      } catch (e) {
+        setExamErr(gameError(t, e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const r = await gameRaidAttack({ target: raid.target.id, ships: p.ships, lane: p.lane, landing: p.landing, order: p.order,
         crews: p.crews, morale_id: p.morale_id, answers: p.answers ?? {}, revenge: raid.revenge ?? null });

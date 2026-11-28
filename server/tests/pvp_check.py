@@ -201,6 +201,41 @@ def main():
     tip = gp.defense_tip([{"stars": 2, "lane": "north"}, {"stars": 3, "lane": "north"}, {"stars": 0, "lane": "south"}])
     assert tip == {"id": "lane", "lane": "north", "n": 2}, tip
     assert gp.defense_tip([{"stars": 0, "lane": "north"}]) == {"id": "strong"}
+
+    # 시간차 출동 전투로 친구 조선소 공격: 3문제 → 시작 → 배 보내기 → 끝 (같은 결과 반영)
+    import game_live as gl
+    for b in db.TABLES["game_bases"]:
+        b["shield_until"] = None
+        b["crews"] = {"welder": 12, "fitter": 0, "forklift": 0, "transporter": 0, "pts": 0}
+    for s_ in db.TABLES["game_ships"]:
+        s_["damage"] = 0
+    NOW[0] = NOW[0] + timedelta(days=1)
+    s2_before = game.balance(game.ledger(ids["s2"]))
+    q = c.post("/game/raid/morale/start", headers=hd["s1"], json={"lang": "ko"}).json()
+    body = {"target": ids["s2"], "ships": [ship["s1"]], "loads": {ship["s1"]: {"welder": 12}}, "morale_id": q["id"], "answers": ans(q)}
+    r = c.post("/game/live/raid/start", headers=hd["s1"], json=body)
+    assert r.status_code == 200, r.text
+    lid, lb = r.json()["id"], r.json()["battle"]
+    assert lb["live"] and lb["kind"] == "raid" and lb["morale"]["mult"] == 1.2 and lb["map"]["land"] == 32, lb.get("morale")
+    # 공격 중인 조선소는 다른 교육생이 못 침
+    assert gl._busy(ids["s2"], ids["s3"]) is True and gl._busy(ids["s2"], ids["s1"]) is False
+    r = c.post("/game/live/deploy", headers=hd["s1"], json={"id": lid, "t": 0, "ship": 0, "y": 16})
+    assert r.status_code == 200, r.text
+    r = c.post("/game/live/end", headers=hd["s1"], json={"id": lid})
+    assert r.status_code == 200, r.text
+    lv = r.json()["battle"]
+    assert lv["kind"] == "raid" and lv["id"] and lv["lane"] == "middle" and lv["got"]["steel"] == lv["lost"]["steel"], lv.get("lost")
+    s2_after = game.balance(game.ledger(ids["s2"]))
+    assert s2_after["steel"] == s2_before["steel"] - lv["lost"]["steel"] + 0, (s2_before, s2_after)
+    log = c.get("/game/defense", headers=hd["s2"]).json()["log"]
+    assert log[0]["id"] == lv["id"] and log[0]["lane"] == "middle"
+    rb = c.get(f"/game/battle/{lv['id']}", headers=hd["s2"])
+    assert rb.status_code == 200 and rb.json()["battle"]["deploys"] == lv["deploys"], rb.text[:200]
+    assert gl._busy(ids["s2"], ids["s3"]) is False
+    # 같은 3문제로 또 시작 못 함
+    r = c.post("/game/live/raid/start", headers=hd["s1"], json=body)
+    assert code(r) in ("exam_gone", "raid_shield", "raid_same_target"), r.text
+    print("  live raid stars", lv["stars"], lv["lost"])
     print("pvp_check OK", {"stars": bt["stars"], "lost": bt["lost"]})
 
 
