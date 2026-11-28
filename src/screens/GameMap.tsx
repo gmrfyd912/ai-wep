@@ -77,7 +77,7 @@ export function artName(b: { type: string; level: number; w: number; h: number }
 }
 const ART = (ART_META as { sprites: Record<string, { z?: number }> }).sprites;
 /** 새 그림의 높이 (칸 너비 배수, 누르는 범위·이름표 자리에 씀). 그림이 없으면 0 */
-const artH = (name: string | null) => (name && ART[name]?.z ? ART[name].z! * 0.5 : 0);
+export const artH = (name: string | null) => (name && ART[name]?.z ? ART[name].z! * 0.5 : 0);
 
 function shade(hex: string, k: number) {
   const m = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(hex);   // 이미 한 번 밝기를 바꾼 색도 받음
