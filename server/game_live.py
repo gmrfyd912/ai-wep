@@ -148,6 +148,35 @@ def simulate_live(base, ships, loads, deploys, map_w, map_h, land_w, info=None, 
                 o["hp"] = 0
                 events.append({"t": tick, "boom": o["id"], "ship": si})
 
+    def fire(si, s, tgt, tick, shots):
+        tgt["hp"] = max(0, tgt["hp"] - s["attack"] * gb.DMG_RATE)
+        shots.append(["s", si, tgt["id"]])
+        if not _alive(tgt):
+            events.append({"t": tick, "down": tgt["id"]})
+
+    def slide_goal(s):
+        """해안에 닿은 배가 좌우로 움직여 쏠 곳: 해안 어딘가에서 사거리에 드는 방어 시설 중 가장 덜 움직이는 것
+        (없으면 다른 건물). 그런 게 없으면 None (제자리)."""
+        lo, hi = 0.5, map_h - 0.5
+        for pool in (gr.DEF_TYPES, None):
+            best = None
+            for o in base:
+                if not _alive(o) or o["type"] in ("wall", "mine") or (pool is not None and o["type"] not in pool):
+                    continue
+                if pool is None and o["type"] in gr.DEF_TYPES:
+                    continue
+                gap = max(0.0, s["x"] - (o["x"] + o["w"]), o["x"] - s["x"])
+                if gap > s["range"] - 0.1:
+                    continue
+                ty = min(max(s["y"], o["y"] + 0.3), o["y"] + o["h"] - 0.3)
+                ty = min(hi, max(lo, ty))
+                d = abs(ty - s["y"])
+                if best is None or d < best[0]:
+                    best = (d, ty)
+            if best is not None:
+                return best[1]
+        return None
+
     for tick in range(last):
         shots = []
         acted = False   # 이번 칸에 배가 움직이거나 쐈나
@@ -169,29 +198,25 @@ def simulate_live(base, ships, loads, deploys, map_w, map_h, land_w, info=None, 
             if s["out"] or s["wait"]:
                 continue
             pos = (s["x"], s["y"])
-            tgt = ship_target(pos, s["range"]) if s["attack"] > 0 else None
-            if tgt is not None:
-                dmg = s["attack"] * gb.DMG_RATE
-                tgt["hp"] = max(0, tgt["hp"] - dmg)
-                shots.append(["s", si, tgt["id"]])
-                if not _alive(tgt):
-                    events.append({"t": tick, "down": tgt["id"]})
-                # 대원을 실은 배는 쏘면서도 계속 감, 군함은 서서 쏨
-                if not s["carry"] or s["docked"]:
-                    continue
             if s["docked"]:
-                # 해안에 닿았는데 쏠 게 없음 → 해안을 따라 가까운 건물 쪽으로 (대원 다 내린 뒤)
-                land = [o for o in base if _alive(o) and o["type"] not in ("wall", "mine")]
-                if not land or s["attack"] <= 0:
+                # 해안에 닿은 군함: 사거리 안 방어 시설은 서서 쏨. 정면 방어 시설을 다 부쉈으면
+                # 해안을 따라 좌우로 움직여 다른 방어 시설(없으면 다른 건물)을 쏠 수 있는 곳으로 감 (박사 요청 2026-11-28)
+                if s["attack"] <= 0:
                     continue
-                o = min(land, key=lambda o: (_edge(pos, o), o["id"]))
-                cy = _center(o)[1]
-                if abs(cy - s["y"]) < 0.15:
+                tgt = ship_target(pos, s["range"])
+                if tgt is not None and tgt["type"] in gr.DEF_TYPES:
+                    fire(si, s, tgt, tick, shots)
                     continue
-                ny = s["y"] + max(-s["speed"], min(s["speed"], cy - s["y"]))
+                gy = slide_goal(s)
+                if tgt is not None:
+                    fire(si, s, tgt, tick, shots)   # 가는 동안에도 사거리 안 건물은 쏨
+                if gy is None or abs(gy - s["y"]) < 0.15:
+                    continue
+                ny = s["y"] + max(-s["speed"], min(s["speed"], gy - s["y"]))
                 w = wall_at(s["x"], ny)
                 if w:
-                    shoot_wall(si, s, w, tick, shots)
+                    if tgt is None:
+                        shoot_wall(si, s, w, tick, shots)
                     continue
                 s["y"] = ny
                 acted = True
@@ -200,7 +225,27 @@ def simulate_live(base, ships, loads, deploys, map_w, map_h, land_w, info=None, 
             gx, gy = s["goal"]
             dx, dy = gx - s["x"], gy - s["y"]
             n = math.hypot(dx, dy)
-            if n <= s["speed"] + 0.05:
+            arrive = n <= s["speed"] + 0.05
+            nx, ny = (gx, gy) if arrive else (s["x"] + dx / n * s["speed"], s["y"] + dy / n * s["speed"])
+            w = None if arrive else wall_at(nx, ny)
+            if s["carry"]:
+                # 대원을 실은 배: 장벽이 막으면 장벽부터 부수고, 아니면 쏘면서 계속 감 (해안에 꼭 닿게)
+                if w:
+                    shoot_wall(si, s, w, tick, shots)
+                    continue
+                tgt = ship_target(pos, s["range"]) if s["attack"] > 0 else None
+                if tgt is not None:
+                    fire(si, s, tgt, tick, shots)
+            else:
+                # 군함: 가는 길에 사거리 안 목표가 있으면 서서 쏨, 없으면 장벽을 부수며 감
+                tgt = ship_target(pos, s["range"]) if s["attack"] > 0 else None
+                if tgt is not None:
+                    fire(si, s, tgt, tick, shots)
+                    continue
+                if w:
+                    shoot_wall(si, s, w, tick, shots)
+                    continue
+            if arrive:
                 s["x"], s["y"], s["docked"] = gx, gy, True
                 acted = True
                 if s["carry"]:
@@ -213,12 +258,6 @@ def simulate_live(base, ships, loads, deploys, map_w, map_h, land_w, info=None, 
                         c["y"] = min(map_h - 0.3, max(0.3, gy + ((k % 5) - 2) * 0.25))
                         c["x"] = land_w - 0.4 - (k // 5) * 0.25
                     s["carry"] = []
-                continue
-            nx, ny = s["x"] + dx / n * s["speed"], s["y"] + dy / n * s["speed"]
-            w = wall_at(nx, ny)
-            if w:
-                if tgt is None:
-                    shoot_wall(si, s, w, tick, shots)
                 continue
             s["x"], s["y"] = nx, ny
             acted = True

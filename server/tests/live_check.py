@@ -103,6 +103,22 @@ def main():
     res = gl.simulate_live(gb.pirate_base(1), [{"id": "a", "kind": "frigate", "max_hp": 300, "attack": 40, "weapons": ["gun"]}],
                            [{}], [], gb.MAP_W, gb.MAP_H, gb.LAND_W)
     assert res["stars"] == 0 and res["ticks"] == gl.LIVE_TICKS and gl.note_of(res)["id"] == "nosend"
+    # 박사 확인 2026-11-28 ①: 해안 앞 장벽 줄이 있어도 대원 배는 장벽을 부수고 해안에 닿아 대원을 내림
+    def obj(i, t, x, y, w=1, h=1, hp=150, dmg=0, rng=0):
+        return {"id": i, "type": t, "level": 1, "x": x, "y": y, "w": w, "h": h, "hp": hp, "dmg": dmg, "range": rng, "max": hp}
+    L = gb.LAND_W
+    # (해안 건물이 아주 튼튼해서 배가 계속 쏠 게 있어도, 장벽에 막히면 장벽부터 부숨)
+    walls = [obj(0, "hq", 1, 4, 2, 2, hp=350), obj(1, "pier", L - 2, 3, 2, 3, hp=5000)] + [obj(2 + y, "wall", L, y, hp=80) for y in range(10)]
+    res = gl.simulate_live(walls, [{"id": "a", "kind": "landing", "max_hp": 300, "attack": 30, "weapons": ["gun"]}],
+                           [{"welder": 4}], [{"t": 0, "ship": 0, "y": 4.5}], gb.MAP_W, gb.MAP_H, L)
+    assert res["landed_at"] is not None, res["landed_at"]
+    # ②: 정면 방어 시설을 다 부순 군함은 해안을 따라 움직여 좌우 방어 시설도 쏨
+    side = [obj(0, "hq", 1, 4, 2, 2, hp=350), obj(1, "battery", L - 1, 0, hp=135, dmg=5, rng=3),
+            obj(2, "battery", L - 1, 9, hp=135, dmg=5, rng=3), obj(3, "battery", L - 1, 5, hp=135, dmg=5, rng=3)]
+    res = gl.simulate_live(side, [{"id": "a", "kind": "destroyer", "max_hp": 600, "attack": 60, "weapons": ["gun"]}],
+                           [{}], [{"t": 0, "ship": 0, "y": 5.5}], gb.MAP_W, gb.MAP_H, L)
+    fin_b = res["frames"][-1]["b"]
+    assert fin_b[1] == 0 and fin_b[2] == 0 and fin_b[3] == 0, fin_b
     print("live_check OK", fin["stars"], fin["pct"], time.strftime("%H:%M:%S"))
 
 
