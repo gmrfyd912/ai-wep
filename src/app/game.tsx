@@ -39,7 +39,8 @@ import {
   type GameState,
   type GameTip,
 } from "@/lib/api";
-import { BUILDING_COLOR, GameMap, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
+import { PanZoom } from "@/components/PanZoom";
+import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
 type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply";
@@ -96,13 +97,16 @@ export default function GameScreen() {
   const [placeType, setPlaceType] = useState<GameBuildingType | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
-  const [zoom, setZoom] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [shipTab, setShipTab] = useState<"merchant" | "war">("merchant");
   const [tipAt, setTipAt] = useState(0);
   const [rewards, setRewards] = useState<GameState["rewards"]>(null);
   const [, setTick] = useState(0);
   const fetchedAt = useRef(Date.now());
   const reloading = useRef(false);
+  // 지도를 끄는 중이거나 막 끝낸 직후의 '톡'은 건물 고르기·자리 고르기로 보지 않음
+  const moving = useRef({ on: false, at: 0 });
+  const tapOk = () => !moving.current.on && Date.now() - moving.current.at > 250;
 
   const apply = useCallback((d: GameState) => {
     fetchedAt.current = Date.now();
@@ -212,7 +216,8 @@ export default function GameScreen() {
 
   const sea = data.sea ?? 2;
   const fitW = Math.floor(Math.min(width / (data.grid + sea + 0.6), height / (data.grid / 2 + 3.6)));
-  const W = Math.max(18, Math.floor(fitW * (zoom ? 1.7 : 1)));
+  const W = Math.max(8, fitW * zoom);
+  const mapDim = mapSize(data.grid, W, sea);
   const sel = data.buildings.find((b) => b.id === selected) ?? null;
   const res = data.resources;
   const tut = data.tutorial;
@@ -445,20 +450,9 @@ export default function GameScreen() {
   return (
     <View style={styles.full}>
       <StatusBar hidden />
-      {/* 지도: 화면 꽉 차게 (크게 보기면 위아래·옆으로 밀어서 봄) */}
-      <ScrollView style={StyleSheet.absoluteFill} contentContainerStyle={styles.mapOuter} showsVerticalScrollIndicator={false} bounces={false}>
-        <ScrollView horizontal contentContainerStyle={styles.mapOuter} showsHorizontalScrollIndicator={false} bounces={false}>
-          {/* 오른쪽 창이 열려 있으면 그 너비만큼 오른쪽에 여백을 줘서, 지도를 손가락으로 끌어 창에 가려진 칸까지 볼 수 있게 함 */}
-          <View
-            style={{
-              minWidth: width,
-              minHeight: height,
-              paddingRight: panelOpen ? sheetW + 16 + insets.right : 0,
-              paddingVertical: panelOpen ? 48 : 0,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+      {/* 지도: 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소 (메뉴·창에 가려진 곳도 끌어서 봄) */}
+      <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.7} maxZoom={3} onZoom={setZoom}
+        onMove={(on) => { moving.current = { on, at: Date.now() }; }}>
             <GameMap
               grid={data.grid}
               sea={sea}
@@ -471,15 +465,14 @@ export default function GameScreen() {
               place={placeSpec}
               ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
               onSelect={(id) => {
+                if (!tapOk()) return;
                 setSelected(id);
                 if (id) setMode("home");
               }}
-              onPlace={(x, y) => setPick({ x, y })}
+              onPlace={(x, y) => tapOk() && setPick({ x, y })}
               now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
             />
-          </View>
-        </ScrollView>
-      </ScrollView>
+      </PanZoom>
 
       {/* 왼쪽 위: 자원 현황 (작게) */}
       <View style={[styles.hudTL, { top: 8 + insets.top, left: 8 + insets.left }]} pointerEvents="box-none">
@@ -539,9 +532,6 @@ export default function GameScreen() {
       {/* 오른쪽 위: 크게/작게, 자원 얻는 법 */}
       {!panelOpen ? (
         <View style={[styles.hudTR, { top: 8 + insets.top, right: 8 + insets.right }]}>
-          <Pressable onPress={() => setZoom((z) => !z)} style={styles.roundSm} hitSlop={6} accessibilityLabel={zoom ? t("gm_zoomOut") : t("gm_zoomIn")}>
-            <Ionicons name={zoom ? "remove" : "add"} size={20} color="#fff" />
-          </Pressable>
           <Pressable onPress={() => setMode("earn")} style={styles.roundSm} hitSlop={6} accessibilityLabel={t("gm_earnTitle")}>
             <Ionicons name="help" size={18} color="#fff" />
           </Pressable>
@@ -1474,7 +1464,6 @@ const FAB_ROW = 6 * 64 + 8;   // 아래 오른쪽 메뉴 단추 6개 자리
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#1F6FA8" },
   center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
-  mapOuter: { flexGrow: 1 },
   hudTL: { position: "absolute", gap: 4 },
   hudTR: { position: "absolute", flexDirection: "row", gap: 6 },
   hudBL: { position: "absolute", gap: 4, maxWidth: 560 },
