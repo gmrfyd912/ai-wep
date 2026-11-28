@@ -313,7 +313,7 @@ function ScoutCard({ s, sea, onPlan, onRaid, onOther }: {
       ) : null}
       <StudyBuddy compact size={40} text={t(`gm_sc_tip_${s.tip}`)} />
       {s.kind === "pirate" ? (
-        <AppButton label={t("gm_sc_plan")} icon="navigate-outline" onPress={() => onPlan(s.stage ?? 1)} />
+        <AppButton label={t("gm_lv_prepare")} icon="navigate-outline" onPress={() => onPlan(s.stage ?? 1)} />
       ) : (
         <>
           <AppButton label={t("gm_sc_plan")} icon="navigate-outline" disabled={!!s.block} onPress={() => onRaid(s.id)} />

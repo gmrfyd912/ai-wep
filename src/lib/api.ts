@@ -1856,9 +1856,9 @@ export type GameBattle = {
   tick_sec: number;
   sonar: boolean;
   base: { id: number; type: string; level: number; x: number; y: number; w: number; h: number; max: number }[];
-  ships: { id: string; kind: GameWarKind; max_hp: number; hp: number; out: boolean; weapons: GameWeaponKind[] }[];
-  /** s = 전투함 [x, y, 체력, 물러남], b = 해적 시설 체력, f = 쏜 것 ["s"|"d", 쏜 쪽, 맞은 쪽] */
-  frames: { s: [number, number, number, number][]; b: number[]; f: [string, number, number][]; c?: [number, number, number, number][]; d?: [number, number, number, number][] }[];
+  ships: { id: string; kind: GameWarKind; max_hp: number; hp: number; out: boolean; weapons: GameWeaponKind[]; sent?: boolean; load?: number }[];
+  /** s = 전투함 [x, y, 체력, 물러남, (시간차 전투) 아직 안 보냄], b = 해적 시설 체력, f = 쏜 것 ["s"|"d", 쏜 쪽, 맞은 쪽] */
+  frames: { s: ([number, number, number, number] | [number, number, number, number, number])[]; b: number[]; f: [string, number, number][]; c?: [number, number, number, number][]; d?: [number, number, number, number][] }[];
   events: { t: number; down?: number; boom?: number; ship?: number; spot?: number; retreat?: number }[];
   map: GameRaidMap;
   note: { id: string };
@@ -1885,10 +1885,22 @@ export type GameBattle = {
   defend?: { rods: number; fame: number };
   morale?: { right: number; total: number; mult: number };
   revenge?: boolean;
+  /** 시간차 출동 전투: 배를 보낸 때(칸)·배 번호·해안 자리 */
+  live?: boolean;
+  deploys?: { t: number; ship: number; y: number }[];
+  max_ticks?: number;
 };
 export const getPirate = () => request<GamePirate>("/game/pirate", {}, GAME_TIMEOUT);
 export const gamePirateAttack = (body: RaidPlan) =>
   post<{ battle: GameBattle; state: GameState }>("/game/pirate/attack", body, GAME_TIMEOUT);
+/** 시간차 출동 전투: 출동 준비(배마다 태운 대원) → 시작 → 배 보내기 → 끝 */
+export type LiveLoads = Record<string, Partial<Record<CrewKind, number>>>;
+export const gameLivePirateStart = (stage: number, ships: string[], loads: LiveLoads) =>
+  post<{ id: string; battle: GameBattle }>("/game/live/pirate/start", { stage, ships, loads }, GAME_TIMEOUT);
+export const gameLiveDeploy = (id: string, t: number, ship: number, y: number) =>
+  post<{ id: string; battle: GameBattle }>("/game/live/deploy", { id, t, ship, y }, GAME_TIMEOUT);
+export const gameLiveEnd = (id: string, t?: number) =>
+  post<{ battle: GameBattle; state: GameState }>("/game/live/end", { id, t }, GAME_TIMEOUT);
 /** G2c-1 바다 지도: 과정별 만·교육생 섬·해적 섬 (tier = 내 힘과 비교한 색깔) */
 export type SeaTier = "easy" | "even" | "hard";
 export type GameSea = {

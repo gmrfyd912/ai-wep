@@ -17,6 +17,9 @@ import {
   gameCollect,
   gameExamStart,
   gamePirateAttack,
+  gameLiveDeploy,
+  gameLiveEnd,
+  gameLivePirateStart,
   gameRepair,
   gameTyphoonStart,
   gameTyphoonSubmit,
@@ -69,7 +72,7 @@ import {
   type GameTyphoon,
   type GameTyphoonResult,
 } from "@/lib/api";
-import { BattleReplay } from "@/components/BattleReplay";
+import { BattleReplay, type LiveCtl } from "@/components/BattleReplay";
 import { PanZoom } from "@/components/PanZoom";
 import { SeaMap } from "@/components/SeaMap";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
@@ -139,6 +142,8 @@ export default function GameScreen() {
   const [battleStage, setBattleStage] = useState<number | null>(null);   // 바다 지도에서 고른 해적 단계
   const [planStage, setPlanStage] = useState<number | null>(null);       // G2c-2 작전 짜기 (전체 화면)
   const [battle, setBattle] = useState<GameBattle | null>(null);
+  // 시간차 출동 전투 중이면 그 전투 번호
+  const [liveId, setLiveId] = useState<string | null>(null);
   const [battleDef, setBattleDef] = useState(false);                     // 다시 보기가 내 조선소 방어 전투인지
   // G2c-3 친구 조선소 공격·방어 기록
   const [raidId, setRaidId] = useState<string | null>(null);
@@ -731,11 +736,50 @@ export default function GameScreen() {
       setMsg(gameError(t, e));
     }
   };
-  // 작전 짜기(해적) → 출격
-  const planAttack = (p: PlanLaunch) => {
+  // 출동 준비(해적) → 전투 시작: 배는 바다 밖에서 기다리고, 전투 화면에서 바다를 눌러 하나씩 보냄
+  const planAttack = async (p: PlanLaunch) => {
     if (!planStage) return;
+    if (p.loads) {
+      if (busy) return;
+      setBusy(true);
+      setExamErr("");
+      try {
+        const r = await gameLivePirateStart(planStage, p.ships, p.loads);
+        setBattleDef(false);
+        setLiveId(r.id);
+        setBattle(r.battle);
+      } catch (e) {
+        setExamErr(gameError(t, e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     attack({ stage: planStage, ships: p.ships, lane: p.lane, target: "defense", landing: p.landing, order: p.order, crews: p.crews });
   };
+  const liveCtl: LiveCtl | undefined = liveId
+    ? {
+        deploy: async (tk, ship, y) => {
+          try {
+            return (await gameLiveDeploy(liveId, tk, ship, y)).battle;
+          } catch (e) {
+            setMsg(gameError(t, e));
+            return null;
+          }
+        },
+        end: async (tk) => {
+          try {
+            const r = await gameLiveEnd(liveId, tk);
+            apply(r.state);
+            getPirate().then(setPirate).catch(() => undefined);
+            return r.battle;
+          } catch (e) {
+            setMsg(gameError(t, e));
+            return null;
+          }
+        },
+      }
+    : undefined;
   // G2c-3 친구 조선소: 작전 짜기 열기 (정찰 창·방어 기록의 복수하기)
   const openRaid = async (id: string, revenge?: string) => {
     setSeaOpen(false);
@@ -1332,7 +1376,7 @@ export default function GameScreen() {
                 onNext={shipNext} onSpeed={(using) => run(() => gameSpeedup("ship", using))} />
             ) : mode === "battle" ? (
               <BattlePanel key={battleStage ?? 0} initialStage={battleStage} data={data} pirate={pirate} busy={busy} error={examErr} onClose={() => setMode("home")}
-                onAttack={attack} onReplay={replay} onTyphoon={openTyphoon} onFleet={openWar} onPlan={openPlan} />
+                onReplay={replay} onTyphoon={openTyphoon} onFleet={openWar} onPlan={openPlan} />
             ) : mode === "typhoon" ? (
               <Card style={{ gap: space.sm }}>
                 <PanelHead title={t("gm_ty_title")} onClose={() => { setMode("battle"); openBattle(); }} />
@@ -1455,7 +1499,7 @@ export default function GameScreen() {
       ) : null}
       {planStage && pirate ? (
         <PlanScreen
-          target={{ kind: "pirate", title: t("gm_pl_title", { n: planStage }), base: pirate.stages[planStage - 1].base, map: pirate.map, stage: planStage }}
+          target={{ kind: "pirate", title: t("gm_lv_title", { n: planStage }), base: pirate.stages[planStage - 1].base, map: pirate.map, stage: planStage }}
           pirate={pirate}
           data={data}
           busy={busy}
@@ -1523,7 +1567,10 @@ export default function GameScreen() {
           </View>
         </View>
       ) : null}
-      {battle ? <BattleReplay battle={battle} defense={battleDef} onClose={() => setBattle(null)} /> : null}
+      {battle ? (
+        <BattleReplay key={liveId ?? battle.id} battle={battle} defense={battleDef} live={liveCtl}
+          onClose={() => { setBattle(null); setLiveId(null); }} />
+      ) : null}
       {!party && data.gifts?.length ? (
         <View style={[StyleSheet.absoluteFill, styles.partyBg]}>
           <View style={[styles.partyCard, { borderColor: "#E05A9B" }]}>
@@ -2500,7 +2547,6 @@ function BattlePanel({
   busy,
   error,
   onClose,
-  onAttack,
   onReplay,
   onTyphoon,
   onFleet,
@@ -2513,7 +2559,6 @@ function BattlePanel({
   busy: boolean;
   error: string;
   onClose: () => void;
-  onAttack: (plan: { stage: number; ships: string[]; lane: GameLane; target: "defense" | "hq" }) => void;
   onReplay: (id: string) => void;
   onTyphoon: () => void;
   onFleet: () => void;
@@ -2523,12 +2568,8 @@ function BattlePanel({
   const ships = data.fleet?.ships ?? [];
   const ready = ships.filter((f) => !f.damage && f.repair_left === undefined);
   const [stage, setStage] = useState<number | null>(initialStage ?? null);
-  const [pick, setPick] = useState<string[] | null>(null);
-  const [lane, setLane] = useState<GameLane>("middle");
-  const [target, setTarget] = useState<"defense" | "hq">("defense");
   const open = pirate?.stages.filter((x) => x.open) ?? [];
   const cur = stage ?? (open.find((x) => x.stars < 3) ?? open[open.length - 1])?.no ?? 1;
-  const chosen = (pick ?? ready.map((f) => f.id)).filter((id) => ready.some((f) => f.id === id));
   const ty = pirate?.typhoon;
   return (
     <Card style={{ gap: space.sm }}>
@@ -2556,52 +2597,16 @@ function BattlePanel({
               </View>
             );
           })()}
-          <Text style={styles.text}>{t("gm_bt_ships", { n: chosen.length })}</Text>
           {ships.length === 0 ? <Text style={styles.warn}>{t("gm_bt_noFleet")}</Text> : null}
-          <View style={styles.chips}>
-            {ships.map((f) => {
-              const ok = ready.some((r) => r.id === f.id);
-              const on = chosen.includes(f.id);
-              return (
-                <Pressable
-                  key={f.id}
-                  disabled={!ok}
-                  onPress={() => setPick(on ? chosen.filter((id) => id !== f.id) : [...chosen, f.id])}
-                  style={[styles.chip, on && styles.stageOn, !ok && { opacity: 0.4 }]}
-                >
-                  <Text style={styles.chipText}>
-                    {t("gm_fleetShip", { ship: t(`gm_ship_${f.kind}`), no: f.no })}
-                    {ok ? ` · ${f.attack ?? f.power}` : ` · ${t("gm_bt_hurt")}`}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
           {ships.length > ready.length ? (
             <Pressable onPress={onFleet} style={styles.linkRow}>
               <Ionicons name="construct-outline" size={14} color={colors.primary} />
               <Text style={styles.linkText}>{t("gm_bt_repairGo")}</Text>
             </Pressable>
           ) : null}
-          <Text style={styles.text}>{t("gm_bt_laneTitle")}</Text>
-          <View style={styles.row2}>
-            {(["north", "middle", "south"] as GameLane[]).map((k) => (
-              <Pressable key={k} onPress={() => setLane(k)} style={[styles.tab, lane === k && styles.tabOn]}>
-                <Text style={[styles.tabText, lane === k && styles.tabTextOn]}>{t(`gm_bt_lane_${k}`)}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={styles.text}>{t("gm_bt_tgtTitle")}</Text>
-          <View style={styles.row2}>
-            {(["defense", "hq"] as const).map((k) => (
-              <Pressable key={k} onPress={() => setTarget(k)} style={[styles.tab, target === k && styles.tabOn]}>
-                <Text style={[styles.tabText, target === k && styles.tabTextOn]}>{t(k === "hq" ? "gm_bt_tgtHq" : "gm_bt_tgtDef")}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <AppButton label={t("gm_bt_attack")} icon="flag-outline" disabled={busy || chosen.length === 0} onPress={() => onAttack({ stage: cur, ships: chosen, lane, target })} />
-          {/* G2c-2: 지도를 눌러 작전을 짜고 대원을 상륙시키기 */}
-          <AppButton label={t("gm_pl_open")} icon="navigate-outline" variant="secondary" onPress={() => onPlan(cur)} />
+          {/* 출동 준비: 배·대원을 고르고, 전투 중에 배를 한 척씩 원하는 해안으로 보냄 */}
+          <AppButton label={t("gm_lv_prepare")} icon="navigate-outline" disabled={busy || ready.length === 0} onPress={() => onPlan(cur)} />
+          <Text style={styles.small}>{t("gm_lv_howShort")}</Text>
           {pirate.history.length ? (
             <View style={styles.next}>
               <Text style={styles.text}>{t("gm_bt_history")}</Text>
