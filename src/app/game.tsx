@@ -85,6 +85,8 @@ import { CrewFigure } from "@/components/CrewFigure";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
 import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, scrapBlocks, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { YardCanvas } from "@/game/YardCanvas";
 import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
 
@@ -203,9 +205,11 @@ export default function GameScreen() {
   const [layout, setLayout] = useState<Record<string, { x: number; y: number }>>({});
   const [layoutSel, setLayoutSel] = useState<string | null>(null);
   const [fxState, setFxState] = useState(true);   // 소리·진동
+  const [newArt, setNewArt] = useState(true);     // 새 그림(시험판): 끄면 옛 도형 지도
   const [rallyShut, setRallyShut] = useState<string | null>(null);   // X로 닫은 집결장 인원 창
   useEffect(() => {
     void fxOn().then(setFxState);
+    void AsyncStorage.getItem("game_art").then((v) => setNewArt(v !== "off"));
     // 웹: 지도를 끄는 동안 페이지 자체가 밀려 올라가지 않게
     if (Platform.OS !== "web" || typeof document === "undefined") return;
     const els = [document.documentElement, document.body], prev = els.map((e) => e.style.overflow);
@@ -617,6 +621,11 @@ export default function GameScreen() {
     setFxState(v);
     void setFxOn(v);
     if (v) fx("tap");
+  };
+  const toggleArt = () => {
+    const v = !newArt;
+    setNewArt(v);
+    void AsyncStorage.setItem("game_art", v ? "on" : "off");
   };
   const claimTodo = () =>
     run(gameTodoClaim, () => {
@@ -1034,6 +1043,41 @@ export default function GameScreen() {
   const sheetW = Math.min(380, Math.max(280, width * 0.42));
   const pendingN = data.pending.steel + data.pending.rods;
 
+  const mapProps: Omit<React.ComponentProps<typeof GameMap>, "kit" | "layer"> = {
+    grid: (data.grid),
+    sea: (sea),
+    reclaiming: (rc?.left !== undefined),
+    fleet: ((data.fleet?.ships ?? []).map((f) => f.kind)),
+    W: (W),
+    buildings: (mapBuildings),
+    selected: (selected),
+    labels: (labels),
+    names: (names || mode === "place" || mode === "layout"),
+    crews: (data.crews?.have),
+    scraps: (data.scraps),
+    onScrap: (mode === "home" ? clearScrap : undefined),
+    onCollect: (doCollect),
+    place: (placeSpec),
+    ship: (data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null),
+    onSelect: ((id) => {
+      if (!tapOk()) return;
+      if (mode === "layout") return id ? pickLayout(id) : undefined;
+      if (!id) return tapEmpty();
+      fx("tap");
+      setSelected(id);
+      setRallyShut(null);
+      setDetail(false);
+      setMode("home");
+    }),
+    onPlace: ((x, y) => {
+      if (!tapOk()) return;
+      // 방파 장벽: 칸을 누를 때마다 바로 한 칸씩 (작업 반장 없이)
+      if (placeType === "wall" && !moveId) queueWall(x, y);
+      else placeAtCell(x, y);
+    }),
+    now: ({ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }),
+  };
+
   return (
     <View style={styles.full}>
       <StatusBar hidden />
@@ -1046,41 +1090,9 @@ export default function GameScreen() {
           : placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
         onGrab={onGrab}
         onTapAt={mode === "place" && placeType && pick ? onTapPlace : undefined}
+        backdrop={newArt ? (cam) => <YardCanvas cam={cam} width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} map={mapProps} /> : undefined}
         focus={focus}>
-            <GameMap
-              grid={data.grid}
-              sea={sea}
-              reclaiming={rc?.left !== undefined}
-              fleet={(data.fleet?.ships ?? []).map((f) => f.kind)}
-              W={W}
-              buildings={mapBuildings}
-              selected={selected}
-              labels={labels}
-              names={names || mode === "place" || mode === "layout"}
-              crews={data.crews?.have}
-              scraps={data.scraps}
-              onScrap={mode === "home" ? clearScrap : undefined}
-              onCollect={doCollect}
-              place={placeSpec}
-              ship={data.ship ? { kind: data.ship.kind, stage: data.ship.stage, war: data.ship.war } : null}
-              onSelect={(id) => {
-                if (!tapOk()) return;
-                if (mode === "layout") return id ? pickLayout(id) : undefined;
-                if (!id) return tapEmpty();
-                fx("tap");
-                setSelected(id);
-                setRallyShut(null);
-                setDetail(false);
-                setMode("home");
-              }}
-              onPlace={(x, y) => {
-                if (!tapOk()) return;
-                // 방파 장벽: 칸을 누를 때마다 바로 한 칸씩 (작업 반장 없이)
-                if (placeType === "wall" && !moveId) queueWall(x, y);
-                else placeAtCell(x, y);
-              }}
-              now={{ left: (b) => (leftOf(b) !== null ? clock(leftOf(b)!) : null), done: t("gm_doneChip") }}
-            />
+            <GameMap {...mapProps} layer={newArt ? "touch" : "all"} />
       </PanZoom>
 
       {/* 왼쪽 위: 나가기 · 본관 레벨 · 도움말 */}
@@ -1509,6 +1521,7 @@ export default function GameScreen() {
                   <AppButton label={names ? t("gm_namesOn") : t("gm_namesOff")} icon={names ? "pricetags" : "pricetags-outline"} variant="secondary" onPress={() => setNames((v) => !v)} />
                   <AppButton label={t("gm_layoutStart")} icon="move" variant="secondary" onPress={startLayout} />
                   <AppButton label={fxState ? t("gm_fxOn") : t("gm_fxOff")} icon={fxState ? "volume-high" : "volume-mute"} variant="secondary" onPress={toggleFx} />
+                  <AppButton label={newArt ? t("gm_artOn") : t("gm_artOff")} icon={newArt ? "color-palette" : "color-palette-outline"} variant="secondary" onPress={toggleArt} />
                 </Card>
                 <EarnPanel data={data} onClose={() => setMode("home")} />
                 <Card style={{ gap: space.xs }}>

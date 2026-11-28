@@ -1968,6 +1968,8 @@ const id: Translation = {
   gm_fxOff: "Suara & getar mati (ketuk untuk menyalakan)",
   gm_namesOn: "Tampilkan semua nama bangunan: aktif",
   gm_namesOff: "Tampilkan semua nama bangunan: mati",
+  gm_artOn: "Grafik baru (uji coba): aktif",
+  gm_artOff: "Grafik baru (uji coba): mati",
   gm_scrapFull: "Sampah besi dibersihkan. Gudang penuh, jadi tidak ada sumber daya (tingkatkan gudang).",
   gm_bl_groupReady: "{{n}} bisa sekarang · ketuk untuk lihat",
   gm_bl_groupNone: "Belum ada yang bisa · ketuk untuk lihat",

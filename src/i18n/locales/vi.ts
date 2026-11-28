@@ -1968,6 +1968,8 @@ const vi: Translation = {
   gm_fxOff: "Âm thanh & rung: tắt (chạm để bật)",
   gm_namesOn: "Hiện tên mọi công trình: bật",
   gm_namesOff: "Hiện tên mọi công trình: tắt",
+  gm_artOn: "Đồ họa mới (thử nghiệm): bật",
+  gm_artOff: "Đồ họa mới (thử nghiệm): tắt",
   gm_scrapFull: "Đã dọn phế liệu. Kho đầy nên không nhận được tài nguyên (hãy nâng cấp kho).",
   gm_bl_groupReady: "{{n}} việc làm được ngay · chạm để xem",
   gm_bl_groupNone: "Hiện chưa làm được gì · chạm để xem",

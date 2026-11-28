@@ -1968,6 +1968,8 @@ const fil: Translation = {
   gm_fxOff: "Tunog at vibrate: off (i-tap para i-on)",
   gm_namesOn: "Ipakita lahat ng pangalan ng gusali: on",
   gm_namesOff: "Ipakita lahat ng pangalan ng gusali: off",
+  gm_artOn: "Bagong graphics (pagsubok): on",
+  gm_artOff: "Bagong graphics (pagsubok): off",
   gm_scrapFull: "Nalinis ang scrap. Puno ang imbakan kaya walang nadagdag (i-upgrade ang imbakan).",
   gm_bl_groupReady: "{{n}} puwede na · i-tap para makita",
   gm_bl_groupNone: "Wala pang puwede · i-tap para makita",

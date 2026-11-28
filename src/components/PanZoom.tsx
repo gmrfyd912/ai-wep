@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { GestureDetector, usePanGesture, usePinchGesture, useSimultaneousGestures, useTapGesture } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 
 /**
  * 지도 움직이기·확대: 한 손가락으로 끌어 옮기고, 두 손가락으로 벌리거나 오므려 확대·축소.
@@ -27,8 +27,11 @@ export function PanZoom({
   onTapAt,
   focus = null,
   edge = 0.35,
+  backdrop,
   children,
 }: {
+  /** 지도 뒤에 화면 크기로 깔 그림판. 끌기·확대 값(tx, ty, s)을 받아 스스로 옮겨 그림 (큰 지도를 통째로 옮기지 않아 가벼움) */
+  backdrop?: (cam: { tx: SharedValue<number>; ty: SharedValue<number>; s: SharedValue<number> }) => ReactNode;
   width: number;
   height: number;
   /** 지금 배율로 그린 지도 크기 */
@@ -220,6 +223,7 @@ export function PanZoom({
     <GestureDetector gesture={gesture}>
       <View style={StyleSheet.absoluteFill} collapsable={false}>
         {onTapEmpty ? <Pressable style={StyleSheet.absoluteFill} onPress={onTapEmpty} accessible={false} /> : null}
+        {backdrop ? <View style={StyleSheet.absoluteFill} pointerEvents="none">{backdrop({ tx, ty, s })}</View> : null}
         <Animated.View
           style={[{ position: "absolute", left: (width - contentW) / 2, top: (height - contentH) / 2, width: contentW, height: contentH }, style]}
         >

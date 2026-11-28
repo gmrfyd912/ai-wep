@@ -1968,6 +1968,8 @@ const en: Translation = {
   gm_fxOff: "Sound & vibration off (tap to turn on)",
   gm_namesOn: "Show all building names: on",
   gm_namesOff: "Show all building names: off",
+  gm_artOn: "New graphics (trial): on",
+  gm_artOff: "New graphics (trial): off",
   gm_scrapFull: "Scrap cleared. Your storage is full, so no resources were added (upgrade storage).",
   gm_bl_groupReady: "{{n}} ready now · tap to see",
   gm_bl_groupNone: "Nothing available now · tap to see",

@@ -52,3 +52,6 @@ __pycache__/
 *.pyc
 server/out/
 server/validation/
+
+# Skia 웹용 그리기 파일 (npm install 때 자동 복사)
+public/canvaskit.wasm
