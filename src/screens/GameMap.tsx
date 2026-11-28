@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import Svg, { Circle, Ellipse, G, Line, Polygon, Rect, Text as SvgText } from "react-native-svg";
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import Svg, { Circle as SvgCircle, Ellipse as SvgEllipse, G as SvgG, Line as SvgLine, Polygon as SvgPolygon, Rect as SvgRect, Text as SvgText0 } from "react-native-svg";
 
 import type { GameBuilding, GameScrap, GameShipKind, GameWarKind } from "@/lib/api";
 
@@ -44,8 +44,26 @@ const BASE_H: Record<string, number> = {
 
 type Pt = [number, number];
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type Prim = ComponentType<any>;
+/**
+ * 그리기 도구 묶음. 같은 지도 코드를 react-native-svg(옛 방식)로도, Skia(새 그림)로도 그리게 함.
+ * Sprite·Ground·Smoke 는 새 그림에서만 있음.
+ */
+export type MapKit = {
+  G: Prim; Polygon: Prim; Line: Prim; Circle: Prim; Ellipse: Prim; Rect: Prim; SvgText: Prim;
+  /** 미리 그려 둔 건물 그림 (이름, 기준 칸 x·y) → 없으면 null */
+  sprite?: (name: string, x: number, y: number, P: (x: number, y: number) => Pt, W: number, key: string) => ReactNode | null;
+  Ground?: Prim;
+  Smoke?: Prim;
+};
+export const svgKit: MapKit = { G: SvgG, Polygon: SvgPolygon, Line: SvgLine, Circle: SvgCircle, Ellipse: SvgEllipse, Rect: SvgRect, SvgText: SvgText0 };
+/** 새 그림이 있는 건물 (높이: 칸 너비 배수, 누르는 범위에 씀) */
+const ART_H: Record<string, number> = { hq: 1.0, welding: 0.75, cutting: 0.75, yard: 0.5 };
+
 function shade(hex: string, k: number) {
-  const n = parseInt(hex.slice(1), 16);
+  const m = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(hex);   // 이미 한 번 밝기를 바꾼 색도 받음
+  const n = m ? (Number(m[1]) << 16) | (Number(m[2]) << 8) | Number(m[3]) : parseInt(hex.slice(1), 16);
   const c = (v: number) => Math.max(0, Math.min(255, Math.round(v * k)));
   return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`;
 }
@@ -55,7 +73,7 @@ const pts = (a: Pt[]) => a.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).j
 /** 땅 바깥 꾸밈 땅(컨테이너·나무) 칸 수: 지도를 끌면 땅 가장자리 너머도 보이게 */
 const MARGIN = 3;
 /** 지도 그림 원점: P(x, y) = [ox + (x − y)·W/2, oy + (x + y)·W/4] */
-function origin(grid: number, W: number) {
+export function origin(grid: number, W: number) {
   return { ox: (grid / 2 + MARGIN) * W, oy: (MARGIN / 2 + 2) * W };
 }
 
@@ -160,7 +178,13 @@ export function GameMap({
   scraps = [],
   onScrap,
   now,
+  kit = svgKit,
+  layer = "all",
 }: {
+  /** 그리기 도구 (기본 = react-native-svg) */
+  kit?: MapKit;
+  /** all = 옛 방식(그림+누르기 한 번에), art = 그림만(Skia 안), touch = 누르는 곳과 이름표만(그림 위에 덮음) */
+  layer?: "all" | "art" | "touch";
   grid: number;
   /** 바다 줄 수 */
   sea?: number;
@@ -194,6 +218,8 @@ export function GameMap({
   /** 화면 글자: 남은 시간 등 */
   now: { left: (b: GameBuilding) => string | null; done: string };
 }) {
+  const { G, Polygon, Line, Circle, Ellipse, Rect, SvgText } = kit;
+  const spr = (name: string, x: number, y: number, key: string) => (kit.sprite ? kit.sprite(name, x, y, P, W, key) : null);
   const H = W / 2;
   const WATER_COLS = sea;
   const { width, height } = mapSize(grid, W, sea);
@@ -241,21 +267,29 @@ export function GameMap({
 
   // 바깥 땅·바다·조선소 땅: 큰 판 몇 장 + 칸 줄 (칸마다 그리지 않아 가벼움)
   const M = grid * 2;   // 화면 끝까지 덮게 넉넉히
-  const ground: React.ReactNode[] = [
-    <Polygon key="outer" points={pts([P(-M, -M), P(grid, -M), P(grid, grid + M), P(-M, grid + M)])} fill="#7E9A5C" onPress={() => !place && onSelect(null)} />,
-    <Polygon key="land" points={pts([P(0, 0), P(grid, 0), P(grid, grid), P(0, grid)])} fill="#C8C2B4" onPress={() => !place && onSelect(null)} />,
-  ];
-  // 칸 줄 (2칸마다 진하게)
-  for (let i = 0; i <= grid; i++) {
-    const a1 = P(i, 0), a2 = P(i, grid), b1 = P(0, i), b2 = P(grid, i);
-    const sw = i % 2 ? 0.4 : 0.8;
-    ground.push(<Line key={`gx${i}`} x1={a1[0]} y1={a1[1]} x2={a2[0]} y2={a2[1]} stroke="#00000018" strokeWidth={sw} />);
-    ground.push(<Line key={`gy${i}`} x1={b1[0]} y1={b1[1]} x2={b2[0]} y2={b2[1]} stroke="#00000018" strokeWidth={sw} />);
-  }
-  // 바다 쪽 물결
-  for (let k = 0; k < grid; k += 3) {
-    const c = P(grid + 1.2 + (k % 2), k + 0.5);
-    ground.push(<Line key={`wv${k}`} x1={c[0] - W * 0.35} y1={c[1]} x2={c[0] + W * 0.35} y2={c[1]} stroke="#7FC0EE" strokeWidth={1.2} opacity={0.7} />);
+  const ground: React.ReactNode[] = [];
+  /** 누르는 곳 (touch 층에서만 씀): 거의 안 보이는 도형 */
+  const hits: React.ReactNode[] = [];
+  const HIT = { fill: "#fff", fillOpacity: 0.01 } as const;
+  if (kit.Ground) {
+    ground.push(<kit.Ground key="ground" grid={grid} sea={sea} W={W} />);
+  } else {
+    ground.push(
+      <Polygon key="outer" points={pts([P(-M, -M), P(grid, -M), P(grid, grid + M), P(-M, grid + M)])} fill="#7E9A5C" onPress={() => !place && onSelect(null)} />,
+      <Polygon key="land" points={pts([P(0, 0), P(grid, 0), P(grid, grid), P(0, grid)])} fill="#C8C2B4" onPress={() => !place && onSelect(null)} />,
+    );
+    // 칸 줄 (2칸마다 진하게)
+    for (let i = 0; i <= grid; i++) {
+      const a1 = P(i, 0), a2 = P(i, grid), b1 = P(0, i), b2 = P(grid, i);
+      const sw = i % 2 ? 0.4 : 0.8;
+      ground.push(<Line key={`gx${i}`} x1={a1[0]} y1={a1[1]} x2={a2[0]} y2={a2[1]} stroke="#00000018" strokeWidth={sw} />);
+      ground.push(<Line key={`gy${i}`} x1={b1[0]} y1={b1[1]} x2={b2[0]} y2={b2[1]} stroke="#00000018" strokeWidth={sw} />);
+    }
+    // 바다 쪽 물결
+    for (let k = 0; k < grid; k += 3) {
+      const c = P(grid + 1.2 + (k % 2), k + 0.5);
+      ground.push(<Line key={`wv${k}`} x1={c[0] - W * 0.35} y1={c[1]} x2={c[0] + W * 0.35} y2={c[1]} stroke="#7FC0EE" strokeWidth={1.2} opacity={0.7} />);
+    }
   }
   // 놓기 모드: 놓을 수 있는 칸만 초록 (누르면 그 자리)
   if (place)
@@ -266,15 +300,30 @@ export function GameMap({
         ground.push(
           <Polygon key={`t${x}-${y}`} points={pts(corners)} fill={(x + y) % 2 ? "#7FD18F" : "#73C985"} stroke="#00000014" strokeWidth={0.5} onPress={() => onPlace(x, y)} />,
         );
+        if (layer === "touch") hits.push(<SvgPolygon key={`ht${x}-${y}`} points={pts(corners)} {...HIT} onPress={() => onPlace(x, y)} />);
       }
   // 조선소 울타리 (바다 쪽 빼고 세 면) + 해안 안벽
   const fence = [P(grid, 0), P(0, 0), P(0, grid), P(grid, grid)];
-  ground.push(<Polygon key="fence" points={pts(fence)} fill="none" stroke="#E8B400" strokeWidth={2} strokeDasharray="8 5" />);
-  ground.push(<Polygon key="quay" points={pts([P(grid, 0), P(grid + 0.15, 0), P(grid + 0.15, grid), P(grid, grid)])} fill="#9AA3AB" />);
+  if (!kit.Ground) {
+    ground.push(<Polygon key="fence" points={pts(fence)} fill="none" stroke="#E8B400" strokeWidth={2} strokeDasharray="8 5" />);
+    ground.push(<Polygon key="quay" points={pts([P(grid, 0), P(grid + 0.15, 0), P(grid + 0.15, grid), P(grid, grid)])} fill="#9AA3AB" />);
+  }
 
   // 둘레 꾸밈: 컨테이너 더미·나무 (지을 수 없는 바깥 땅)
   const deco: React.ReactNode[] = [];
   const CONT = ["#B33B2E", "#2B7FBF", "#2E9D5B", "#E0A526"];
+  if (kit.sprite) {
+    // 새 그림: 컨테이너 더미·나무 (뒤에서 앞으로)
+    for (let k = 0; k < grid; k += 2) {
+      if (k % 6 === 2) deco.push(spr(k % 4 ? "tree1" : "tree2", k + 0.5, -4.4, `tt${k}`));
+      deco.push(spr((k / 2) % 2 ? "cont_y1" : "cont_y2", k, -2.6, `ct${k}`));
+    }
+    for (let k = 0; k < grid; k += 2) {
+      if (k % 6 === 0) deco.push(spr(k % 4 ? "tree2" : "tree1", -4.4, k + 0.5, `tl${k}`));
+      deco.push(spr((k / 2) % 2 ? "cont_x1" : "cont_x2", -2.6, k, `cl${k}`));
+    }
+    for (let k = 0; k < grid - 2; k += 3) deco.push(spr(k % 6 === 0 ? "tree1" : k % 2 ? "cont_x2" : "cont_x1", k, grid + 0.9, `cb${k}`));
+  } else {
   for (let k = 0; k < grid; k += 2) {
     deco.push(box(-2.2, k + 0.2, 1.6, 0.8, (0.35 + ((k / 2) % 3) * 0.3) * W, CONT[(k / 2) % 4], `cl${k}`));
     if (k % 6 === 0) deco.push(<Circle key={`tl${k}`} cx={P(-3.8, k + 1)[0]} cy={P(-3.8, k + 1)[1] - W * 0.5} r={W * 0.45} fill="#4E7A3A" />);
@@ -286,6 +335,8 @@ export function GameMap({
   for (let k = 0; k < grid - 2; k += 3) {
     if (k % 6 === 0) deco.push(<Circle key={`tb${k}`} cx={P(k + 1, grid + 1.6)[0]} cy={P(k + 1, grid + 1.6)[1] - W * 0.5} r={W * 0.45} fill="#4E7A3A" />);
     else deco.push(box(k + 0.2, grid + 0.8, 1.6, 0.8, 0.5 * W, CONT[k % 4], `cb${k}`));
+  }
+
   }
 
   // 간척 중: 새로 생길 땅(오른쪽 2줄·아래 2줄)을 모래로 메우는 중
@@ -305,7 +356,7 @@ export function GameMap({
     const a = P(dx + 0.5, dy + 0.2), b = P(grid - 0.2, dy - 1.2);
     fill.push(<Line key="pipe" x1={a[0]} y1={a[1] - 0.3 * W} x2={b[0]} y2={b[1]} stroke="#555" strokeWidth={3} />);
     fill.push(<Circle key="spray" cx={b[0]} cy={b[1]} r={0.35 * W} fill="#D9C08A" opacity={0.9} />);
-    fill.push(<Foreman key="rf" from={P(grid + 0.3, grid + 1.4)} to={P(1, grid + 1.4)} size={W * 0.62} offset={777} />);
+    fill.push(<Foreman kit={kit} key="rf" from={P(grid + 0.3, grid + 1.4)} to={P(1, grid + 1.4)} size={W * 0.62} offset={777} />);
   }
 
   const wall: React.ReactNode[] = [];
@@ -338,6 +389,7 @@ export function GameMap({
     }
   }
   const walkers: React.ReactNode[] = [];
+  const smokes: React.ReactNode[] = [];
 
   const tagInfo: { b: GameBuilding; sel: boolean; cx: number; y: number }[] = [];
   const sorted = [...buildings].sort((a, b) => a.x + a.w + a.y + a.h - (b.x + b.w + b.y + b.h));
@@ -345,12 +397,13 @@ export function GameMap({
     const color = BUILDING_COLOR[b.type] ?? "#999";
     const sel = selected === b.id;
     const lv = Math.max(b.level, 1);
-    const z = (BASE_H[b.type] + lv * 0.06) * W;
+    const z = (kit.sprite || layer === "touch") && ART_H[b.type] && b.level > 0 ? ART_H[b.type] * W : (BASE_H[b.type] + lv * 0.06) * W;
     const parts: React.ReactNode[] = [];
     if (b.type === "dock") {
       // 도크: 물 + 크레인 기둥 + 배
       const A = P(b.x, b.y), B = P(b.x + b.w, b.y), C = P(b.x + b.w, b.y + b.h), D = P(b.x, b.y + b.h);
-      parts.push(<Polygon key="pool" points={pts([A, B, C, D])} fill="#1F6FA8" stroke="#555" strokeWidth={2} />);
+      const base = spr("dock_base", b.x, b.y, "pool");
+      parts.push(base ?? <Polygon key="pool" points={pts([A, B, C, D])} fill="#1F6FA8" stroke="#555" strokeWidth={2} />);
       const hullC = ship?.war ? WAR_COLOR : "#B33B2E";
       if (ship) {
         const len = [1.2, 2.2, 3.2, 4.4, 4.4][ship.stage] ?? 4.4;
@@ -365,7 +418,8 @@ export function GameMap({
       }
       const c1 = P(b.x - 0.2, b.y + b.h + 0.2), c2 = P(b.x + b.w + 0.3, b.y + b.h + 0.2);
       const ch = 2.4 * W;
-      parts.push(
+      const crane = spr("dock_crane", b.x, b.y, "crane");
+      parts.push(crane ??
         <G key="crane">
           <Rect x={c1[0] - 2} y={c1[1] - ch} width={4} height={ch} fill="#F2C230" />
           <Rect x={c2[0] - 2} y={c2[1] - ch} width={4} height={ch} fill="#F2C230" />
@@ -460,9 +514,16 @@ export function GameMap({
         const near = buildings.filter((o) => o.id !== b.id && o.type !== "wall" && o.type !== "mine" && o.x < grid)
           .sort((p1, p2) => Math.abs(p1.x - b.x) + Math.abs(p1.y - b.y) - (Math.abs(p2.x - b.x) + Math.abs(p2.y - b.y)))[0];
         if (near) {
-          walkers.push(<Walker key={`wk${b.id}`} from={P(b.x + b.w / 2, b.y + b.h + 0.2)} to={P(near.x + near.w / 2, near.y + near.h + 0.2)} size={W * 0.55}
+          walkers.push(<Walker kit={kit} key={`wk${b.id}`} from={P(b.x + b.w / 2, b.y + b.h + 0.2)} to={P(near.x + near.w / 2, near.y + near.h + 0.2)} size={W * 0.55}
             color={CREW_COLOR[list[0]] ?? "#2B3A67"} offset={b.x * 131 + b.y * 17} />);
         }
+      }
+    } else if (b.level > 0 && ART_H[b.type] && kit.sprite && spr(b.type, b.x, b.y, "art")) {
+      // 새 그림 (미리 그려 둔 건물)
+      parts.push(spr(b.type, b.x, b.y, "art"));
+      if (kit.Smoke && (b.type === "welding" || b.type === "cutting")) {
+        const c = P(b.x + 0.45, b.y + 0.45);
+        smokes.push(<kit.Smoke key={`sm${b.id}`} x={c[0]} y={c[1] - 1.12 * W} W={W} seed={b.x * 7 + b.y * 13} />);
       }
     } else if (b.level === 0) {
       // 새로 짓는 중: 비계(뼈대)
@@ -494,7 +555,7 @@ export function GameMap({
     if (b.busy_until && b.type !== "dock") {
       // 공사 중: 작업 반장이 건물 앞쪽을 오가며 망치질 (건물과 같은 층이라 앞 건물에 알맞게 가려짐)
       parts.push(
-        <Foreman key="wk" from={P(b.x + 0.2, b.y + b.h + 0.25)} to={P(b.x + b.w - 0.1, b.y + b.h + 0.25)} size={W * 0.62} offset={(b.x * 7 + b.y * 3) * 300} />,
+        <Foreman kit={kit} key="wk" from={P(b.x + 0.2, b.y + b.h + 0.25)} to={P(b.x + b.w - 0.1, b.y + b.h + 0.25)} size={W * 0.62} offset={(b.x * 7 + b.y * 3) * 300} />,
       );
     }
     if (sel && b.defense && b.defense.range > 0) {
@@ -514,6 +575,14 @@ export function GameMap({
         // 집결장 이름표는 깃발 위에 (광장 가운데에 서 있는 대원을 가리지 않게)
         ? { b, sel, cx: P(b.x + 0.35, b.y + 0.35)[0], y: P(b.x + 0.35, b.y + 0.35)[1] - 1.2 * W - 4 }
         : { b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
+    if (layer === "touch" && !place) {
+      // 누르는 범위: 건물 상자의 겉 테두리 (바닥 + 높이)
+      const A = P(b.x, b.y), B = P(b.x + b.w, b.y), C = P(b.x + b.w, b.y + b.h), D = P(b.x, b.y + b.h);
+      const zz = Math.max(z, 0.25 * W);
+      const up = (p: Pt): Pt => [p[0], p[1] - zz];
+      hits.push(<SvgPolygon key={`hb${b.id}`} points={pts([D, C, B, up(B), up(A), up(D)])} {...HIT} onPress={() => onSelect(b.id)} />);
+      return null;
+    }
     return (
       <G key={b.id} onPress={place ? undefined : () => onSelect(b.id)}>
         {parts}
@@ -605,6 +674,8 @@ export function GameMap({
       k.push(<Ellipse key="d1" cx={c[0] - W * 0.12} cy={c[1] - W * 0.18} rx={W * 0.13} ry={W * 0.2} fill="#C0392B" stroke="#5A1A12" strokeWidth={0.8} />);
       k.push(<Ellipse key="d2" cx={c[0] + W * 0.14} cy={c[1] - W * 0.12} rx={W * 0.13} ry={W * 0.2} fill="#2E6DA4" stroke="#123" strokeWidth={0.8} />);
     }
+    if (layer === "touch" && !place && onScrap)
+      hits.push(<SvgEllipse key={`hs${p.id}`} cx={c[0]} cy={c[1] - W * 0.1} rx={W * 0.5} ry={W * 0.34} {...HIT} onPress={() => onScrap(p.id)} />);
     return (
       <G key={`scrap-${p.id}`} onPress={place || !onScrap ? undefined : () => onScrap(p.id)}>
         <Ellipse cx={c[0]} cy={c[1]} rx={W * 0.48} ry={W * 0.24} fill="#5B4A3355" />
@@ -622,8 +693,34 @@ export function GameMap({
     const A = P(place.hint.x, place.hint.y), B = P(place.hint.x + place.w, place.hint.y);
     const C = P(place.hint.x + place.w, place.hint.y + place.h), D = P(place.hint.x, place.hint.y + place.h);
     hint = <Polygon points={pts([A, B, C, D])} fill="#FFE27A" stroke="#fff" strokeWidth={2.5} strokeDasharray="5 4" onPress={() => onPlace(place.hint!.x, place.hint!.y)} />;
+    if (layer === "touch") hits.push(<SvgPolygon key="hhint" points={pts([A, B, C, D])} {...HIT} onPress={() => onPlace(place.hint!.x, place.hint!.y)} />);
   }
 
+  if (layer === "art")
+    return (
+      <G>
+        {ground}
+        {deco}
+        {fill}
+        {hint}
+        {wall}
+        <G opacity={place ? 0.28 : 1}>
+          {scrapItems}
+          {items}
+          {walkers}
+          {smokes}
+        </G>
+        {ghost}
+      </G>
+    );
+  if (layer === "touch")
+    return (
+      <Svg width={width} height={height}>
+        <SvgRect x={0} y={0} width={width} height={height} {...HIT} onPress={() => !place && onSelect(null)} />
+        {hits}
+        {place ? null : tags}
+      </Svg>
+    );
   return (
     <Svg width={width} height={height}>
       <Rect x={0} y={0} width={width} height={height} fill="#2B7FBF" onPress={() => !place && onSelect(null)} />
@@ -645,7 +742,8 @@ export function GameMap({
 }
 
 /** 오가는 대원 (보기용): from → to 걸어갔다 돌아옴 */
-function Walker({ from, to, size, color, offset }: { from: Pt; to: Pt; size: number; color: string; offset: number }) {
+function Walker({ kit, from, to, size, color, offset }: { kit: MapKit; from: Pt; to: Pt; size: number; color: string; offset: number }) {
+  const { G, Line, Circle, Rect } = kit;
   const LOOP = 9000;
   const [t, setT] = useState(offset % LOOP);
   useEffect(() => {
@@ -677,7 +775,8 @@ const HIT = 600;
  * 작업 반장 (공사 중 표시). 안전모·남색 작업복, 건물 앞을 오가다 끝에서 망치질.
  * 자기 상태만 다시 그려서 지도 전체는 다시 그리지 않는다.
  */
-function Foreman({ from, to, size, offset }: { from: Pt; to: Pt; size: number; offset: number }) {
+function Foreman({ kit, from, to, size, offset }: { kit: MapKit; from: Pt; to: Pt; size: number; offset: number }) {
+  const { G, Line, Circle, Rect, Polygon } = kit;
   const [t, setT] = useState(offset % CYCLE);
   useEffect(() => {
     const start = Date.now() - offset;

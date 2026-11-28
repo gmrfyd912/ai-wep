@@ -1968,6 +1968,8 @@ const es: Translation = {
   gm_fxOff: "Sonido y vibración apagados (toca para activar)",
   gm_namesOn: "Mostrar nombres de edificios: sí",
   gm_namesOff: "Mostrar nombres de edificios: no",
+  gm_artOn: "Gráficos nuevos (prueba): sí",
+  gm_artOff: "Gráficos nuevos (prueba): no",
   gm_scrapFull: "Chatarra retirada. El almacén está lleno y no se añadió nada (mejora el almacén).",
   gm_bl_groupReady: "{{n}} disponibles · toca para ver",
   gm_bl_groupNone: "Nada disponible ahora · toca para ver",

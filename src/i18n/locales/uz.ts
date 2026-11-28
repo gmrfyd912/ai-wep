@@ -1968,6 +1968,8 @@ const uz: Translation = {
   gm_fxOff: "Ovoz va tebranish o‘chirilgan (yoqish uchun bosing)",
   gm_namesOn: "Barcha bino nomlari: yoqilgan",
   gm_namesOff: "Barcha bino nomlari: o‘chirilgan",
+  gm_artOn: "Yangi grafika (sinov): yoqilgan",
+  gm_artOff: "Yangi grafika (sinov): o‘chirilgan",
   gm_scrapFull: "Chiqindi tozalandi. Ombor to‘la, resurs qo‘shilmadi (omborni yaxshilang).",
   gm_bl_groupReady: "Hozir {{n}} ta mumkin · ko‘rish uchun bosing",
   gm_bl_groupNone: "Hozircha hech narsa yo‘q · ko‘rish uchun bosing",
