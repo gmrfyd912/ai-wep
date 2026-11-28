@@ -87,6 +87,7 @@ import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
 import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, centerOf, GameMap, mapSize, RES_COLOR, scrapBlocks, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { GAME_BUILD } from "@/game/build";
 import { YardCanvas } from "@/game/YardCanvas";
 import { fx, fxOn, setFxOn } from "@/lib/fx";
 import { colors, radius, space } from "@/theme";
@@ -1521,7 +1522,7 @@ export default function GameScreen() {
             ) : mode === "earn" ? (
               <>
                 <Card style={{ gap: space.sm }}>
-                  <Text style={styles.cardTitle}>{t("gm_settings")}</Text>
+                  <Text style={styles.cardTitle}>{t("gm_settings")}  <Text style={{ fontSize: 12, fontWeight: "400", opacity: 0.6 }}>ver {GAME_BUILD}</Text></Text>
                   <AppButton label={names ? t("gm_namesOn") : t("gm_namesOff")} icon={names ? "pricetags" : "pricetags-outline"} variant="secondary" onPress={() => setNames((v) => !v)} />
                   <AppButton label={t("gm_layoutStart")} icon="move" variant="secondary" onPress={startLayout} />
                   <AppButton label={fxState ? t("gm_fxOn") : t("gm_fxOff")} icon={fxState ? "volume-high" : "volume-mute"} variant="secondary" onPress={toggleFx} />
