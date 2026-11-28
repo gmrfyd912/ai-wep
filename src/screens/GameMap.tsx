@@ -320,16 +320,21 @@ export function GameMap({
     });
     // 사람·장비가 골고루 섞이게 종류를 번갈아
     queue.sort((a, b) => Number(MACHINES.has(a)) - Number(MACHINES.has(b)));
-    let qi = 0;
-    for (const r of rallies) {
-      const room = r.room ?? 8;
-      const list: string[] = [];
-      let used = 0;
-      while (qi < queue.length && used + (MACHINES.has(queue[qi]) ? 2 : 1) <= room) {
-        used += MACHINES.has(queue[qi]) ? 2 : 1;
-        list.push(queue[qi++]);
+    // 집결장이 여러 개면 돌아가며 하나씩 (새로 지은 집결장에도 대원이 보이게)
+    const used = rallies.map(() => 0);
+    rallies.forEach((r) => (rallyCrew[r.id] = []));
+    let turn = 0;
+    for (const k of queue) {
+      const need = MACHINES.has(k) ? 2 : 1;
+      for (let j = 0; j < rallies.length; j++) {
+        const i = (turn + j) % rallies.length;
+        if (used[i] + need <= (rallies[i].room ?? 8)) {
+          used[i] += need;
+          rallyCrew[rallies[i].id].push(k);
+          turn = i + 1;
+          break;
+        }
       }
-      rallyCrew[r.id] = list;
     }
   }
   const walkers: React.ReactNode[] = [];
@@ -427,17 +432,23 @@ export function GameMap({
       parts.push(<Line key="fpole" x1={f[0]} y1={f[1]} x2={f[0]} y2={f[1] - 1.1 * W} stroke="#555" strokeWidth={1.5} />);
       parts.push(<Polygon key="flag" points={pts([[f[0], f[1] - 1.1 * W], [f[0] + 0.45 * W, f[1] - 0.95 * W], [f[0], f[1] - 0.8 * W]])} fill="#FF8A1F" />);
       const list = rallyCrew[b.id] ?? [];
+      // 앞줄(화면 아래쪽)부터 채움: 뒤쪽은 옆 건물·이름표에 가려질 수 있어서
       const cols = 4, gap = (b.w - 0.6) / cols;
-      list.slice(0, 16).forEach((k, i) => {
-        const gx = b.x + 0.55 + (i % cols) * gap, gy = b.y + 0.75 + Math.floor(i / cols) * gap;
+      const cells: [number, number][] = [];
+      for (let r = 0; r < cols; r++) for (let q = 0; q < cols; q++) cells.push([b.x + 0.55 + q * gap, b.y + 0.55 + r * gap]);
+      cells.sort((a, c) => c[0] + c[1] - (a[0] + a[1]) || a[0] - c[0]);
+      const shown = list.slice(0, 16).map((k, i) => ({ k, i, gx: cells[i][0], gy: cells[i][1] }));
+      shown.sort((a, c) => a.gx + a.gy - (c.gx + c.gy));   // 뒤에서 앞으로 그려야 겹침이 자연스러움
+      shown.forEach(({ k, i, gx, gy }) => {
         const c = P(gx, gy);
         const col = CREW_COLOR[k] ?? "#333";
         if (MACHINES.has(k)) {
-          parts.push(box(gx - 0.2, gy - 0.15, k === "transporter" ? 0.6 : 0.4, 0.3, (k === "crane" ? 0.5 : 0.22) * W, col, `m${i}`));
+          parts.push(box(gx - 0.25, gy - 0.18, k === "transporter" ? 0.65 : 0.45, 0.36, (k === "crane" ? 0.6 : 0.28) * W, col, `m${i}`));
         } else {
-          parts.push(<Rect key={`pb${i}`} x={c[0] - W * 0.07} y={c[1] - W * 0.28} width={W * 0.14} height={W * 0.22} rx={W * 0.03} fill={col} />);
-          parts.push(<Circle key={`ph${i}`} cx={c[0]} cy={c[1] - W * 0.34} r={W * 0.07} fill="#F2C9A0" />);
-          parts.push(<Rect key={`hh${i}`} x={c[0] - W * 0.08} y={c[1] - W * 0.43} width={W * 0.16} height={W * 0.05} rx={W * 0.02} fill="#FFC21A" />);
+          const u = W * 1.4;   // 사람 크기
+          parts.push(<Rect key={`pb${i}`} x={c[0] - u * 0.07} y={c[1] - u * 0.28} width={u * 0.14} height={u * 0.22} rx={u * 0.03} fill={col} />);
+          parts.push(<Circle key={`ph${i}`} cx={c[0]} cy={c[1] - u * 0.34} r={u * 0.07} fill="#F2C9A0" />);
+          parts.push(<Rect key={`hh${i}`} x={c[0] - u * 0.08} y={c[1] - u * 0.43} width={u * 0.16} height={u * 0.05} rx={u * 0.02} fill="#FFC21A" />);
         }
       });
       if (list.length > 16) {
@@ -499,7 +510,10 @@ export function GameMap({
     const top = P(b.x + b.w / 2, b.y + b.h / 2);
     const coinOn = b.pending > 0 && !b.busy_until;
     if ((names && !NO_TAG.has(b.type)) || sel || b.busy_until || b.just_done || coinOn)
-      tagInfo.push({ b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
+      tagInfo.push(b.type === "rally"
+        // 집결장 이름표는 깃발 위에 (광장 가운데에 서 있는 대원을 가리지 않게)
+        ? { b, sel, cx: P(b.x + 0.35, b.y + 0.35)[0], y: P(b.x + 0.35, b.y + 0.35)[1] - 1.2 * W - 4 }
+        : { b, sel, cx: top[0], y: top[1] - (b.type === "dock" ? 0.4 * W : z) - 8 });
     return (
       <G key={b.id} onPress={place ? undefined : () => onSelect(b.id)}>
         {parts}
