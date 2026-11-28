@@ -1286,7 +1286,7 @@ const en: Translation = {
   gm_delivered: "{{ship}} delivered! Fame +{{fame}}",
   gm_mapHint: "Tap a building to see details.",
   gm_placeHint: "Tap green ground to choose a spot.",
-  gm_placePicked: "If this spot is right, tap the button below. You can tap other green ground to change it.",
+  gm_placePicked: "We put it in a good spot. Drag the building or tap other green ground to move it, then tap the button below.",
   gm_zoomIn: "Zoom in",
   gm_zoomOut: "Zoom out",
   gm_legendFree: "Free ground",

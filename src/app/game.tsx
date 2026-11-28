@@ -72,7 +72,7 @@ import { SeaMap } from "@/components/SeaMap";
 import { CrewTrain, PlanScreen, type PlanLaunch } from "@/components/PlanScreen";
 import { DefenseLog } from "@/components/DefenseLog";
 import { giftLine } from "@/components/LiveOxPopup";
-import { BUILDING_COLOR, GameMap, mapSize, RES_COLOR, WAR_COLOR } from "@/screens/GameMap";
+import { autoSpot, BUILDING_COLOR, canPlace, cellAt, cellBox, GameMap, mapSize, RES_COLOR, WAR_COLOR, type PlaceRule } from "@/screens/GameMap";
 import { colors, radius, space } from "@/theme";
 
 type Mode = "home" | "build" | "place" | "ship" | "earn" | "exam" | "supply" | "arms" | "battle" | "typhoon";
@@ -153,6 +153,7 @@ export default function GameScreen() {
   const [rewards, setRewards] = useState<GameState["rewards"]>(null);
   const [, setTick] = useState(0);
   const fetchedAt = useRef(Date.now());
+  const grabOff = useRef({ x: 0, y: 0 });   // 놓을 건물을 끌 때 잡은 곳과 건물 귀퉁이 거리
   const reloading = useRef(false);
   // 지도를 끄는 중이거나 막 끝낸 직후의 '톡'은 건물 고르기·자리 고르기로 보지 않음
   const moving = useRef({ on: false, at: 0 });
@@ -355,18 +356,44 @@ export default function GameScreen() {
   const tip = tips[tipAt % tips.length];
 
   const canPay = (c: GameCost) => res.steel >= c.steel && res.rods >= c.rods;
+  const ruleOf = (type: GameBuildingType, mv: GameBuilding | null): PlaceRule => {
+    const cat = data.catalog.find((c) => c.type === type);
+    return { w: mv?.w ?? cat?.w ?? 2, h: mv?.h ?? cat?.h ?? 2, coast: !!(mv?.coast ?? cat?.coast), sea: !!(mv?.sea ?? cat?.sea), skipId: mv?.id };
+  };
+  // 짓기: 빈 적당한 자리(본관 가까이)에 먼저 놓아 두고, 끌거나 다른 초록 칸을 눌러 옮김 (박사 요청 2026-11-28)
   const startPlace = (type: GameBuildingType) => {
     setPlaceType(type);
     setMoveId(null);
-    setPick(null);
+    const tutPick = tutStep === "yard" && tut.spot ? tut.spot : null;
+    setPick(type === "wall" ? null : tutPick ?? autoSpot(data.buildings, ruleOf(type, null), data.grid, sea));
     setSelected(null);
     setMode("place");
   };
   const startMove = (b: GameBuilding) => {
     setMoveId(b.id);
     setPlaceType(b.type);
-    setPick(null);
+    setPick({ x: b.x, y: b.y });
     setMode("place");
+  };
+  // 놓을 건물 미리보기를 손가락으로 끌기: 잡은 곳과 건물 귀퉁이 거리만큼 띄워서 따라감, 놓을 수 있는 칸에만
+  const onGrab = (phase: "start" | "move" | "end", px: number, py: number) => {
+    if (!pick || !placeType) return;
+    const c = cellAt(px, py, data.grid, W);
+    if (phase === "start") {
+      grabOff.current = { x: c.x - pick.x, y: c.y - pick.y };
+      return;
+    }
+    const fx = c.x - grabOff.current.x, fy = c.y - grabOff.current.y;
+    const rule = ruleOf(placeType, moveId ? data.buildings.find((b) => b.id === moveId) ?? null : null);
+    // 손가락 아래 칸이 막혔으면 가까운(2칸 안) 놓을 수 있는 칸으로
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = Math.round(fx) + dx, y = Math.round(fy) + dy;
+        const d = (x - fx) ** 2 + (y - fy) ** 2;
+        if ((!best || d < best.d) && canPlace(data.buildings, rule, data.grid, sea, x, y)) best = { x, y, d };
+      }
+    if (best && (best.x !== pick.x || best.y !== pick.y)) setPick({ x: best.x, y: best.y });
   };
   const placeSpec = (() => {
     if (mode !== "place" || !placeType) return null;
@@ -749,7 +776,9 @@ export default function GameScreen() {
       {/* 지도: 한 손가락으로 끌어 옮기고, 두 손가락으로 확대·축소 (메뉴·창에 가려진 곳도 끌어서 봄) */}
       <PanZoom width={width} height={height} contentW={mapDim.width} contentH={mapDim.height} zoom={zoom} minZoom={0.7} maxZoom={3} onZoom={setZoom}
         onMove={(on) => { moving.current = { on, at: Date.now() }; }}
-        onTapEmpty={() => tapOk() && tapEmpty()}>
+        onTapEmpty={() => tapOk() && tapEmpty()}
+        grab={placeSpec && pick && placeType !== "wall" ? cellBox(pick.x, pick.y, placeSpec.w, placeSpec.h, data.grid, W) : null}
+        onGrab={onGrab}>
             <GameMap
               grid={data.grid}
               sea={sea}

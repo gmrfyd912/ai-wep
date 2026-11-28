@@ -1286,7 +1286,7 @@ const fil: Translation = {
   gm_delivered: "Na-deliver ang {{ship}}! Kasikatan +{{fame}}",
   gm_mapHint: "Pindutin ang gusali para makita ang detalye.",
   gm_placeHint: "Pindutin ang berdeng lupa para pumili ng puwesto.",
-  gm_placePicked: "Kung tama ang puwestong ito, pindutin ang button sa ibaba. Puwede ring pumili ng ibang berdeng lupa.",
+  gm_placePicked: "Inilagay na sa magandang puwesto. I-drag ang gusali o pindutin ang ibang berdeng lupa, saka pindutin ang button sa ibaba.",
   gm_zoomIn: "Palakihin",
   gm_zoomOut: "Paliitin",
   gm_legendFree: "Bakanteng lupa",

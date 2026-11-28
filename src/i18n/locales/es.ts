@@ -1286,7 +1286,7 @@ const es: Translation = {
   gm_delivered: "¡{{ship}} entregado! Fama +{{fame}}",
   gm_mapHint: "Pulsa un edificio para ver detalles.",
   gm_placeHint: "Pulsa el terreno verde para elegir un lugar.",
-  gm_placePicked: "Si este lugar está bien, pulsa el botón de abajo. También puedes pulsar otro terreno verde para cambiarlo.",
+  gm_placePicked: "Lo pusimos en un buen sitio. Arrastra el edificio o pulsa otro terreno verde para moverlo y luego pulsa el botón de abajo.",
   gm_zoomIn: "Acercar",
   gm_zoomOut: "Alejar",
   gm_legendFree: "Terreno libre",

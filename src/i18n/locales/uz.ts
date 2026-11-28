@@ -1286,7 +1286,7 @@ const uz: Translation = {
   gm_delivered: "{{ship}} topshirildi! Shuhrat +{{fame}}",
   gm_mapHint: "Batafsil ko'rish uchun binoni bosing.",
   gm_placeHint: "Joy tanlash uchun yashil yerni bosing.",
-  gm_placePicked: "Bu joy to'g'ri bo'lsa, pastdagi tugmani bosing. Boshqa yashil yerni bosib o'zgartirish ham mumkin.",
+  gm_placePicked: "Mos joyga qo'yib qo'ydik. Binoni sudrang yoki boshqa yashil yerni bosing, so'ng pastdagi tugmani bosing.",
   gm_zoomIn: "Kattalashtirish",
   gm_zoomOut: "Kichiklashtirish",
   gm_legendFree: "Bo'sh yer",
