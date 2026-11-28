@@ -1753,6 +1753,16 @@ export const gameUpgrade = (id: string) => post<GameState>("/game/upgrade", { id
 export const gameMove = (id: string, x: number, y: number) => post<GameState>("/game/move", { id, x, y }, GAME_TIMEOUT);
 export const gameScrapClear = (id: string) => post<GameState>("/game/scrap/clear", { id }, GAME_TIMEOUT);
 export const gameTodoClaim = () => post<GameState>("/game/todo/claim", {}, GAME_TIMEOUT);
+/** G3 자재 지원: 같은 반 친구 목록·오늘 보낸 것·내 요청 */
+export type GameClass = {
+  members: { id: string; name: string; hq: number; need: "steel" | "rods" | null }[];
+  amount: number; tech: number; sent: string | null; need: "steel" | "rods" | null;
+  got_today: { from: string; steel: number; rods: number }[]; on: boolean;
+};
+export const getGameClass = () => request<GameClass>("/game/class", {}, GAME_TIMEOUT);
+export const gameGift = (to: string, kind: "steel" | "rods") =>
+  post<{ class: GameClass; state: GameState }>("/game/gift", { to, kind }, GAME_TIMEOUT);
+export const gameNeed = (kind: "steel" | "rods") => post<{ class: GameClass }>("/game/need", { kind }, GAME_TIMEOUT);
 export const gameCollect = () => post<GameState>("/game/collect", {}, GAME_TIMEOUT);
 export const gameSpeedup = (target: string, using: "tech" | "pass") => post<GameState>("/game/speedup", { target, using }, GAME_TIMEOUT);
 export const gameReclaim = () => post<GameState>("/game/reclaim", {}, GAME_TIMEOUT);

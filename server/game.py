@@ -196,6 +196,11 @@ DEFAULTS = {
     "raid_need_daily": True,          # 오늘 매일 문제를 다 풀어야 친구 조선소 공격 가능
     "raid_day_max": 3,                # 한 사람이 하루에 다른 교육생을 공격하는 최대 횟수 (같은 친구는 하루 1번)
     "raid_shield_hours": 8,           # 공격받은 조선소 보호막 시간
+    # G3 자재 지원 (같은 반 친구끼리 하루 한 번, 숫자는 예시)
+    "gift_on": True,                  # 자재 지원 켜기
+    "gift_amount": 100,               # 한 번에 보내는 강판·용접봉
+    "gift_tech": 2,                   # 보낸 사람이 받는 기술 포인트
+    "gift_recv_max": 3,               # 한 사람이 하루에 받을 수 있는 횟수 (0 = 무제한)
     # G3 공정한 공격 (박사 승인 2026-11-28, 숫자는 예시, 0 = 끔)
     "raid_newbie_days": 3,            # 처음 게임을 연 날부터 신입 보호 (내가 먼저 공격하면 끝남)
     "raid_level_gap": 3,              # 본관이 이만큼 이상 낮은 상대는 공격 못 함
@@ -2473,7 +2478,8 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         _err(400, "bad_value", key="crew_hurt_minutes")
     if cur["raid_shield_hours"] > 72:
         _err(400, "bad_value", key="raid_shield_hours")
-    for k, mx in (("raid_newbie_days", 30), ("raid_level_gap", 10), ("raid_rest_days", 365)):
+    for k, mx in (("raid_newbie_days", 30), ("raid_level_gap", 10), ("raid_rest_days", 365), ("gift_amount", 10000),
+                  ("gift_tech", 100), ("gift_recv_max", 50)):
         if cur[k] > mx:
             _err(400, "bad_value", key=k)
     for t in DEFENSE_TYPES:
