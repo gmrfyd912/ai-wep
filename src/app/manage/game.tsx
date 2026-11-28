@@ -30,7 +30,8 @@ const EXAM_KEYS = ["hq_exam_ox", "hq_exam_mc", "hq_exam_word", "hq_exam_short", 
 /** 자재 조달 칸 (종류별 문제 수 + 1문제 보상 + 하루 횟수) */
 const SUPPLY_KEYS = ["supply_ox", "supply_mc", "supply_word", "supply_steel", "supply_rods", "supply_day_max"] as const;
 /** 바다 지도·공격 칸 (약탈 %·하루 정찰 횟수). 같은 과정 공격 허용은 스위치 */
-const RAID_KEYS = ["raid_loot_pct", "scout_day_max", "raid_day_max", "raid_shield_hours", "raid_defend_rods",
+const RAID_KEYS = ["raid_loot_pct", "scout_day_max", "raid_day_max", "raid_shield_hours", "raid_newbie_days", "raid_level_gap",
+  "raid_rest_days", "raid_defend_rods",
   "raid_class_from", "raid_class_to", "raid_night_from", "raid_night_to", "crew_hurt_minutes"] as const;
 /** 바다 지도·공격 켜기/끄기 스위치 */
 const RAID_SWITCHES = ["raid_pvp", "raid_same_course", "raid_need_daily", "raid_time_lock"] as const;

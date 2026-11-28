@@ -1783,7 +1783,8 @@ export type GamePirate = {
 /** 작전 짜기·상륙 전투 지도 (lanes = 바닷길 y 위치) */
 export type GameRaidMap = { w: number; h: number; land: number; lanes?: Record<GameLane, number> };
 /** 친구 조선소를 지금 공격할 수 없는 이유 */
-export type RaidBlock = "self" | "pvp_off" | "same_course" | "time_lock" | "shield" | "same_today" | "day_max" | "need_daily";
+export type RaidBlock = "self" | "pvp_off" | "same_course" | "time_lock" | "shield" | "same_today" | "day_max" | "need_daily"
+  | "newbie" | "resting" | "level_gap";
 /** G2c-3 작전 짜기용 친구 조선소 */
 export type GameRaidTarget = {
   id: string;
@@ -1896,7 +1897,9 @@ export type SeaTier = "easy" | "even" | "hard";
 export type GameSea = {
   size: { w: number; h: number };
   bays: { id: string; name: string; x: number; y: number; r: number; lx: number; ly: number }[];
-  islands: { id: string; name: string; course: string; x: number; y: number; hq: number; score: number; tier: SeaTier; me: boolean; same: boolean; attackable: boolean; shield?: number }[];
+  islands: { id: string; name: string; course: string; x: number; y: number; hq: number; score: number; tier: SeaTier; me: boolean; same: boolean; attackable: boolean; shield?: number;
+    /** 신입 보호·쉬는 중, 본관 레벨 차이로 공격 못 함 */
+    protect?: "newbie" | "resting" | null; gap?: boolean }[];
   pirates: { stage: number; x: number; y: number; stars: number; open: boolean; score: number; tier: SeaTier }[];
   me: { id: string; course: string; score: number };
   scouts: { used: number; max: number };

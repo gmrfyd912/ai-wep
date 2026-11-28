@@ -196,6 +196,10 @@ DEFAULTS = {
     "raid_need_daily": True,          # 오늘 매일 문제를 다 풀어야 친구 조선소 공격 가능
     "raid_day_max": 3,                # 한 사람이 하루에 다른 교육생을 공격하는 최대 횟수 (같은 친구는 하루 1번)
     "raid_shield_hours": 8,           # 공격받은 조선소 보호막 시간
+    # G3 공정한 공격 (박사 승인 2026-11-28, 숫자는 예시, 0 = 끔)
+    "raid_newbie_days": 3,            # 처음 게임을 연 날부터 신입 보호 (내가 먼저 공격하면 끝남)
+    "raid_level_gap": 3,              # 본관이 이만큼 이상 낮은 상대는 공격 못 함
+    "raid_rest_days": 7,              # 이만큼 게임을 안 연 교육생은 쉬는 중 보호 (다시 들어오면 풀림)
     "raid_defend_rods": 20,           # 막아 냄(상대 별 0~1개) 보상 용접봉
     "raid_time_lock": False,          # 수업 시간·밤에는 친구 공격 잠금 (박사 결정 2026-11-28: 기본은 24시간 365일 가능, 관리자에서 켬)
     "raid_class_from": 9,             # 수업 시간 (평일) 시작 시
@@ -2469,6 +2473,9 @@ def put_game_settings(body: dict, user=Depends(need_admin)):
         _err(400, "bad_value", key="crew_hurt_minutes")
     if cur["raid_shield_hours"] > 72:
         _err(400, "bad_value", key="raid_shield_hours")
+    for k, mx in (("raid_newbie_days", 30), ("raid_level_gap", 10), ("raid_rest_days", 365)):
+        if cur[k] > mx:
+            _err(400, "bad_value", key=k)
     for t in DEFENSE_TYPES:
         if cur[f"link_{t}"] > 200:
             _err(400, "bad_value", key=f"link_{t}")
@@ -2551,6 +2558,8 @@ def admin_grant(body: GrantBody, user=Depends(need_admin)):
         gid = str(uuid.uuid4())
         _add(u["id"], [{"key": f"admin:{gid}", **amt, "created_at": _iso(_now()),
                         "note": f"admin|{user.get('login_id') or user.get('name') or ''}|{memo}"}])
+    import game_pvp
+    game_pvp.clear_protection(u["id"])   # 관리자가 자원을 바꾸면 보호막·신입 보호 없앰 (박사 요청 2026-11-28)
     got = {k: v for k, v in amt.items() if v > 0}
     if got:
         _push_gift(u["id"], gid, got, memo)   # 교육생 앱 어디서든 "선생님이 보냈어요" 알림

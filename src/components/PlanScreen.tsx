@@ -446,7 +446,22 @@ export function CrewTrain({
       setBusy(false);
     }
   };
+  // 뽑을 수 없을 때는 단추를 막지 않고, 누르면 그 줄 아래에 이유를 보여 줌 (박사 요청 2026-11-28)
+  const hall = crews.trainhall ?? 0;
+  const [why, setWhy] = useState<{ k: CrewKind; text: string } | null>(null);
+  const whyNot = (k: CrewKind): string | null => {
+    const sp = crews.specs[k];
+    const r = crews.rally;
+    if (hall < sp.unlock) return t("gm_ct_locked", { n: sp.unlock });
+    if (!r || r.cap < 1) return t("gm_err_need_rally");
+    if (r.used + sp.seats > r.cap) return t("gm_ct_whyFull", { u: r.used, c: r.cap, s: sp.seats });
+    if (crews.pts < sp.cost) return t("gm_err_crew_pts", { have: crews.pts, need: sp.cost });
+    return null;
+  };
   const hire = async (k: CrewKind) => {
+    const no = whyNot(k);
+    setWhy(no ? { k, text: no } : null);
+    if (no) return;
     setBusy(true);
     setErr("");
     try {
@@ -456,12 +471,6 @@ export function CrewTrain({
     } finally {
       setBusy(false);
     }
-  };
-  const hall = crews.trainhall ?? 0;
-  // 집결장 자리: 사람 1·장비 2자리
-  const homeFull = (k: CrewKind) => {
-    const r = crews.rally;
-    return !r || r.used + crews.specs[k].seats > r.cap;
   };
   return (
     <>
@@ -500,9 +509,10 @@ export function CrewTrain({
         const sp = crews.specs[k];
         const locked = hall < sp.unlock;
         const noHome = (crews.rally?.cap ?? 0) < 1;
-        const off = busy || locked || homeFull(k) || crews.pts < sp.cost;
+        const off = !!whyNot(k);
         return (
-          <View key={k} style={[styles.crewRow, locked && { opacity: 0.55 }]}>
+          <View key={k}>
+          <View style={[styles.crewRow, locked && { opacity: 0.55 }]}>
             <CrewFigure kind={k} size={26} />
             <View style={{ flex: 1 }}>
               <Text style={styles.textB}>
@@ -516,9 +526,11 @@ export function CrewTrain({
                     : `${t(sp.seats > 1 ? "gm_ct_seat2" : "gm_ct_seat1")} · ${t(`gm_crew_${k}_role`)}`}
               </Text>
             </View>
-            <Pressable disabled={off} onPress={() => hire(k)} style={[styles.hire, off && styles.dim]}>
+            <Pressable disabled={busy} onPress={() => hire(k)} style={[styles.hire, off && styles.dim]}>
               <Text style={styles.chipText}>{t("gm_ct_hireBtn", { n: sp.cost })}</Text>
             </Pressable>
+          </View>
+          {why?.k === k ? <Text style={styles.warnSm}>{why.text}</Text> : null}
           </View>
         );
       })}
