@@ -1990,6 +1990,8 @@ const uz: Translation = {
   gm_namesOn: "Barcha bino nomlari: yoqilgan",
   gm_namesOff: "Barcha bino nomlari: o‘chirilgan",
   gm_scrapFull: "Chiqindi tozalandi. Ombor to‘la, resurs qo‘shilmadi (omborni yaxshilang).",
+  gm_bl_groupReady: "Hozir {{n}} ta mumkin · ko‘rish uchun bosing",
+  gm_bl_groupNone: "Hozircha hech narsa yo‘q · ko‘rish uchun bosing",
   gm_err_students_only: "Weldyning kemasozlik zavodi faqat tinglovchilar uchun.",
   gm_err_game_off: "Hozir o'yin o'chirilgan.",
   gm_err_money: "Resurs yetarli emas",

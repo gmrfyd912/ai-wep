@@ -1990,6 +1990,8 @@ const vi: Translation = {
   gm_namesOn: "Hiện tên mọi công trình: bật",
   gm_namesOff: "Hiện tên mọi công trình: tắt",
   gm_scrapFull: "Đã dọn phế liệu. Kho đầy nên không nhận được tài nguyên (hãy nâng cấp kho).",
+  gm_bl_groupReady: "{{n}} việc làm được ngay · chạm để xem",
+  gm_bl_groupNone: "Hiện chưa làm được gì · chạm để xem",
   gm_err_students_only: "Xưởng đóng tàu của Weldy chỉ dành cho học viên.",
   gm_err_game_off: "Trò chơi đang tắt.",
   gm_err_money: "Không đủ tài nguyên",

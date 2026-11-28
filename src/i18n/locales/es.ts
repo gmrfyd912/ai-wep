@@ -1990,6 +1990,8 @@ const es: Translation = {
   gm_namesOn: "Mostrar nombres de edificios: sí",
   gm_namesOff: "Mostrar nombres de edificios: no",
   gm_scrapFull: "Chatarra retirada. El almacén está lleno y no se añadió nada (mejora el almacén).",
+  gm_bl_groupReady: "{{n}} disponibles · toca para ver",
+  gm_bl_groupNone: "Nada disponible ahora · toca para ver",
   gm_err_students_only: "El astillero de Weldy es solo para aprendices.",
   gm_err_game_off: "El juego está apagado ahora.",
   gm_err_money: "No hay recursos suficientes",

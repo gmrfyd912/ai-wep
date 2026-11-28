@@ -2005,6 +2005,8 @@ const ko = {
   gm_namesOn: "건물 이름 모두 보기: 켜짐",
   gm_namesOff: "건물 이름 모두 보기: 꺼짐",
   gm_scrapFull: "폐자재를 치웠어요. 창고가 가득 차서 자원은 못 받았어요 (창고 레벨을 올리세요).",
+  gm_bl_groupReady: "지금 할 수 있는 것 {{n}}개 · 눌러서 보기",
+  gm_bl_groupNone: "지금은 할 수 있는 것이 없어요 · 눌러서 보기",
   gm_err_students_only: "웰디의 조선소는 교육생만 할 수 있어요.",
   gm_err_game_off: "지금은 게임이 꺼져 있어요.",
   gm_err_money: "자원이 모자라요",

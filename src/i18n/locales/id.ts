@@ -1990,6 +1990,8 @@ const id: Translation = {
   gm_namesOn: "Tampilkan semua nama bangunan: aktif",
   gm_namesOff: "Tampilkan semua nama bangunan: mati",
   gm_scrapFull: "Sampah besi dibersihkan. Gudang penuh, jadi tidak ada sumber daya (tingkatkan gudang).",
+  gm_bl_groupReady: "{{n}} bisa sekarang · ketuk untuk lihat",
+  gm_bl_groupNone: "Belum ada yang bisa · ketuk untuk lihat",
   gm_err_students_only: "Galangan Kapal Weldy hanya untuk peserta pelatihan.",
   gm_err_game_off: "Game sedang dimatikan.",
   gm_err_money: "Sumber daya tidak cukup",
